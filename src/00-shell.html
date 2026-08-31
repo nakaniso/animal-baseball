@@ -1,0 +1,271 @@
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>どうぶつベースボール</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DotGothic16&family=Mochiy+Pop+One&family=Zen+Maru+Gothic:wght@400;700;900&display=swap">
+<style>
+:root{
+  --ink:#0E141C; --ink2:#131C27; --panel:#182330; --panel2:#20303F;
+  --line:#31465A; --cream:#F6EFE1; --dim:#9FB2C4;
+  --amber:#FFC44D; --amber-dk:#B8842A; --stitch:#D9402E; --turf:#4FA85C; --sky:#8ECBE8;
+  --disp:'Mochiy Pop One',system-ui,sans-serif;
+  --body:'Zen Maru Gothic',system-ui,sans-serif;
+  --dot:'DotGothic16',monospace;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--ink);color:var(--cream);font-family:var(--body);overflow:hidden;
+  -webkit-font-smoothing:antialiased;user-select:none;}
+#wrap{position:fixed;inset:0;overflow:hidden}
+#gl{position:absolute;inset:0;width:100%;height:100%;display:block;background:var(--ink)}
+#ui{position:absolute;inset:0;pointer-events:none}
+.hidden{display:none !important}
+button{font-family:inherit;color:inherit;background:none;border:none;cursor:pointer}
+:focus-visible{outline:3px solid var(--amber);outline-offset:3px}
+
+/* ---------- screens ---------- */
+.screen{position:absolute;inset:0;pointer-events:auto;display:flex;flex-direction:column;
+  align-items:center;justify-content:center;gap:26px;padding:32px;
+  background:radial-gradient(120% 90% at 50% 15%,rgba(24,42,60,.86),rgba(8,12,18,.96));
+  backdrop-filter:blur(3px);overflow-y:auto}
+.eyebrow{font-family:var(--dot);font-size:13px;letter-spacing:.34em;color:var(--amber)}
+h1{font-family:var(--disp);font-size:clamp(38px,8vw,84px);line-height:1.06;text-wrap:balance;
+  text-align:center;text-shadow:0 6px 0 var(--stitch),0 10px 24px rgba(0,0,0,.6)}
+h2{font-family:var(--disp);font-size:clamp(22px,4vw,34px);text-align:center;text-wrap:balance}
+.sub{color:var(--dim);text-align:center;max-width:56ch;line-height:1.85;font-size:15px}
+
+.btn{pointer-events:auto;font-family:var(--disp);font-size:19px;padding:15px 40px;border-radius:999px;
+  background:var(--amber);color:#241703;box-shadow:0 5px 0 var(--amber-dk),0 12px 26px rgba(0,0,0,.45);
+  transition:transform .12s ease,box-shadow .12s ease}
+.btn:hover{transform:translateY(-2px);box-shadow:0 7px 0 var(--amber-dk),0 16px 30px rgba(0,0,0,.5)}
+.btn:active{transform:translateY(3px);box-shadow:0 2px 0 var(--amber-dk)}
+.btn.ghost{background:transparent;color:var(--cream);box-shadow:inset 0 0 0 2px var(--line);font-size:15px;padding:11px 26px}
+.btn.ghost:hover{box-shadow:inset 0 0 0 2px var(--amber);color:var(--amber)}
+
+.grid{display:grid;gap:16px;width:min(1080px,100%);
+  grid-template-columns:repeat(auto-fit,minmax(224px,1fr))}
+.card{pointer-events:auto;text-align:left;background:var(--panel);border-radius:18px;overflow:hidden;
+  box-shadow:inset 0 0 0 2px var(--line),0 10px 24px rgba(0,0,0,.4);
+  transition:transform .14s ease,box-shadow .14s ease;display:flex;flex-direction:column}
+.card:hover{transform:translateY(-4px);box-shadow:inset 0 0 0 2px var(--amber),0 16px 30px rgba(0,0,0,.5)}
+.card .art{height:104px;position:relative;overflow:hidden;background:var(--panel2)}
+.card .art canvas{width:100%;height:100%;display:block}
+.card .bd{padding:13px 16px 16px;display:flex;flex-direction:column;gap:6px}
+.card .nm{font-family:var(--disp);font-size:18px}
+.card .ds{font-size:12.5px;color:var(--dim);line-height:1.7}
+.card .tag{font-family:var(--dot);font-size:11px;letter-spacing:.14em;color:var(--amber)}
+.setrow{display:flex;gap:8px;align-items:center;pointer-events:auto;flex-wrap:wrap;justify-content:center}
+.setrow>span{font-family:var(--dot);font-size:12px;letter-spacing:.18em;color:var(--dim)}
+.setrow button{pointer-events:auto;padding:8px 18px;border-radius:999px;font-family:var(--body);
+  font-weight:700;font-size:14px;color:var(--dim);box-shadow:inset 0 0 0 2px var(--line)}
+.setrow button:hover{color:var(--cream)}
+.setrow button.on{box-shadow:inset 0 0 0 2px var(--amber);color:var(--amber);background:rgba(255,196,77,.12)}
+.stats{display:flex;gap:5px;margin-top:4px}
+.stats i{flex:1;height:6px;border-radius:3px;background:var(--line);position:relative;overflow:hidden}
+.stats i b{position:absolute;inset:0 auto 0 0;background:var(--turf);border-radius:3px}
+.statrow{display:flex;justify-content:space-between;font-family:var(--dot);font-size:10.5px;
+  letter-spacing:.1em;color:var(--dim);margin-top:2px}
+
+/* ---------- HUD ---------- */
+#hud{position:absolute;inset:0;pointer-events:none}
+.scorebug{position:absolute;top:14px;left:50%;transform:translateX(-50%);
+  display:flex;align-items:stretch;background:var(--ink2);border-radius:12px;
+  box-shadow:inset 0 0 0 2px var(--line),0 8px 22px rgba(0,0,0,.55);overflow:hidden;
+  font-family:var(--dot);font-size:15px}
+.sb-team{display:flex;align-items:center;gap:8px;padding:9px 14px;min-width:136px}
+.sb-team.bat{background:rgba(255,196,77,.13)}
+.sb-dot{width:11px;height:11px;border-radius:50%;flex:none;box-shadow:0 0 0 2px rgba(0,0,0,.35)}
+.sb-nm{font-family:var(--body);font-weight:700;font-size:13px;white-space:nowrap;
+  overflow:hidden;text-overflow:ellipsis;flex:1}
+.sb-run{font-size:24px;color:var(--amber);min-width:30px;text-align:right;font-variant-numeric:tabular-nums}
+.sb-inn{display:flex;flex-direction:column;align-items:center;justify-content:center;
+  padding:6px 15px;background:var(--panel2);gap:1px;min-width:66px}
+.sb-inn .n{font-size:21px;line-height:1;color:var(--cream)}
+.sb-inn .h{font-size:10px;letter-spacing:.16em;color:var(--amber)}
+
+.countbox{position:absolute;bottom:60px;right:14px;background:var(--ink2);border-radius:12px;padding:11px 13px;
+  box-shadow:inset 0 0 0 2px var(--line),0 8px 22px rgba(0,0,0,.55);display:flex;gap:14px;align-items:center}
+.diamond{width:56px;height:56px;position:relative;transform:rotate(45deg)}
+.diamond span{position:absolute;width:17px;height:17px;background:var(--panel2);border-radius:3px;
+  box-shadow:inset 0 0 0 2px var(--line);transition:background .2s}
+.diamond span.on{background:var(--amber);box-shadow:inset 0 0 0 2px #7a5410}
+.diamond .b1{right:0;top:0}.diamond .b2{left:0;top:0}.diamond .b3{left:0;bottom:0}
+.cnt{display:flex;flex-direction:column;gap:5px;font-family:var(--dot);font-size:11px;letter-spacing:.12em}
+.cnt div{display:flex;align-items:center;gap:6px}
+.cnt em{font-style:normal;color:var(--dim);width:12px}
+.pip{width:10px;height:10px;border-radius:50%;background:var(--panel2);box-shadow:inset 0 0 0 2px var(--line)}
+.pip.b{background:var(--turf);box-shadow:none}
+.pip.s{background:var(--amber);box-shadow:none}
+.pip.o{background:var(--stitch);box-shadow:none}
+
+#batter{position:absolute;top:14px;left:14px;background:var(--ink2);border-radius:12px;padding:10px 14px;
+  box-shadow:inset 0 0 0 2px var(--line),0 8px 22px rgba(0,0,0,.55);min-width:190px}
+#batter .role{font-family:var(--dot);font-size:10px;letter-spacing:.2em;color:var(--amber)}
+#batter .who{font-family:var(--disp);font-size:17px;margin-top:3px}
+#batter .meta{font-size:11.5px;color:var(--dim);margin-top:3px;font-family:var(--dot);letter-spacing:.08em}
+
+#btn-quit{position:absolute;top:14px;right:14px;pointer-events:auto;
+  font-family:var(--dot);font-size:12px;letter-spacing:.12em;color:var(--dim);
+  background:var(--ink2);padding:9px 14px;border-radius:10px;
+  box-shadow:inset 0 0 0 2px var(--line),0 8px 22px rgba(0,0,0,.5)}
+#btn-quit:hover{color:var(--amber);box-shadow:inset 0 0 0 2px var(--amber),0 8px 22px rgba(0,0,0,.5)}
+#banner{position:absolute;top:42%;left:50%;transform:translate(-50%,-50%) scale(.8);
+  font-family:var(--disp);font-size:clamp(28px,5.6vw,58px);text-align:center;opacity:0;
+  text-shadow:0 5px 0 var(--stitch),0 14px 32px rgba(0,0,0,.75);pointer-events:none;
+  white-space:pre-line;line-height:1.25}
+#banner.show{animation:pop 1.6s cubic-bezier(.2,1.4,.4,1) forwards}
+@keyframes pop{0%{opacity:0;transform:translate(-50%,-50%) scale(.6)}
+  12%{opacity:1;transform:translate(-50%,-50%) scale(1.07)}
+  20%{transform:translate(-50%,-50%) scale(1)}
+  78%{opacity:1;transform:translate(-50%,-50%) scale(1)}
+  100%{opacity:0;transform:translate(-50%,-52%) scale(1)}}
+
+#log{position:absolute;bottom:16px;left:14px;width:262px;display:flex;flex-direction:column-reverse;
+  gap:5px;font-size:12px;color:var(--dim);max-height:34vh;overflow:hidden}
+#log p{background:rgba(14,20,28,.82);border-left:3px solid var(--line);padding:6px 10px;border-radius:0 8px 8px 0;
+  line-height:1.55;animation:slide .3s ease}
+#log p.hi{border-left-color:var(--amber);color:var(--cream)}
+@keyframes slide{from{opacity:0;transform:translateX(-16px)}}
+
+#hint{position:absolute;bottom:16px;left:50%;transform:translateX(-50%);display:flex;gap:9px;
+  flex-wrap:wrap;justify-content:center;max-width:min(560px,72vw)}
+.key{display:flex;align-items:center;gap:7px;background:rgba(14,20,28,.86);padding:7px 12px;border-radius:9px;
+  box-shadow:inset 0 0 0 1.5px var(--line);font-size:12px;color:var(--dim);white-space:nowrap}
+.key kbd{font-family:var(--dot);font-size:11px;background:var(--panel2);color:var(--cream);
+  padding:3px 8px;border-radius:5px;box-shadow:0 2px 0 #0a0f15}
+.key.act{box-shadow:inset 0 0 0 1.5px var(--amber);color:var(--cream)}
+
+#pitchpick{position:absolute;bottom:78px;left:50%;transform:translateX(-50%);display:flex;gap:6px;flex-wrap:wrap;justify-content:center;max-width:min(96vw,560px)}
+.pc{pointer-events:auto;background:rgba(14,20,28,.9);border-radius:9px;padding:6px 11px;
+  box-shadow:inset 0 0 0 2px var(--line);font-family:var(--body);font-weight:700;font-size:12px;color:var(--dim)}
+.pc.sel{box-shadow:inset 0 0 0 2px var(--amber);color:var(--amber);background:rgba(255,196,77,.12)}
+.pc small{display:block;font-family:var(--dot);font-size:9.5px;letter-spacing:.1em;opacity:.75;margin-top:1px}
+
+/* ---------- linescore ---------- */
+.linewrap{width:min(940px,100%);overflow-x:auto;padding-bottom:6px}
+table.line{border-collapse:collapse;font-family:var(--dot);font-size:15px;margin:0 auto;
+  font-variant-numeric:tabular-nums}
+table.line th,table.line td{padding:8px 11px;text-align:center;border-bottom:1px solid var(--line);min-width:34px}
+table.line th{color:var(--dim);font-size:11px;letter-spacing:.1em;font-weight:400}
+table.line td.nm{font-family:var(--body);font-weight:700;font-size:14px;text-align:left;min-width:132px}
+table.line td.tot{color:var(--amber);font-size:19px}
+.pill{display:inline-flex;align-items:center;gap:7px;background:var(--panel);border-radius:999px;
+  padding:8px 18px;font-size:13px;box-shadow:inset 0 0 0 2px var(--line)}
+.pill b{font-family:var(--dot);color:var(--amber);font-size:16px}
+.row{display:flex;gap:12px;flex-wrap:wrap;justify-content:center;align-items:center}
+@media (max-width:900px){
+  #log{display:none;} .countbox{transform:scale(.86);transform-origin:bottom right}
+  .scorebug{font-size:13px} .sb-team{min-width:100px} .sb-nm{font-size:11px}
+  #hint{max-width:94vw} #batter{transform:scale(.9);transform-origin:top left}
+}
+@media (max-width:560px){
+  .scorebug{top:10px;font-size:12px}
+  .sb-team{min-width:0;padding:6px 8px;gap:5px}
+  .sb-nm{font-size:10px;max-width:70px}
+  .sb-run{font-size:18px;min-width:20px}
+  .sb-inn{padding:5px 9px;min-width:46px}
+  .sb-inn .n{font-size:17px} .sb-inn .h{font-size:8px}
+  .diamond{width:44px;height:44px} .diamond span{width:14px;height:14px}
+  #batter{top:56px;left:10px;right:auto;bottom:auto;transform:none;min-width:0;
+    max-width:46vw;padding:8px 10px}
+  #batter .who{font-size:14px} #batter .meta{display:none}
+  /* count bottom right, hints beside it on the left */
+  .countbox{bottom:10px;right:10px;top:auto;left:auto;padding:8px 10px;gap:10px}
+  #hint{bottom:10px;left:10px;transform:none;justify-content:flex-start;
+    gap:5px;max-width:calc(100vw - 140px)}
+  .key{padding:5px 8px;font-size:10.5px;gap:5px}
+  .key kbd{font-size:9.5px;padding:2px 5px}
+  #pitchpick{bottom:80px;gap:4px}
+  .pc{padding:5px 8px;font-size:11px} .pc small{font-size:8.5px}
+  #banner{top:38%}
+}
+@media (prefers-reduced-motion:reduce){
+  #banner.show{animation-duration:.01s;opacity:1}
+}
+</style>
+
+<div id="wrap">
+  <canvas id="gl"></canvas>
+  <div id="ui">
+
+    <section id="s-title" class="screen">
+      <div class="eyebrow">9 INNINGS / 5 PARKS / 6 TEAMS</div>
+      <h1>どうぶつ<br>ベースボール</h1>
+      <p class="sub">クマもウサギもカエルも、バットを持てばみんな野球選手。<br>
+        球場でも、道路のまんなかでも、スーパーの店内でも。3回・6回・9回、ちゃんと野球します。</p>
+      <div class="row">
+        <button class="btn" id="btn-start">ひとりで遊ぶ</button>
+        <button class="btn" id="btn-vs">ふたりで対戦</button>
+      </div>
+      <div class="row">
+        <button class="btn ghost" id="btn-rules">あそびかた</button>
+      </div>
+    </section>
+
+    <section id="s-rules" class="screen hidden">
+      <div class="eyebrow">HOW TO PLAY</div>
+      <h2>あそびかた</h2>
+      <div class="grid" id="rules-grid"></div>
+      <button class="btn" id="btn-rules-back">もどる</button>
+    </section>
+
+    <section id="s-stadium" class="screen hidden">
+      <div class="eyebrow">STEP 1 / 2 &mdash; BALLPARK</div>
+      <h2>どこで試合する？</h2>
+      <div class="setrow" id="inn-pick"></div>
+      <div class="grid" id="stadium-grid"></div>
+      <button class="btn ghost" id="btn-st-back">タイトルへ</button>
+    </section>
+
+    <section id="s-team" class="screen hidden">
+      <div class="eyebrow">STEP 2 / 2 &mdash; YOUR TEAM</div>
+      <h2 id="team-head">どのチームを使う？</h2>
+      <p class="sub" id="team-sub">あなたは<b>先攻</b>。1回表からいきなり打席に立ちます。</p>
+      <div class="grid" id="team-grid"></div>
+      <button class="btn ghost" id="btn-tm-back">球場をえらび直す</button>
+    </section>
+
+    <div id="hud" class="hidden">
+      <div class="scorebug">
+        <div class="sb-team" id="sb-away"><span class="sb-dot"></span><span class="sb-nm"></span><span class="sb-run">0</span></div>
+        <div class="sb-inn"><span class="n" id="sb-num">1</span><span class="h" id="sb-half">TOP</span></div>
+        <div class="sb-team" id="sb-home"><span class="sb-dot"></span><span class="sb-nm"></span><span class="sb-run">0</span></div>
+      </div>
+      <div class="countbox">
+        <div class="diamond"><span class="b1" id="bs1"></span><span class="b2" id="bs2"></span><span class="b3" id="bs3"></span></div>
+        <div class="cnt">
+          <div><em>B</em><span class="pip" id="b0"></span><span class="pip" id="b1"></span><span class="pip" id="b2"></span></div>
+          <div><em>S</em><span class="pip" id="s0"></span><span class="pip" id="s1"></span></div>
+          <div><em>O</em><span class="pip" id="o0"></span><span class="pip" id="o1"></span></div>
+        </div>
+      </div>
+      <div id="batter"><div class="role"></div><div class="who"></div><div class="meta"></div></div>
+      <button id="btn-quit">ポーズ</button>
+      <div id="banner"></div>
+      <div id="log"></div>
+      <div id="pitchpick" class="hidden"></div>
+      <div id="hint"></div>
+    </div>
+
+    <section id="s-pause" class="screen hidden">
+      <div class="eyebrow">PAUSED</div>
+      <h2>試合を中断中</h2>
+      <p class="sub" id="pause-score"></p>
+      <div class="row">
+        <button class="btn" id="btn-resume">試合をつづける</button>
+        <button class="btn ghost" id="btn-abandon">やめてタイトルへ</button>
+      </div>
+    </section>
+
+    <section id="s-result" class="screen hidden">
+      <div class="eyebrow">FINAL</div>
+      <h2 id="res-head">試合終了</h2>
+      <div class="linewrap"><table class="line" id="res-line"></table></div>
+      <div class="row" id="res-stats"></div>
+      <div class="row">
+        <button class="btn" id="btn-again">もう一度あそぶ</button>
+        <button class="btn ghost" id="btn-menu">タイトルへ</button>
+      </div>
+    </section>
+
+  </div>
+</div>

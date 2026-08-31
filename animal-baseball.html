@@ -1,0 +1,3724 @@
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>どうぶつベースボール</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DotGothic16&family=Mochiy+Pop+One&family=Zen+Maru+Gothic:wght@400;700;900&display=swap">
+<style>
+:root{
+  --ink:#0E141C; --ink2:#131C27; --panel:#182330; --panel2:#20303F;
+  --line:#31465A; --cream:#F6EFE1; --dim:#9FB2C4;
+  --amber:#FFC44D; --amber-dk:#B8842A; --stitch:#D9402E; --turf:#4FA85C; --sky:#8ECBE8;
+  --disp:'Mochiy Pop One',system-ui,sans-serif;
+  --body:'Zen Maru Gothic',system-ui,sans-serif;
+  --dot:'DotGothic16',monospace;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--ink);color:var(--cream);font-family:var(--body);overflow:hidden;
+  -webkit-font-smoothing:antialiased;user-select:none;}
+#wrap{position:fixed;inset:0;overflow:hidden}
+#gl{position:absolute;inset:0;width:100%;height:100%;display:block;background:var(--ink)}
+#ui{position:absolute;inset:0;pointer-events:none}
+.hidden{display:none !important}
+button{font-family:inherit;color:inherit;background:none;border:none;cursor:pointer}
+:focus-visible{outline:3px solid var(--amber);outline-offset:3px}
+
+/* ---------- screens ---------- */
+.screen{position:absolute;inset:0;pointer-events:auto;display:flex;flex-direction:column;
+  align-items:center;justify-content:center;gap:26px;padding:32px;
+  background:radial-gradient(120% 90% at 50% 15%,rgba(24,42,60,.86),rgba(8,12,18,.96));
+  backdrop-filter:blur(3px);overflow-y:auto}
+.eyebrow{font-family:var(--dot);font-size:13px;letter-spacing:.34em;color:var(--amber)}
+h1{font-family:var(--disp);font-size:clamp(38px,8vw,84px);line-height:1.06;text-wrap:balance;
+  text-align:center;text-shadow:0 6px 0 var(--stitch),0 10px 24px rgba(0,0,0,.6)}
+h2{font-family:var(--disp);font-size:clamp(22px,4vw,34px);text-align:center;text-wrap:balance}
+.sub{color:var(--dim);text-align:center;max-width:56ch;line-height:1.85;font-size:15px}
+
+.btn{pointer-events:auto;font-family:var(--disp);font-size:19px;padding:15px 40px;border-radius:999px;
+  background:var(--amber);color:#241703;box-shadow:0 5px 0 var(--amber-dk),0 12px 26px rgba(0,0,0,.45);
+  transition:transform .12s ease,box-shadow .12s ease}
+.btn:hover{transform:translateY(-2px);box-shadow:0 7px 0 var(--amber-dk),0 16px 30px rgba(0,0,0,.5)}
+.btn:active{transform:translateY(3px);box-shadow:0 2px 0 var(--amber-dk)}
+.btn.ghost{background:transparent;color:var(--cream);box-shadow:inset 0 0 0 2px var(--line);font-size:15px;padding:11px 26px}
+.btn.ghost:hover{box-shadow:inset 0 0 0 2px var(--amber);color:var(--amber)}
+
+.grid{display:grid;gap:16px;width:min(1080px,100%);
+  grid-template-columns:repeat(auto-fit,minmax(224px,1fr))}
+.card{pointer-events:auto;text-align:left;background:var(--panel);border-radius:18px;overflow:hidden;
+  box-shadow:inset 0 0 0 2px var(--line),0 10px 24px rgba(0,0,0,.4);
+  transition:transform .14s ease,box-shadow .14s ease;display:flex;flex-direction:column}
+.card:hover{transform:translateY(-4px);box-shadow:inset 0 0 0 2px var(--amber),0 16px 30px rgba(0,0,0,.5)}
+.card .art{height:104px;position:relative;overflow:hidden;background:var(--panel2)}
+.card .art canvas{width:100%;height:100%;display:block}
+.card .bd{padding:13px 16px 16px;display:flex;flex-direction:column;gap:6px}
+.card .nm{font-family:var(--disp);font-size:18px}
+.card .ds{font-size:12.5px;color:var(--dim);line-height:1.7}
+.card .tag{font-family:var(--dot);font-size:11px;letter-spacing:.14em;color:var(--amber)}
+.setrow{display:flex;gap:8px;align-items:center;pointer-events:auto;flex-wrap:wrap;justify-content:center}
+.setrow>span{font-family:var(--dot);font-size:12px;letter-spacing:.18em;color:var(--dim)}
+.setrow button{pointer-events:auto;padding:8px 18px;border-radius:999px;font-family:var(--body);
+  font-weight:700;font-size:14px;color:var(--dim);box-shadow:inset 0 0 0 2px var(--line)}
+.setrow button:hover{color:var(--cream)}
+.setrow button.on{box-shadow:inset 0 0 0 2px var(--amber);color:var(--amber);background:rgba(255,196,77,.12)}
+.stats{display:flex;gap:5px;margin-top:4px}
+.stats i{flex:1;height:6px;border-radius:3px;background:var(--line);position:relative;overflow:hidden}
+.stats i b{position:absolute;inset:0 auto 0 0;background:var(--turf);border-radius:3px}
+.statrow{display:flex;justify-content:space-between;font-family:var(--dot);font-size:10.5px;
+  letter-spacing:.1em;color:var(--dim);margin-top:2px}
+
+/* ---------- HUD ---------- */
+#hud{position:absolute;inset:0;pointer-events:none}
+.scorebug{position:absolute;top:14px;left:50%;transform:translateX(-50%);
+  display:flex;align-items:stretch;background:var(--ink2);border-radius:12px;
+  box-shadow:inset 0 0 0 2px var(--line),0 8px 22px rgba(0,0,0,.55);overflow:hidden;
+  font-family:var(--dot);font-size:15px}
+.sb-team{display:flex;align-items:center;gap:8px;padding:9px 14px;min-width:136px}
+.sb-team.bat{background:rgba(255,196,77,.13)}
+.sb-dot{width:11px;height:11px;border-radius:50%;flex:none;box-shadow:0 0 0 2px rgba(0,0,0,.35)}
+.sb-nm{font-family:var(--body);font-weight:700;font-size:13px;white-space:nowrap;
+  overflow:hidden;text-overflow:ellipsis;flex:1}
+.sb-run{font-size:24px;color:var(--amber);min-width:30px;text-align:right;font-variant-numeric:tabular-nums}
+.sb-inn{display:flex;flex-direction:column;align-items:center;justify-content:center;
+  padding:6px 15px;background:var(--panel2);gap:1px;min-width:66px}
+.sb-inn .n{font-size:21px;line-height:1;color:var(--cream)}
+.sb-inn .h{font-size:10px;letter-spacing:.16em;color:var(--amber)}
+
+.countbox{position:absolute;bottom:60px;right:14px;background:var(--ink2);border-radius:12px;padding:11px 13px;
+  box-shadow:inset 0 0 0 2px var(--line),0 8px 22px rgba(0,0,0,.55);display:flex;gap:14px;align-items:center}
+.diamond{width:56px;height:56px;position:relative;transform:rotate(45deg)}
+.diamond span{position:absolute;width:17px;height:17px;background:var(--panel2);border-radius:3px;
+  box-shadow:inset 0 0 0 2px var(--line);transition:background .2s}
+.diamond span.on{background:var(--amber);box-shadow:inset 0 0 0 2px #7a5410}
+.diamond .b1{right:0;top:0}.diamond .b2{left:0;top:0}.diamond .b3{left:0;bottom:0}
+.cnt{display:flex;flex-direction:column;gap:5px;font-family:var(--dot);font-size:11px;letter-spacing:.12em}
+.cnt div{display:flex;align-items:center;gap:6px}
+.cnt em{font-style:normal;color:var(--dim);width:12px}
+.pip{width:10px;height:10px;border-radius:50%;background:var(--panel2);box-shadow:inset 0 0 0 2px var(--line)}
+.pip.b{background:var(--turf);box-shadow:none}
+.pip.s{background:var(--amber);box-shadow:none}
+.pip.o{background:var(--stitch);box-shadow:none}
+
+#batter{position:absolute;top:14px;left:14px;background:var(--ink2);border-radius:12px;padding:10px 14px;
+  box-shadow:inset 0 0 0 2px var(--line),0 8px 22px rgba(0,0,0,.55);min-width:190px}
+#batter .role{font-family:var(--dot);font-size:10px;letter-spacing:.2em;color:var(--amber)}
+#batter .who{font-family:var(--disp);font-size:17px;margin-top:3px}
+#batter .meta{font-size:11.5px;color:var(--dim);margin-top:3px;font-family:var(--dot);letter-spacing:.08em}
+
+#btn-quit{position:absolute;top:14px;right:14px;pointer-events:auto;
+  font-family:var(--dot);font-size:12px;letter-spacing:.12em;color:var(--dim);
+  background:var(--ink2);padding:9px 14px;border-radius:10px;
+  box-shadow:inset 0 0 0 2px var(--line),0 8px 22px rgba(0,0,0,.5)}
+#btn-quit:hover{color:var(--amber);box-shadow:inset 0 0 0 2px var(--amber),0 8px 22px rgba(0,0,0,.5)}
+#banner{position:absolute;top:42%;left:50%;transform:translate(-50%,-50%) scale(.8);
+  font-family:var(--disp);font-size:clamp(28px,5.6vw,58px);text-align:center;opacity:0;
+  text-shadow:0 5px 0 var(--stitch),0 14px 32px rgba(0,0,0,.75);pointer-events:none;
+  white-space:pre-line;line-height:1.25}
+#banner.show{animation:pop 1.6s cubic-bezier(.2,1.4,.4,1) forwards}
+@keyframes pop{0%{opacity:0;transform:translate(-50%,-50%) scale(.6)}
+  12%{opacity:1;transform:translate(-50%,-50%) scale(1.07)}
+  20%{transform:translate(-50%,-50%) scale(1)}
+  78%{opacity:1;transform:translate(-50%,-50%) scale(1)}
+  100%{opacity:0;transform:translate(-50%,-52%) scale(1)}}
+
+#log{position:absolute;bottom:16px;left:14px;width:262px;display:flex;flex-direction:column-reverse;
+  gap:5px;font-size:12px;color:var(--dim);max-height:34vh;overflow:hidden}
+#log p{background:rgba(14,20,28,.82);border-left:3px solid var(--line);padding:6px 10px;border-radius:0 8px 8px 0;
+  line-height:1.55;animation:slide .3s ease}
+#log p.hi{border-left-color:var(--amber);color:var(--cream)}
+@keyframes slide{from{opacity:0;transform:translateX(-16px)}}
+
+#hint{position:absolute;bottom:16px;left:50%;transform:translateX(-50%);display:flex;gap:9px;
+  flex-wrap:wrap;justify-content:center;max-width:min(560px,72vw)}
+.key{display:flex;align-items:center;gap:7px;background:rgba(14,20,28,.86);padding:7px 12px;border-radius:9px;
+  box-shadow:inset 0 0 0 1.5px var(--line);font-size:12px;color:var(--dim);white-space:nowrap}
+.key kbd{font-family:var(--dot);font-size:11px;background:var(--panel2);color:var(--cream);
+  padding:3px 8px;border-radius:5px;box-shadow:0 2px 0 #0a0f15}
+.key.act{box-shadow:inset 0 0 0 1.5px var(--amber);color:var(--cream)}
+
+#pitchpick{position:absolute;bottom:78px;left:50%;transform:translateX(-50%);display:flex;gap:6px;flex-wrap:wrap;justify-content:center;max-width:min(96vw,560px)}
+.pc{pointer-events:auto;background:rgba(14,20,28,.9);border-radius:9px;padding:6px 11px;
+  box-shadow:inset 0 0 0 2px var(--line);font-family:var(--body);font-weight:700;font-size:12px;color:var(--dim)}
+.pc.sel{box-shadow:inset 0 0 0 2px var(--amber);color:var(--amber);background:rgba(255,196,77,.12)}
+.pc small{display:block;font-family:var(--dot);font-size:9.5px;letter-spacing:.1em;opacity:.75;margin-top:1px}
+
+/* ---------- linescore ---------- */
+.linewrap{width:min(940px,100%);overflow-x:auto;padding-bottom:6px}
+table.line{border-collapse:collapse;font-family:var(--dot);font-size:15px;margin:0 auto;
+  font-variant-numeric:tabular-nums}
+table.line th,table.line td{padding:8px 11px;text-align:center;border-bottom:1px solid var(--line);min-width:34px}
+table.line th{color:var(--dim);font-size:11px;letter-spacing:.1em;font-weight:400}
+table.line td.nm{font-family:var(--body);font-weight:700;font-size:14px;text-align:left;min-width:132px}
+table.line td.tot{color:var(--amber);font-size:19px}
+.pill{display:inline-flex;align-items:center;gap:7px;background:var(--panel);border-radius:999px;
+  padding:8px 18px;font-size:13px;box-shadow:inset 0 0 0 2px var(--line)}
+.pill b{font-family:var(--dot);color:var(--amber);font-size:16px}
+.row{display:flex;gap:12px;flex-wrap:wrap;justify-content:center;align-items:center}
+@media (max-width:900px){
+  #log{display:none;} .countbox{transform:scale(.86);transform-origin:bottom right}
+  .scorebug{font-size:13px} .sb-team{min-width:100px} .sb-nm{font-size:11px}
+  #hint{max-width:94vw} #batter{transform:scale(.9);transform-origin:top left}
+}
+@media (max-width:560px){
+  .scorebug{top:10px;font-size:12px}
+  .sb-team{min-width:0;padding:6px 8px;gap:5px}
+  .sb-nm{font-size:10px;max-width:70px}
+  .sb-run{font-size:18px;min-width:20px}
+  .sb-inn{padding:5px 9px;min-width:46px}
+  .sb-inn .n{font-size:17px} .sb-inn .h{font-size:8px}
+  .diamond{width:44px;height:44px} .diamond span{width:14px;height:14px}
+  #batter{top:56px;left:10px;right:auto;bottom:auto;transform:none;min-width:0;
+    max-width:46vw;padding:8px 10px}
+  #batter .who{font-size:14px} #batter .meta{display:none}
+  /* count bottom right, hints beside it on the left */
+  .countbox{bottom:10px;right:10px;top:auto;left:auto;padding:8px 10px;gap:10px}
+  #hint{bottom:10px;left:10px;transform:none;justify-content:flex-start;
+    gap:5px;max-width:calc(100vw - 140px)}
+  .key{padding:5px 8px;font-size:10.5px;gap:5px}
+  .key kbd{font-size:9.5px;padding:2px 5px}
+  #pitchpick{bottom:80px;gap:4px}
+  .pc{padding:5px 8px;font-size:11px} .pc small{font-size:8.5px}
+  #banner{top:38%}
+}
+@media (prefers-reduced-motion:reduce){
+  #banner.show{animation-duration:.01s;opacity:1}
+}
+</style>
+
+<div id="wrap">
+  <canvas id="gl"></canvas>
+  <div id="ui">
+
+    <section id="s-title" class="screen">
+      <div class="eyebrow">9 INNINGS / 5 PARKS / 6 TEAMS</div>
+      <h1>どうぶつ<br>ベースボール</h1>
+      <p class="sub">クマもウサギもカエルも、バットを持てばみんな野球選手。<br>
+        球場でも、道路のまんなかでも、スーパーの店内でも。3回・6回・9回、ちゃんと野球します。</p>
+      <div class="row">
+        <button class="btn" id="btn-start">ひとりで遊ぶ</button>
+        <button class="btn" id="btn-vs">ふたりで対戦</button>
+      </div>
+      <div class="row">
+        <button class="btn ghost" id="btn-rules">あそびかた</button>
+      </div>
+    </section>
+
+    <section id="s-rules" class="screen hidden">
+      <div class="eyebrow">HOW TO PLAY</div>
+      <h2>あそびかた</h2>
+      <div class="grid" id="rules-grid"></div>
+      <button class="btn" id="btn-rules-back">もどる</button>
+    </section>
+
+    <section id="s-stadium" class="screen hidden">
+      <div class="eyebrow">STEP 1 / 2 &mdash; BALLPARK</div>
+      <h2>どこで試合する？</h2>
+      <div class="setrow" id="inn-pick"></div>
+      <div class="grid" id="stadium-grid"></div>
+      <button class="btn ghost" id="btn-st-back">タイトルへ</button>
+    </section>
+
+    <section id="s-team" class="screen hidden">
+      <div class="eyebrow">STEP 2 / 2 &mdash; YOUR TEAM</div>
+      <h2 id="team-head">どのチームを使う？</h2>
+      <p class="sub" id="team-sub">あなたは<b>先攻</b>。1回表からいきなり打席に立ちます。</p>
+      <div class="grid" id="team-grid"></div>
+      <button class="btn ghost" id="btn-tm-back">球場をえらび直す</button>
+    </section>
+
+    <div id="hud" class="hidden">
+      <div class="scorebug">
+        <div class="sb-team" id="sb-away"><span class="sb-dot"></span><span class="sb-nm"></span><span class="sb-run">0</span></div>
+        <div class="sb-inn"><span class="n" id="sb-num">1</span><span class="h" id="sb-half">TOP</span></div>
+        <div class="sb-team" id="sb-home"><span class="sb-dot"></span><span class="sb-nm"></span><span class="sb-run">0</span></div>
+      </div>
+      <div class="countbox">
+        <div class="diamond"><span class="b1" id="bs1"></span><span class="b2" id="bs2"></span><span class="b3" id="bs3"></span></div>
+        <div class="cnt">
+          <div><em>B</em><span class="pip" id="b0"></span><span class="pip" id="b1"></span><span class="pip" id="b2"></span></div>
+          <div><em>S</em><span class="pip" id="s0"></span><span class="pip" id="s1"></span></div>
+          <div><em>O</em><span class="pip" id="o0"></span><span class="pip" id="o1"></span></div>
+        </div>
+      </div>
+      <div id="batter"><div class="role"></div><div class="who"></div><div class="meta"></div></div>
+      <button id="btn-quit">ポーズ</button>
+      <div id="banner"></div>
+      <div id="log"></div>
+      <div id="pitchpick" class="hidden"></div>
+      <div id="hint"></div>
+    </div>
+
+    <section id="s-pause" class="screen hidden">
+      <div class="eyebrow">PAUSED</div>
+      <h2>試合を中断中</h2>
+      <p class="sub" id="pause-score"></p>
+      <div class="row">
+        <button class="btn" id="btn-resume">試合をつづける</button>
+        <button class="btn ghost" id="btn-abandon">やめてタイトルへ</button>
+      </div>
+    </section>
+
+    <section id="s-result" class="screen hidden">
+      <div class="eyebrow">FINAL</div>
+      <h2 id="res-head">試合終了</h2>
+      <div class="linewrap"><table class="line" id="res-line"></table></div>
+      <div class="row" id="res-stats"></div>
+      <div class="row">
+        <button class="btn" id="btn-again">もう一度あそぶ</button>
+        <button class="btn ghost" id="btn-menu">タイトルへ</button>
+      </div>
+    </section>
+
+  </div>
+</div>
+<script>
+/* ============================================================
+   10-core.js — math, tiny WebGL cel-shaded renderer, audio
+   No external libraries: everything below is hand-rolled.
+   ============================================================ */
+'use strict';
+
+const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
+const lerp = (a, b, t) => a + (b - a) * t;
+const rnd = (a, b) => a + Math.random() * (b - a);
+const rint = (a, b) => Math.floor(a + Math.random() * (b - a + 1));
+const pick = (a) => a[Math.floor(Math.random() * a.length)];
+const chance = (p) => Math.random() < p;
+const DEG = Math.PI / 180;
+const dist2 = (ax, az, bx, bz) => Math.hypot(ax - bx, az - bz);
+
+/* ---------- 4x4 matrices (column-major, WebGL order) ---------- */
+function m4() { return new Float32Array(16); }
+
+function mMul(o, a, b) {
+  for (let c = 0; c < 4; c++) {
+    const b0 = b[c * 4], b1 = b[c * 4 + 1], b2 = b[c * 4 + 2], b3 = b[c * 4 + 3];
+    o[c * 4]     = a[0] * b0 + a[4] * b1 + a[8]  * b2 + a[12] * b3;
+    o[c * 4 + 1] = a[1] * b0 + a[5] * b1 + a[9]  * b2 + a[13] * b3;
+    o[c * 4 + 2] = a[2] * b0 + a[6] * b1 + a[10] * b2 + a[14] * b3;
+    o[c * 4 + 3] = a[3] * b0 + a[7] * b1 + a[11] * b2 + a[15] * b3;
+  }
+  return o;
+}
+
+function mPerspective(o, fovy, aspect, near, far) {
+  const f = 1 / Math.tan(fovy / 2), nf = 1 / (near - far);
+  o.fill(0);
+  o[0] = f / aspect; o[5] = f; o[10] = (far + near) * nf;
+  o[11] = -1; o[14] = 2 * far * near * nf;
+  return o;
+}
+
+function mLookAt(o, ex, ey, ez, cx, cy, cz) {
+  let zx = ex - cx, zy = ey - cy, zz = ez - cz;
+  let l = Math.hypot(zx, zy, zz) || 1; zx /= l; zy /= l; zz /= l;
+  // x = normalize(cross(up, z)) with up = (0,1,0)
+  let xx = zz, xy = 0, xz = -zx;
+  l = Math.hypot(xx, xy, xz);
+  if (l < 1e-5) { xx = 1; xy = 0; xz = 0; } else { xx /= l; xy /= l; xz /= l; }
+  const yx = zy * xz - zz * xy, yy = zz * xx - zx * xz, yz = zx * xy - zy * xx;
+  o[0] = xx; o[1] = yx; o[2] = zx; o[3] = 0;
+  o[4] = xy; o[5] = yy; o[6] = zy; o[7] = 0;
+  o[8] = xz; o[9] = yz; o[10] = zz; o[11] = 0;
+  o[12] = -(xx * ex + xy * ey + xz * ez);
+  o[13] = -(yx * ex + yy * ey + yz * ez);
+  o[14] = -(zx * ex + zy * ey + zz * ez);
+  o[15] = 1;
+  return o;
+}
+
+/* model matrix from translate / euler(Y*X*Z) / scale */
+function mTRS(o, px, py, pz, rx, ry, rz, sx, sy, sz) {
+  const cx = Math.cos(rx), snx = Math.sin(rx);
+  const cy = Math.cos(ry), sny = Math.sin(ry);
+  const cz = Math.cos(rz), snz = Math.sin(rz);
+  const r00 = cy * cz + sny * snx * snz, r01 = -cy * snz + sny * snx * cz, r02 = sny * cx;
+  const r10 = cx * snz,                  r11 = cx * cz,                    r12 = -snx;
+  const r20 = -sny * cz + cy * snx * snz, r21 = sny * snz + cy * snx * cz, r22 = cy * cx;
+  o[0] = r00 * sx; o[1] = r10 * sx; o[2] = r20 * sx; o[3] = 0;
+  o[4] = r01 * sy; o[5] = r11 * sy; o[6] = r21 * sy; o[7] = 0;
+  o[8] = r02 * sz; o[9] = r12 * sz; o[10] = r22 * sz; o[11] = 0;
+  o[12] = px; o[13] = py; o[14] = pz; o[15] = 1;
+  return o;
+}
+
+/* ---------- colors ---------- */
+const _colCache = new Map();
+function col(hex) {
+  let c = _colCache.get(hex);
+  if (c) return c;
+  const n = parseInt(hex.slice(1), 16);
+  c = [((n >> 16) & 255) / 255, ((n >> 8) & 255) / 255, (n & 255) / 255];
+  _colCache.set(hex, c);
+  return c;
+}
+function shade(hex, k) { // k<1 darker, k>1 lighter
+  const c = col(hex);
+  return [clamp(c[0] * k, 0, 1), clamp(c[1] * k, 0, 1), clamp(c[2] * k, 0, 1)];
+}
+
+/* ============================================================
+   Geometry — a handful of primitives packed into one buffer
+   ============================================================ */
+const GEO = { pos: [], nor: [], idx: [], parts: {} };
+
+function geoPart(name, build) {
+  const start = GEO.idx.length, base = GEO.pos.length / 3;
+  build((x, y, z, nx, ny, nz) => {
+    GEO.pos.push(x, y, z); GEO.nor.push(nx, ny, nz);
+    return GEO.pos.length / 3 - 1 - base;
+  }, (a, b, c) => GEO.idx.push(base + a, base + b, base + c));
+  GEO.parts[name] = { offset: start * 2, count: GEO.idx.length - start };
+}
+
+geoPart('box', (v, t) => {
+  const F = [
+    [[ .5, -.5, .5], [ .5, .5, .5], [-.5, .5, .5], [-.5, -.5, .5], [0, 0, 1]],
+    [[-.5, -.5, -.5], [-.5, .5, -.5], [ .5, .5, -.5], [ .5, -.5, -.5], [0, 0, -1]],
+    [[ .5, -.5, -.5], [ .5, .5, -.5], [ .5, .5, .5], [ .5, -.5, .5], [1, 0, 0]],
+    [[-.5, -.5, .5], [-.5, .5, .5], [-.5, .5, -.5], [-.5, -.5, -.5], [-1, 0, 0]],
+    [[-.5, .5, .5], [ .5, .5, .5], [ .5, .5, -.5], [-.5, .5, -.5], [0, 1, 0]],
+    [[-.5, -.5, -.5], [ .5, -.5, -.5], [ .5, -.5, .5], [-.5, -.5, .5], [0, -1, 0]],
+  ];
+  let i = 0;
+  for (const f of F) {
+    const n = f[4];
+    for (let k = 0; k < 4; k++) v(f[k][0], f[k][1], f[k][2], n[0], n[1], n[2]);
+    t(i, i + 1, i + 2); t(i, i + 2, i + 3); i += 4;
+  }
+});
+
+geoPart('sphere', (v, t) => {
+  const RN = 8, SN = 14;
+  for (let r = 0; r <= RN; r++) {
+    const phi = (r / RN) * Math.PI, sp = Math.sin(phi), cp = Math.cos(phi);
+    for (let s = 0; s <= SN; s++) {
+      const th = (s / SN) * Math.PI * 2;
+      const x = sp * Math.cos(th), y = cp, z = sp * Math.sin(th);
+      v(x * .5, y * .5, z * .5, x, y, z);
+    }
+  }
+  for (let r = 0; r < RN; r++) for (let s = 0; s < SN; s++) {
+    const a = r * (SN + 1) + s, b = a + SN + 1;
+    t(a, a + 1, b); t(a + 1, b + 1, b);   // wound outward
+  }
+});
+
+function tube(v, t, rTop, rBot, capped) {
+  const N = 16;
+  let i = 0;
+  for (let s = 0; s <= N; s++) {
+    const th = (s / N) * Math.PI * 2, cx = Math.cos(th), sz = Math.sin(th);
+    v(cx * rTop, .5, sz * rTop, cx, .35, sz);
+    v(cx * rBot, -.5, sz * rBot, cx, .35, sz);
+  }
+  for (let s = 0; s < N; s++) { const a = s * 2; t(a, a + 2, a + 1); t(a + 1, a + 2, a + 3); }
+  i = (N + 1) * 2;
+  if (capped) {
+    for (const [y, r, ny] of [[.5, rTop, 1], [-.5, rBot, -1]]) {
+      if (r <= 0) continue;
+      const c = i; v(0, y, 0, 0, ny, 0); i++;
+      for (let s = 0; s <= N; s++) {
+        const th = (s / N) * Math.PI * 2;
+        v(Math.cos(th) * r, y, Math.sin(th) * r, 0, ny, 0); i++;
+      }
+      for (let s = 0; s < N; s++) {
+        if (ny > 0) t(c, c + 2 + s, c + 1 + s); else t(c, c + 1 + s, c + 2 + s);
+      }
+    }
+  }
+}
+geoPart('cyl',  (v, t) => tube(v, t, .5, .5, true));
+geoPart('cone', (v, t) => tube(v, t, .001, .5, true));
+geoPart('taper',(v, t) => tube(v, t, .26, .5, true));
+
+geoPart('disc', (v, t) => {
+  const N = 22;
+  v(0, 0, 0, 0, 1, 0);
+  for (let s = 0; s <= N; s++) {
+    const th = (s / N) * Math.PI * 2;
+    v(Math.cos(th) * .5, 0, Math.sin(th) * .5, 0, 1, 0);
+  }
+  // wound so the face points +y — otherwise every disc is back-face culled
+  for (let s = 0; s < N; s++) t(0, s + 2, s + 1);
+});
+
+geoPart('quad', (v, t) => {
+  v(-.5, 0, -.5, 0, 1, 0); v(.5, 0, -.5, 0, 1, 0);
+  v(.5, 0, .5, 0, 1, 0); v(-.5, 0, .5, 0, 1, 0);
+  t(0, 2, 1); t(0, 3, 2);
+});
+
+/* Rounded box — a superellipsoid with |x|^4+|y|^4+|z|^4 = 1. Heads drawn as a
+   soft square read far more like a drawn character than a plain sphere does. */
+geoPart('rbox', (v, t) => {
+  const RN = 10, SN = 16, e = 0.5;
+  const pw = (a, k) => (a < 0 ? -Math.pow(-a, k) : Math.pow(a, k));
+  for (let r = 0; r <= RN; r++) {
+    const phi = (r / RN) * Math.PI, sp = Math.sin(phi), cp = Math.cos(phi);
+    for (let s = 0; s <= SN; s++) {
+      const th = (s / SN) * Math.PI * 2;
+      const x = pw(sp, e) * pw(Math.cos(th), e);
+      const y = pw(cp, e);
+      const z = pw(sp, e) * pw(Math.sin(th), e);
+      const nx = x * x * x, ny = y * y * y, nz = z * z * z;
+      const l = Math.hypot(nx, ny, nz) || 1;
+      v(x * 0.5, y * 0.5, z * 0.5, nx / l, ny / l, nz / l);
+    }
+  }
+  for (let r = 0; r < RN; r++) for (let s = 0; s < SN; s++) {
+    const a = r * (SN + 1) + s, b = a + SN + 1;
+    t(a, a + 1, b); t(a + 1, b + 1, b);   // wound outward
+  }
+});
+
+/* extruded polygon: pts are [x,z] wound counter-clockwise seen from above,
+   the slab spans y = -0.5 .. +0.5 */
+function geoPrism(name, pts) {
+  geoPart(name, (v, t) => {
+    const n = pts.length;
+    for (const q of pts) v(q[0], 0.5, q[1], 0, 1, 0);
+    for (let i = 1; i < n - 1; i++) t(0, i, i + 1);
+    const b = n;
+    for (const q of pts) v(q[0], -0.5, q[1], 0, -1, 0);
+    for (let i = 1; i < n - 1; i++) t(b, b + i + 1, b + i);
+    let k = 2 * n;
+    for (let i = 0; i < n; i++) {
+      const a = pts[i], c = pts[(i + 1) % n];
+      const dx = c[0] - a[0], dz = c[1] - a[1];
+      const l = Math.hypot(dx, dz) || 1;
+      const nx = -dz / l, nz = dx / l;
+      v(a[0], 0.5, a[1], nx, 0, nz);  v(c[0], 0.5, c[1], nx, 0, nz);
+      v(c[0], -0.5, c[1], nx, 0, nz); v(a[0], -0.5, a[1], nx, 0, nz);
+      t(k, k + 3, k + 2); t(k, k + 2, k + 1); k += 4;
+    }
+  });
+}
+
+/* Home plate, to the rule: a 17in front edge, two 8.5in sides, two 12in sides
+   meeting at the back point. Built with that point on the local origin so it
+   can be dropped straight onto the corner of the diamond, and normalised so a
+   uniform scale of 0.4318 gives the regulation size. */
+geoPrism('plate5', [[0, 0], [-0.5, 0.5], [-0.5, 1.0], [0.5, 1.0], [0.5, 0.5]]);
+
+/* half sphere (dome) — caps, hats, hills */
+geoPart('dome', (v, t) => {
+  const RN = 5, SN = 14;
+  for (let r = 0; r <= RN; r++) {
+    const phi = (r / RN) * (Math.PI / 2), sp = Math.sin(phi), cp = Math.cos(phi);
+    for (let s = 0; s <= SN; s++) {
+      const th = (s / SN) * Math.PI * 2;
+      const x = sp * Math.cos(th), y = cp, z = sp * Math.sin(th);
+      v(x * .5, y * .5, z * .5, x, y, z);
+    }
+  }
+  for (let r = 0; r < RN; r++) for (let s = 0; s < SN; s++) {
+    const a = r * (SN + 1) + s, b = a + SN + 1;
+    t(a, a + 1, b); t(a + 1, b + 1, b);   // wound outward
+  }
+});
+
+/* ============================================================
+   Renderer
+   ============================================================ */
+const VS = `
+attribute vec3 aPos; attribute vec3 aNor;
+uniform mat4 uVP, uM;
+uniform float uOutline;
+varying vec3 vN, vW;
+void main(){
+  vec4 w = uM * vec4(aPos,1.0);
+  vec3 n = (uM * vec4(aNor,0.0)).xyz;
+  float l = length(n);
+  vN = n;
+  // inverted hull: push the shell out along the world normal, draw back faces
+  if (uOutline > 0.0 && l > 0.0001) w.xyz += (n / l) * uOutline;
+  vW = w.xyz;
+  gl_Position = uVP * w;
+}`;
+
+const FS = `
+precision mediump float;
+varying vec3 vN, vW;
+uniform vec3 uColor, uLight, uSky, uGnd, uFog, uEye;
+uniform float uFogD, uUnlit, uAlpha;
+void main(){
+  if (uUnlit > 0.5) { gl_FragColor = vec4(uColor, uAlpha); return; }
+  vec3 n = normalize(vN);
+  float d = dot(n, uLight);
+  // three soft cel bands keeps forms readable without looking flat
+  float s = smoothstep(-0.35, -0.05, d) * 0.22
+          + smoothstep(0.10, 0.30, d) * 0.30
+          + smoothstep(0.55, 0.75, d) * 0.22 + 0.52;
+  vec3 hemi = mix(uGnd, uSky, n.y * 0.5 + 0.5);
+  vec3 c = uColor * s * (0.80 + 0.42 * hemi);
+  float f = clamp(length(vW - uEye) / uFogD, 0.0, 1.0);
+  c = mix(c, uFog, f * f * 0.85);
+  gl_FragColor = vec4(c, uAlpha);
+}`;
+
+const R = {
+  gl: null, prog: null, u: {}, vp: m4(), _m: m4(), _t: m4(),
+  eye: [0, 0, 0], w: 1, h: 1, dpr: 1, inkW: 0,
+
+  init(canvas) {
+    const gl = canvas.getContext('webgl', { antialias: true, alpha: false });
+    if (!gl) return false;
+    this.gl = gl; this.canvas = canvas;
+    const mk = (type, src) => {
+      const s = gl.createShader(type); gl.shaderSource(s, src); gl.compileShader(s);
+      if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) console.error(gl.getShaderInfoLog(s));
+      return s;
+    };
+    const p = gl.createProgram();
+    gl.attachShader(p, mk(gl.VERTEX_SHADER, VS));
+    gl.attachShader(p, mk(gl.FRAGMENT_SHADER, FS));
+    gl.linkProgram(p); gl.useProgram(p);
+    this.prog = p;
+    for (const n of ['uVP', 'uM', 'uColor', 'uLight', 'uSky', 'uGnd', 'uFog', 'uEye', 'uFogD', 'uUnlit', 'uAlpha', 'uOutline'])
+      this.u[n] = gl.getUniformLocation(p, n);
+
+    const vb = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, vb);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(GEO.pos), gl.STATIC_DRAW);
+    const ap = gl.getAttribLocation(p, 'aPos');
+    gl.enableVertexAttribArray(ap); gl.vertexAttribPointer(ap, 3, gl.FLOAT, false, 0, 0);
+
+    const nb = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, nb);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(GEO.nor), gl.STATIC_DRAW);
+    const an = gl.getAttribLocation(p, 'aNor');
+    gl.enableVertexAttribArray(an); gl.vertexAttribPointer(an, 3, gl.FLOAT, false, 0, 0);
+
+    const ib = gl.createBuffer();
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ib);
+    gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(GEO.idx), gl.STATIC_DRAW);
+
+    gl.enable(gl.DEPTH_TEST);
+    gl.enable(gl.CULL_FACE);
+    gl.clearColor(0.05, 0.08, 0.11, 1);
+    return true;
+  },
+
+  resize() {
+    const c = this.canvas;
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const w = Math.round(c.clientWidth * dpr), h = Math.round(c.clientHeight * dpr);
+    if (c.width !== w || c.height !== h) { c.width = w; c.height = h; }
+    this.w = w; this.h = h; this.dpr = dpr;
+    this.gl.viewport(0, 0, w, h);
+  },
+
+  begin(cam, env) {
+    const gl = this.gl;
+    this.resize();
+    // on a tall screen a fixed vertical fov leaves almost no horizontal view,
+    // so widen it as the aspect ratio narrows
+    const aspect = this.w / this.h;
+    const fov = (cam.fov || 46) * clamp(1.12 / aspect, 1, 1.75);
+    const proj = mPerspective(m4(), fov * DEG, aspect, 0.35, 1100);
+    const view = mLookAt(m4(), cam.ex, cam.ey, cam.ez, cam.tx, cam.ty, cam.tz);
+    mMul(this.vp, proj, view);
+    this.eye = [cam.ex, cam.ey, cam.ez];
+    const bg = col(env.fog);
+    gl.clearColor(bg[0], bg[1], bg[2], 1);
+    gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+    gl.disable(gl.BLEND);
+    gl.depthMask(true);
+    gl.uniformMatrix4fv(this.u.uVP, false, this.vp);
+    gl.uniform3fv(this.u.uLight, env.light);
+    gl.uniform3fv(this.u.uSky, col(env.skyTint));
+    gl.uniform3fv(this.u.uGnd, col(env.gndTint));
+    gl.uniform3fv(this.u.uFog, bg);
+    gl.uniform3fv(this.u.uEye, this.eye);
+    gl.uniform1f(this.u.uFogD, env.fogDist);
+    gl.uniform1f(this.u.uUnlit, 0);
+    gl.uniform1f(this.u.uAlpha, 1);
+    gl.uniform1f(this.u.uOutline, 0);
+    this.inkW = 0;
+  },
+
+  /* ink line pass: call R.ink(w), draw the same parts again, then R.ink(0) */
+  ink(w) {
+    const gl = this.gl;
+    this.inkW = w || 0;
+    gl.uniform1f(this.u.uOutline, this.inkW);
+    gl.uniform1f(this.u.uUnlit, this.inkW > 0 ? 1 : 0);
+    gl.uniform1f(this.u.uAlpha, 1);
+    gl.cullFace(this.inkW > 0 ? gl.FRONT : gl.BACK);
+  },
+
+  /* draw one primitive with a full transform */
+  d(prim, x, y, z, rx, ry, rz, sx, sy, sz, c) {
+    const gl = this.gl, part = GEO.parts[prim];
+    mTRS(this._m, x, y, z, rx, ry, rz, sx, sy, sz);
+    gl.uniformMatrix4fv(this.u.uM, false, this._m);
+    gl.uniform3fv(this.u.uColor, this.inkW > 0 ? INK_COL : c);
+    gl.drawElements(gl.TRIANGLES, part.count, gl.UNSIGNED_SHORT, part.offset);
+  },
+
+  /* no rotation — the common case */
+  b(prim, x, y, z, sx, sy, sz, c) { this.d(prim, x, y, z, 0, 0, 0, sx, sy, sz, c); },
+
+  /* a primitive stretched between two points — limbs, bats, rails */
+  seg(prim, ax, ay, az, bx, by, bz, r, c) {
+    const dx = bx - ax, dy = by - ay, dz = bz - az;
+    const len = Math.hypot(dx, dy, dz) || 1e-4;
+    const rx = Math.acos(clamp(dy / len, -1, 1));
+    const ry = Math.atan2(dx, dz);
+    this.d(prim, (ax + bx) / 2, (ay + by) / 2, (az + bz) / 2, rx, ry, 0, r * 2, len, r * 2, c);
+  },
+
+  /* pre-baked matrix (static scenery) */
+  m(prim, mat, c) {
+    const gl = this.gl, part = GEO.parts[prim];
+    gl.uniformMatrix4fv(this.u.uM, false, mat);
+    gl.uniform3fv(this.u.uColor, c);
+    gl.drawElements(gl.TRIANGLES, part.count, gl.UNSIGNED_SHORT, part.offset);
+  },
+
+  unlit(on, alpha) {
+    const gl = this.gl;
+    gl.uniform1f(this.u.uUnlit, on ? 1 : 0);
+    gl.uniform1f(this.u.uAlpha, alpha === undefined ? 1 : alpha);
+    if (alpha !== undefined && alpha < 1) {
+      gl.enable(gl.BLEND);
+      gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+      gl.depthMask(false);
+    } else {
+      gl.disable(gl.BLEND); gl.depthMask(true);
+    }
+  },
+};
+
+const INK_COL = [0.09, 0.07, 0.06];
+
+/* soft contact shadow — a flat disc, drawn in a blended pass */
+const SHADOWS = [];
+function shadow(x, z, r, a) {
+  if (R.inkW > 0) return;                       // not during the outline pass
+  SHADOWS.push(x, z, r, a === undefined ? 0.3 : a);
+}
+function flushShadows(groundY) {
+  if (!SHADOWS.length) return;
+  R.unlit(true, 0.34);
+  const c = [0.05, 0.09, 0.06];
+  for (let i = 0; i < SHADOWS.length; i += 4) {
+    R.gl.uniform1f(R.u.uAlpha, SHADOWS[i + 3]);
+    R.b('disc', SHADOWS[i], groundY + 0.055, SHADOWS[i + 1], SHADOWS[i + 2] * 2, 1, SHADOWS[i + 2] * 2, c);
+  }
+  SHADOWS.length = 0;
+  R.unlit(false);
+}
+
+/* ============================================================
+   Audio — short synthesised blips, built on first user gesture
+   ============================================================ */
+const Snd = {
+  ctx: null, on: true,
+  boot() { if (!this.ctx) { try { this.ctx = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) { this.on = false; } } },
+  tone(freq, dur, type, gain, slideTo) {
+    if (!this.on || !this.ctx) return;
+    const t = this.ctx.currentTime;
+    const o = this.ctx.createOscillator(), g = this.ctx.createGain();
+    o.type = type || 'sine'; o.frequency.setValueAtTime(freq, t);
+    if (slideTo) o.frequency.exponentialRampToValueAtTime(slideTo, t + dur);
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(gain || 0.16, t + 0.012);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    o.connect(g); g.connect(this.ctx.destination);
+    o.start(t); o.stop(t + dur + 0.02);
+  },
+  noise(dur, gain, hz) {
+    if (!this.on || !this.ctx) return;
+    const t = this.ctx.currentTime, n = Math.floor(this.ctx.sampleRate * dur);
+    const buf = this.ctx.createBuffer(1, n, this.ctx.sampleRate), d = buf.getChannelData(0);
+    for (let i = 0; i < n; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / n);
+    const s = this.ctx.createBufferSource(); s.buffer = buf;
+    const f = this.ctx.createBiquadFilter(); f.type = 'bandpass'; f.frequency.value = hz || 900;
+    const g = this.ctx.createGain(); g.gain.value = gain || 0.1;
+    s.connect(f); f.connect(g); g.connect(this.ctx.destination); s.start(t);
+  },
+  hit(power) { this.tone(300 + power * 480, 0.11, 'square', 0.13, 120); this.noise(0.09, 0.1, 1800); },
+  miss() { this.noise(0.09, 0.06, 500); },
+  mitt() { this.noise(0.07, 0.09, 420); },
+  blip() { this.tone(760, 0.06, 'square', 0.05); },
+  good() { this.tone(660, 0.1, 'triangle', 0.11); setTimeout(() => this.tone(990, 0.16, 'triangle', 0.11), 95); },
+  bad()  { this.tone(300, 0.16, 'sawtooth', 0.07, 150); },
+  cheer(){ this.noise(0.9, 0.07, 700); this.tone(520, 0.5, 'triangle', 0.05, 780); },
+  horn() { this.tone(392, 0.30, 'square', 0.05); setTimeout(() => this.tone(330, 0.34, 'square', 0.05), 120); },
+  crash(){ this.noise(0.30, 0.14, 260); this.tone(150, 0.28, 'sawtooth', 0.10, 60); },
+  clang(){ this.tone(880, 0.16, 'square', 0.10, 320); this.noise(0.12, 0.09, 2400); },
+};
+/* ============================================================
+   20-world.js — field geometry, the five ballparks, scenery
+   ============================================================ */
+'use strict';
+
+/* Diamond is regulation-ish in metres: 27.4m between bases. */
+const BASE_POS = [[-19.4, 19.4], [0, 38.8], [19.4, 19.4]]; // 1st, 2nd, 3rd
+const HOME_POS = [0, 0];
+const MOUND_POS = [0, 18.44];
+
+/* polar helper: angle 0 = straight to centre field (+z), + = LEFT field (+x,
+   third-base side). Screen-right is world -x, so +x draws on the left. */
+const polar = (aDeg, d) => [Math.sin(aDeg * DEG) * d, Math.cos(aDeg * DEG) * d];
+const angOf = (x, z) => Math.atan2(x, z) / DEG;
+
+function fenceAt(st, aDeg) {
+  if (st.fenceFn) return st.fenceFn(aDeg);
+  const t = clamp(Math.abs(aDeg) / 45, 0, 1);
+  return lerp(st.fenceCenter, st.fenceLine, t * t * 0.55 + t * 0.45);
+}
+
+/* ---------- scene builder: bakes static props into matrices ---------- */
+class Scene {
+  constructor() { this.items = []; }
+  add(p, x, y, z, rx, ry, rz, sx, sy, sz, c) {
+    this.items.push({ p, m: mTRS(m4(), x, y, z, rx, ry, rz, sx, sy, sz), c: typeof c === 'string' ? col(c) : c });
+  }
+  box(x, y, z, sx, sy, sz, c, ry) { this.add('box', x, y, z, 0, ry || 0, 0, sx, sy, sz, c); }
+  cyl(x, y, z, r, h, c, ry) { this.add('cyl', x, y, z, 0, ry || 0, 0, r * 2, h, r * 2, c); }
+  sph(x, y, z, r, c) { this.add('sphere', x, y, z, 0, 0, 0, r * 2, r * 2, r * 2, c); }
+  plate(x, y, z, sx, sz, c, ry) { this.add('quad', x, y, z, 0, ry || 0, 0, sx, 1, sz, c); }
+  ring(x, y, z, r, c) { this.add('disc', x, y, z, 0, 0, 0, r * 2, 1, r * 2, c); }
+  draw() { for (const it of this.items) R.m(it.p, it.m, it.c); }
+}
+
+/* ---------- shared field furniture ---------- */
+/* Regulation dimensions, in metres. */
+const PLATE_W = 0.4318;      // 17in across the front edge
+const BASE_SZ = 0.40;        // 15in bag (a hair oversized so it reads)
+const CHALK_W = 0.09;        // 3in line, widened slightly for legibility
+const BOX_W = 1.22, BOX_L = 1.83, BOX_GAP = 0.152;   // batter's box, 6in off the plate
+const CATCH_W = 1.09, CATCH_L = 2.44;                // catcher's box
+const LANE_W = 0.91;         // three-foot running lane
+const MOUND_R = 2.74;        // 18ft circle
+const INFIELD_ARC = 28.96;   // 95ft from the centre of the mound
+const HOME_CIRCLE = 3.96;    // 13ft
+const PATH_W = 1.83;         // 6ft base path
+const SQ2 = Math.SQRT1_2;
+
+function chalkLine(S, x1, z1, x2, z2, c, w, y) {
+  const len = Math.hypot(x2 - x1, z2 - z1);
+  if (len < 1e-4) return;
+  S.plate((x1 + x2) / 2, y || 0.030, (z1 + z2) / 2, w || CHALK_W, len, c,
+          Math.atan2(x2 - x1, z2 - z1));
+}
+
+/* outline of a rectangle centred on (cx,cz), `l` long in its own +z, rotated ry */
+function chalkRect(S, cx, cz, w, l, ry, c, y) {
+  const co = Math.cos(ry), si = Math.sin(ry);
+  const P = (u, v) => [cx + u * co + v * si, cz - u * si + v * co];
+  const a = P(-w / 2, -l / 2), b = P(w / 2, -l / 2), d = P(w / 2, l / 2), e = P(-w / 2, l / 2);
+  chalkLine(S, a[0], a[1], b[0], b[1], c, CHALK_W, y);
+  chalkLine(S, b[0], b[1], d[0], d[1], c, CHALK_W, y);
+  chalkLine(S, d[0], d[1], e[0], e[1], c, CHALK_W, y);
+  chalkLine(S, e[0], e[1], a[0], a[1], c, CHALK_W, y);
+}
+
+function chalkCircle(S, cx, cz, r, c, y) {
+  const N = 26;
+  for (let i = 0; i < N; i++) {
+    const a1 = (i / N) * Math.PI * 2, a2 = ((i + 1) / N) * Math.PI * 2;
+    chalkLine(S, cx + Math.cos(a1) * r, cz + Math.sin(a1) * r,
+                 cx + Math.cos(a2) * r, cz + Math.sin(a2) * r, c, CHALK_W, y);
+  }
+}
+
+/* opt = { dirt, chalk, ground, fill (skinned infield), grass (inside the paths),
+          foulLen (how far the foul lines run) } */
+function addDiamond(S, opt) {
+  const dirt = opt.dirt, chalk = opt.chalk, foulLen = opt.foulLen || 95;
+
+  if (opt.fill) {
+    // the skinned infield is an arc of 95ft struck from the centre of the mound,
+    // then trimmed back to fair territory and to the front of the plate
+    S.ring(0, 0.010, 18.0, INFIELD_ARC, dirt);
+    if (opt.ground) {
+      for (const sgn of [-1, 1]) {   // everything outside a foul line is ground
+        const dx = sgn * SQ2, dz = SQ2, nx = sgn * SQ2, nz = -SQ2;
+        S.plate(dx * 40 + nx * 30, 0.012, dz * 40 + nz * 30, 60, 132, opt.ground, sgn * 45 * DEG);
+      }
+      S.plate(0, 0.0122, -10.4, 110, 12.8, opt.ground);
+    }
+    // grass inside the base paths
+    if (opt.grass) S.plate(0, 0.014, 19.4, 25.6, 25.6, opt.grass, 45 * DEG);
+  }
+
+  // base paths
+  const pts = [HOME_POS, BASE_POS[0], BASE_POS[1], BASE_POS[2]];
+  for (let i = 0; i < 4; i++) {
+    const a = pts[i], b = pts[(i + 1) % 4];
+    S.plate((a[0] + b[0]) / 2, 0.016, (a[1] + b[1]) / 2, PATH_W,
+            Math.hypot(b[0] - a[0], b[1] - a[1]), dirt,
+            Math.atan2(b[0] - a[0], b[1] - a[1]));
+  }
+  S.ring(0, 0.018, 0, HOME_CIRCLE, dirt);
+  S.ring(0, 0.019, 18.0, MOUND_R, shade(dirt, 1.05));
+
+  /* ---- chalk, per the rule book ---- */
+  // The foul lines are never chalked across a batter's box, nor in the gap
+  // between the box and the plate: each line starts where it leaves the front
+  // edge of the box and runs from there out to the pole.
+  const boxFront = PLATE_W / 2 + BOX_L / 2;
+  const foulStart = boxFront / Math.cos(45 * DEG);
+  for (const sgn of [-1, 1]) {
+    const [sx, sz] = polar(45 * sgn, foulStart);
+    const [fx, fz] = polar(45 * sgn, foulLen);
+    chalkLine(S, sx, sz, fx, fz, chalk, CHALK_W);
+  }
+  // batter's boxes: a closed 4ft x 6ft rectangle, 6in either side of the plate
+  for (const sgn of [-1, 1]) {
+    chalkRect(S, sgn * (PLATE_W / 2 + BOX_GAP + BOX_W / 2), PLATE_W / 2,
+              BOX_W, BOX_L, 0, chalk);
+  }
+  // catcher's box: 43in wide, 8ft deep, running back from the batter's boxes
+  {
+    const zBack = PLATE_W / 2 - BOX_L / 2, zEnd = zBack - CATCH_L, hw = CATCH_W / 2;
+    chalkLine(S, -hw, zBack, -hw, zEnd, chalk);
+    chalkLine(S, hw, zBack, hw, zEnd, chalk);
+    chalkLine(S, -hw, zEnd, hw, zEnd, chalk);
+  }
+  // three-foot running lane: the last half of the line to first, in foul ground
+  {
+    const ux = -SQ2, uz = SQ2;                 // toward first base
+    const nx = -SQ2, nz = -SQ2;                // into foul territory
+    const half = 13.72, full = 27.43;
+    const ax = ux * half, az = uz * half, bx = ux * full, bz = uz * full;
+    chalkLine(S, ax + nx * LANE_W, az + nz * LANE_W, bx + nx * LANE_W, bz + nz * LANE_W, chalk);
+    chalkLine(S, ax, az, ax + nx * LANE_W, az + nz * LANE_W, chalk);
+  }
+  // coach's boxes, 20ft x 10ft. They are chalked as three lines: the side
+  // facing the field is left open so the coach can step out of it.
+  for (const sgn of [-1, 1]) {
+    const dx = sgn * SQ2, dz = SQ2;            // along that foul line
+    const nx = sgn * SQ2, nz = -SQ2;           // out into foul territory
+    const cx = dx * 20.5 + nx * 5.6, cz = dz * 20.5 + nz * 5.6;
+    const hw = 1.525, hl = 3.05;
+    const P = (u, v) => [cx + nx * u + dx * v, cz + nz * u + dz * v];
+    const inA = P(-hw, -hl), inB = P(-hw, hl), outB = P(hw, hl), outA = P(hw, -hl);
+    // the line the coach must stay behind is the one next to the foul line, so
+    // that side is always chalked; the box is left open away from the field
+    chalkLine(S, inA[0], inA[1], inB[0], inB[1], chalk);     // field side
+    chalkLine(S, inB[0], inB[1], outB[0], outB[1], chalk);   // far end
+    chalkLine(S, outA[0], outA[1], inA[0], inA[1], chalk);   // near end
+  }
+  // on-deck circles, 5ft across, 37ft from home in foul ground
+  for (const sgn of [-1, 1]) chalkCircle(S, sgn * 9.0, -6.8, 0.76, chalk);
+
+  /* ---- the bags ---- */
+  // first and third sit just inside the line, so the line touches their edge
+  const inset = BASE_SZ / 2;
+  const bagPos = [
+    [BASE_POS[0][0] + inset * SQ2, BASE_POS[0][1] + inset * SQ2],
+    [BASE_POS[1][0], BASE_POS[1][1]],
+    [BASE_POS[2][0] - inset * SQ2, BASE_POS[2][1] + inset * SQ2],
+  ];
+  for (const b of bagPos) S.box(b[0], 0.038, b[1], BASE_SZ, 0.076, BASE_SZ, '#FFFFFF', 45 * DEG);
+  // home plate: the real pentagon, its back point on the corner of the diamond
+  S.add('plate5', 0, 0.026, 0, 0, 0, 0, PLATE_W, 0.05, PLATE_W, col('#FBFBF7'));
+  // pitcher's plate, 24in x 6in, front edge 60ft 6in from the point of home
+  S.box(0, 0.055, 18.44 + 0.076, 0.61, 0.05, 0.152, '#F4F4F0');
+}
+
+function addCrowdArc(S, from, to, dist, palette, tiers) {
+  const N = 34;
+  for (let i = 0; i <= N; i++) {
+    const a = lerp(from, to, i / N);
+    for (let t = 0; t < (tiers || 3); t++) {
+      const d = dist + t * 3.4;
+      const [x, z] = polar(a, d);
+      const h = 1.6 + t * 1.7;
+      S.box(x, h / 2, z, 4.2, h, 3.4, t % 2 ? '#3A4A5C' : '#31404F', a * DEG);
+      if (i % 2 === 0) { // sparse crowd suggestion, cheap to draw
+        const [hx, hz] = polar(a, d - 1.1);
+        S.sph(hx, h + 0.42, hz, 0.42, pick(palette));
+        S.box(hx, h + 0.02, hz, 0.9, 0.9, 0.7, pick(palette), a * DEG);
+      }
+    }
+  }
+}
+
+function addFenceArc(S, st, colr, capC) {
+  const N = 56;
+  for (let i = 0; i <= N; i++) {
+    const a = lerp(-46, 46, i / N);
+    const d = fenceAt(st, a);
+    const [x, z] = polar(a, d);
+    S.box(x, st.fenceH / 2, z, 5.0, st.fenceH, 0.5, colr, a * DEG);
+    S.box(x, st.fenceH + 0.09, z, 5.0, 0.22, 0.72, capC, a * DEG);
+  }
+  // foul poles
+  for (const s of [-1, 1]) {
+    const [x, z] = polar(45 * s, fenceAt(st, 45));
+    S.cyl(x, 6, z, 0.22, 12, '#FFD24A');
+  }
+}
+
+function addTree(S, x, z, h, leaf, trunk) {
+  S.cyl(x, h * 0.3, z, 0.34, h * 0.6, trunk || '#6B4A32');
+  S.sph(x, h * 0.72, z, h * 0.36, leaf);
+  S.sph(x - h * 0.22, h * 0.58, z + h * 0.1, h * 0.26, shade(leaf, 0.88));
+  S.sph(x + h * 0.2, h * 0.6, z - h * 0.12, h * 0.24, shade(leaf, 1.08));
+}
+
+function addCar(S, x, z, ry, body) {
+  S.box(x, 0.72, z, 2.0, 0.85, 4.4, body, ry);
+  S.box(x, 1.42, z + 0.15 * Math.cos(ry), 1.7, 0.7, 2.2, shade(body, 0.8), ry);
+  S.box(x, 1.44, z + 0.16, 1.55, 0.5, 2.0, '#2A3A48', ry);
+  for (const [ox, oz] of [[-1.0, 1.5], [1.0, 1.5], [-1.0, -1.5], [1.0, -1.5]])
+    S.add('cyl', x + ox, 0.34, z + oz, 0, 0, Math.PI / 2, 0.68, 0.3, 0.68, col('#1B222A'));
+  S.box(x, 0.95, z + 2.24, 1.6, 0.28, 0.14, '#FFE9A8', ry);
+}
+
+/* ---------- live traffic (the road park) ---------- */
+const CAR_PAINT = ['#D9483B', '#3E6FBF', '#EFEFEF', '#2E3B45', '#E8B23A', '#48A96B', '#B44D8C', '#5FB6C4'];
+const ROAD_Z0 = -58, ROAD_Z1 = 86;
+
+const SHOPPER_WEAR = ['#C4483A', '#3E6FBF', '#4E8A5E', '#B4823A', '#7A5A9A', '#3C6E78'];
+const SHOPPER_KIND = ['panda', 'hippo', 'rabbit', 'cat', 'bear', 'frog', 'fox'];
+const GROCERY = ['#E8734A', '#F2C14E', '#7FB3D5', '#8ED0A8', '#C97BA0'];
+
+function makeTraffic(st) {
+  if (!st.lanes) return null;
+  const cars = [];
+  const z0 = st.laneZ ? st.laneZ[0] : ROAD_Z0, z1 = st.laneZ ? st.laneZ[1] : ROAD_Z1;
+  for (const lane of st.lanes) {
+    const n = lane.walk ? 2 : 2 + (chance(0.4) ? 1 : 0);
+    for (let i = 0; i < n; i++) {
+      const z = z0 + ((i + rnd(0, 0.7)) / n) * (z1 - z0);
+      if (lane.walk) {
+        const wear = pick(SHOPPER_WEAR);
+        cars.push({
+          x: lane.x + rnd(-0.7, 0.7), z, z0, z1, walk: 1,
+          vz: lane.dir * rnd(1.0, 1.8), phase: rnd(0, 6.3),
+          look: { animal: pick(SHOPPER_KIND), uni: wear, trim: '#EFE9DC', cap: shade(wear, 0.7) },
+          goods: pick(GROCERY),
+          hw: 0.40, hh: 1.55, hl: 0.52,
+        });
+      } else {
+        const truck = chance(0.22);
+        cars.push({
+          x: lane.x + rnd(-0.4, 0.4), z, z0, z1,
+          vz: lane.dir * rnd(12, 19) * (truck ? 0.8 : 1),
+          col: pick(CAR_PAINT), truck,
+          hw: truck ? 1.28 : 1.02, hh: truck ? 2.5 : 1.55, hl: truck ? 3.6 : 2.25,
+        });
+      }
+    }
+  }
+  return cars;
+}
+
+function stepTraffic(cars, dt) {
+  for (const c of cars) {
+    const a = c.z0 === undefined ? ROAD_Z0 : c.z0, b = c.z1 === undefined ? ROAD_Z1 : c.z1;
+    c.z += c.vz * dt;
+    if (c.vz > 0 && c.z > b) c.z = a;
+    else if (c.vz < 0 && c.z < a) c.z = b;
+  }
+}
+
+/* does this box contain the point? used for both the ball and for people */
+function carHits(c, x, y, z, pad) {
+  const p = pad || 0;
+  return Math.abs(x - c.x) < c.hw + p && Math.abs(z - c.z) < c.hl + p && y < c.hh + p;
+}
+
+function drawCar(c) {
+  const b = col(c.col), dark = shade(c.col, 0.72);
+  const back = c.vz > 0 ? -1 : 1;
+  shadow(c.x, c.z, c.hl * 0.62, 0.30);
+  if (c.truck) {
+    R.b('box', c.x, 1.05, c.z - back * 0.9, c.hw * 2, 1.9, c.hl * 1.35, b);
+    R.b('box', c.x, 2.05, c.z - back * 0.9, c.hw * 2 - 0.1, 2.0, c.hl * 1.3, shade(c.col, 1.08));
+    R.b('box', c.x, 1.20, c.z + back * c.hl * 0.72, c.hw * 1.9, 2.1, 1.7, dark);
+    R.b('box', c.x, 1.85, c.z + back * (c.hl * 0.72 + 0.16), c.hw * 1.6, 0.9, 0.2, col('#2A3A48'));
+  } else {
+    R.b('box', c.x, 0.72, c.z, c.hw * 2, 0.86, c.hl * 2, b);
+    R.b('box', c.x, 1.36, c.z - back * 0.2, c.hw * 1.72, 0.66, c.hl * 1.05, shade(c.col, 0.86));
+    R.b('box', c.x, 1.38, c.z - back * 0.2, c.hw * 1.6, 0.46, c.hl * 1.0, col('#2A3A48'));
+  }
+  for (const ox of [-1, 1]) for (const oz of [-1, 1])
+    R.d('cyl', c.x + ox * c.hw * 0.92, 0.34, c.z + oz * c.hl * 0.62,
+        0, 0, Math.PI / 2, 0.68, 0.28, 0.68, col('#1B222A'));
+  R.b('box', c.x - c.hw * 0.55, 0.85, c.z + back * (c.hl - 0.02), 0.42, 0.24, 0.14, col('#FFE9A8'));
+  R.b('box', c.x + c.hw * 0.55, 0.85, c.z + back * (c.hl - 0.02), 0.42, 0.24, 0.14, col('#FFE9A8'));
+  R.b('box', c.x, 0.80, c.z - back * (c.hl - 0.02), c.hw * 1.5, 0.20, 0.12, col('#C8342A'));
+}
+
+/* a customer pushing a trolley down the aisle */
+function drawShopper(c) {
+  const dir = c.vz > 0 ? 1 : -1;
+  const t = clock * 5.5 + c.phase;
+  const sw = Math.sin(t) * 0.5;
+  drawAnimal(c.x, c.z, c.vz > 0 ? 0 : Math.PI, c.look,
+    { armL: -1.25, armR: -1.25, legL: sw, legR: -sw, noHat: 1,
+      bob: Math.abs(Math.sin(t)) * 0.04 }, 0);
+  const cz = c.z + dir * 0.92, bar = col('#B8BEC4');
+  R.b('box', c.x, 0.66, cz, 0.64, 0.06, 0.88, bar);
+  R.b('box', c.x, 0.34, cz, 0.58, 0.05, 0.80, bar);
+  for (const s of [-1, 1]) {
+    R.b('box', c.x + s * 0.31, 0.50, cz, 0.05, 0.34, 0.84, bar);
+    R.b('box', c.x + s * 0.31, 0.50, cz - dir * 0.44, 0.05, 0.34, 0.05, bar);
+  }
+  R.b('box', c.x, 0.90, cz - dir * 0.46, 0.58, 0.05, 0.05, bar);
+  R.b('box', c.x, 0.54, cz + dir * 0.08, 0.46, 0.28, 0.46, col(c.goods));
+  for (const s of [-1, 1]) for (const o of [-1, 1])
+    R.d('cyl', c.x + s * 0.27, 0.10, cz + o * 0.36, 0, 0, Math.PI / 2, 0.18, 0.06, 0.18, col('#3A4048'));
+  shadow(c.x, cz, 0.55, 0.26);
+}
+
+/* ============================================================
+   The five ballparks
+   ============================================================ */
+const STADIUMS = [
+  /* ---------------------------------------------------- 1 */
+  {
+    id: 'dome', name: 'みどりが丘スタジアム', tag: 'STANDARD',
+    desc: '芝も土もきれいに整った、ふつうの野球場。フェンスは中堅104m。まずはここで基本を。',
+    gravity: 9.8, fenceCenter: 104, fenceLine: 86, fenceH: 3.2, ceiling: 0,
+    fog: '#8FC6E4', skyTint: '#BFE4F5', gndTint: '#4C7A45', fogDist: 330,
+    light: [0.42, 0.80, 0.43], fielderSpeed: 1.0,
+    quirk: '素直な打球がそのまま結果になる',
+    cardColors: ['#4FA85C', '#C98A50', '#8FC6E4'],
+    build() {
+      const S = new Scene();
+      S.plate(0, 0, 40, 460, 460, '#3E8F4C');
+      // mowing stripes
+      for (let i = -6; i <= 8; i++)
+        if (i % 2 === 0) S.plate(0, 0.006, i * 16 + 8, 300, 16, '#469B54');
+      addDiamond(S, { dirt: '#C08551', chalk: '#F4EFE2', fill: 1, grass: '#42964F',
+        ground: '#3E8F4C', foulLen: fenceAt(this, 45) });
+      addFenceArc(S, this, '#2F6C57', '#E9E4D4');
+      addCrowdArc(S, -104, 104, 118, ['#E8734A', '#F2C14E', '#7FB3D5', '#E4E1D6', '#C97BA0', '#8ED0A8'], 3);
+      // light towers
+      for (const a of [-70, -34, 34, 70]) {
+        const [x, z] = polar(a, 136);
+        S.cyl(x, 15, z, 0.7, 30, '#5A6A78');
+        S.box(x, 31.5, z, 9, 3.4, 1.0, '#2C3946', a * DEG);
+        for (let i = -3; i <= 3; i++) S.sph(x + i * 1.3 * Math.cos(a * DEG), 31.5, z - i * 1.3 * Math.sin(a * DEG), 0.6, '#FFF6D0');
+      }
+      // scoreboard
+      S.box(0, 13, 132, 34, 16, 1.4, '#243240');
+      S.box(0, 13, 131, 30, 12.5, 0.6, '#11202C');
+      for (let i = 0; i < 11; i++) for (let j = 0; j < 3; j++)
+        S.box(-13 + i * 2.6, 15.5 - j * 3.2, 130.5, 1.7, 2.1, 0.3, j === 0 ? '#FFC44D' : '#2B4356');
+      S.cyl(0, 24, 133, 0.4, 6, '#8C9AA6');
+      return S;
+    },
+  },
+
+  /* ---------------------------------------------------- 2 */
+  {
+    id: 'road', name: '国道１７号線のまんなか', tag: 'TRAFFIC',
+    desc: '正面の高架壁まで88m。左右はビルがそのまま壁で、引っぱるほどフェンスが近い。おまけに車が試合の中を走り抜けるので、打球は跳ね、選手は轢かれる。',
+    gravity: 9.8, fenceCenter: 88, fenceLine: 57, fenceH: 9.0, ceiling: 0,
+    fenceFn: (a) => Math.min(88, 40 / Math.max(0.10, Math.abs(Math.sin(a * DEG)))),
+    // Japan drives on the left: heading away from home you keep to +x
+    lanes: [{ x: 8, dir: 1 }, { x: 18, dir: 1 }, { x: 27, dir: 1 },
+            { x: -8, dir: -1 }, { x: -18, dir: -1 }, { x: -27, dir: -1 }],
+    fog: '#A8B4BE', skyTint: '#CBD6DE', gndTint: '#5A5F63', fogDist: 240,
+    light: [0.30, 0.86, 0.42], fielderSpeed: 0.94,
+    quirk: '車は止まらない。当たった打球は生きたまま転がる',
+    cardColors: ['#5C6268', '#E4E7EA', '#E8B23A'],
+    build() {
+      const S = new Scene();
+      S.plate(0, 0, 40, 420, 420, '#54595E');
+      // lane markings down the middle of the field
+      for (let z = -14; z < 130; z += 8) S.box(0, 0.012, z, 0.5, 0.02, 4.6, '#E8E8DE');
+      for (const s of [-1, 1]) {
+        S.box(s * 26, 0.012, 45, 0.34, 0.02, 190, '#E8E8DE');
+        S.box(s * 35, 0.16, 45, 7.0, 0.32, 210, '#8E9298');   // sidewalk
+        S.box(s * 31.4, 0.2, 45, 0.4, 0.42, 210, '#B9BDC1');  // curb
+      }
+      addDiamond(S, { dirt: '#6C7177', chalk: '#F0EDE4', foulLen: fenceAt(this, 45) });
+      // buildings on both sides — these are the outfield walls
+      const bc = ['#8C7F72', '#7A8A93', '#9A8577', '#6F7C86', '#A0907F'];
+      for (const s of [-1, 1]) {
+        for (let z = -18; z < 140; z += 13) {
+          const h = rnd(14, 34), w = rnd(10, 12.4), x = s * (40 + rnd(0, 2.5));
+          const c = pick(bc);
+          S.box(x, h / 2, z, w, h, 11, c);
+          for (let fy = 3; fy < h - 2; fy += 3.4)
+            for (let fx = -1; fx <= 1; fx++)
+              S.box(x - s * 5.6, fy, z + fx * 3.4, 0.3, 1.5, 1.9, chance(0.3) ? '#FFE9AE' : '#3C4C58');
+          S.box(x, h + 0.4, z, w + 0.7, 0.8, 11.7, shade(c, 0.8));
+        }
+      }
+      // the road ducks under the overpass; cars appear and vanish in the mouth
+      S.box(0, 3.1, 87.2, 56, 6.2, 0.5, '#1B2026');
+      S.box(0, 6.4, 87.0, 58, 0.7, 1.0, '#5B6167');
+      for (let i = -3; i <= 3; i++) S.box(i * 8, 6.9, 87.0, 1.4, 0.5, 0.9, '#E8C23A');
+      // overpass wall straight ahead = centre-field fence
+      S.box(0, 5, 88, 84, 10, 2, '#7E8489');
+      S.box(0, 10.6, 88, 84, 1.4, 3.2, '#666C71');
+      for (let i = -5; i <= 5; i++) S.box(i * 7.6, 12, 88, 1.2, 2.6, 3.6, '#565C61');
+      S.box(0, 3.4, 87, 26, 3.0, 0.3, '#2C5FA8');
+      S.box(0, 3.4, 86.8, 22, 2.2, 0.2, '#EDF1F4');
+      // parked cars along the sidewalks + traffic lights
+      for (let z = -10; z < 120; z += 22) {
+        addCar(S, -29, z, 0, pick(['#D9483B', '#3E6FBF', '#EFEFEF', '#2E3B45', '#E8B23A']));
+        addCar(S, 29, z + 11, Math.PI, pick(['#48A96B', '#EFEFEF', '#B44D8C', '#3E6FBF']));
+      }
+      for (const s of [-1, 1]) {
+        S.cyl(s * 32, 3, 30, 0.16, 6, '#4A555F');
+        S.box(s * 32, 6.2, 30, 0.7, 1.9, 0.5, '#2C3841');
+        S.sph(s * 32, 6.7, 29.7, 0.2, '#E85A3A'); S.sph(s * 32, 6.2, 29.7, 0.2, '#E8C23A'); S.sph(s * 32, 5.7, 29.7, 0.2, '#5ECB7A');
+        S.cyl(s * 32.6, 1.7, 62, 0.13, 3.4, '#4A555F');
+        S.box(s * 32.6, 3.6, 62, 1.5, 1.1, 0.2, '#2E7D4F');
+      }
+      return S;
+    },
+  },
+
+  /* ---------------------------------------------------- 3 */
+  {
+    id: 'market', name: 'スーパーおおぞら 店内', tag: 'INDOOR',
+    desc: '天井が10.5mしかない。高く上げた打球は天井に当たって落ちてくるので、冷凍ケースの壁（中堅62m）を越えたければ低いライナーで運ぶしかない。通路を歩く買い物客にぶつかると転ばされる。',
+    gravity: 9.8, fenceCenter: 62, fenceLine: 48, fenceH: 3.4, ceiling: 10.5,
+    fog: '#A9B0A8', skyTint: '#D6DBD2', gndTint: '#79807A', fogDist: 300,
+    light: [0.18, 0.94, 0.28], fielderSpeed: 0.84,
+    lanes: [{ x: -25, dir: 1, walk: 1 }, { x: 25, dir: -1, walk: 1 },
+            { x: -17, dir: -1, walk: 1 }, { x: 17, dir: 1, walk: 1 },
+            { x: -9, dir: -1, walk: 1 }, { x: 9, dir: 1, walk: 1 }],
+    laneZ: [-16, 74],
+    quirk: '天井10.5m。買い物客とぶつかると倒される',
+    cardColors: ['#E4E6DE', '#E8734A', '#5FB6C4'],
+    build() {
+      const S = new Scene();
+      // tiled floor
+      for (let x = -6; x <= 6; x++) for (let z = -2; z <= 10; z++)
+        S.plate(x * 8, 0, z * 8, 8, 8, (x + z) % 2 ? '#B5AE9E' : '#A29A89');
+      // vinyl guide stripes, like a real shop floor
+      for (let z = -16; z < 100; z += 24) S.plate(0, 0.008, z, 104, 1.2, '#6F8C86');
+      addDiamond(S, { dirt: '#C2A155', chalk: '#FFFFFF', foulLen: fenceAt(this, 45) });
+      // ceiling + light panels + ducts
+      S.plate(0, 10.5, 40, 230, 230, '#9BA29B');
+      for (let x = -4; x <= 4; x++) for (let z = 0; z <= 8; z++)
+        S.box(x * 13, 10.3, z * 11 - 8, 9.4, 0.3, 1.2, '#FFF8DC');
+      for (let x = -3; x <= 3; x += 3) S.box(x * 13, 9.7, 40, 1.6, 1.0, 140, '#AAB0AC');
+      // side walls
+      for (const s of [-1, 1]) {
+        S.box(s * 54, 5.25, 40, 1.0, 10.5, 160, '#C9CEC4');
+        for (let z = -10; z < 110; z += 16) S.box(s * 53.2, 2.4, z, 0.4, 4.8, 9, pick(['#5FB6C4', '#E8B23A', '#E8734A']));
+      }
+      // back wall = freezer cases (the outfield fence)
+      addFenceArc(S, this, '#B9C6C9', '#8FA2A8');
+      for (let i = -4; i <= 4; i++) {
+        const [x, z] = polar(i * 10, fenceAt(this, i * 10) + 2.4);
+        S.box(x, 2.4, z, 7.4, 4.8, 2.4, '#C9D6D8', i * 10 * DEG);
+        S.box(x, 2.6, z - 1.2, 6.4, 3.6, 0.2, '#7FB8C4', i * 10 * DEG);
+        S.box(x, 5.4, z, 7.4, 1.0, 2.6, '#5FB6C4', i * 10 * DEG);
+      }
+      // shelf aisles in the outfield — outfielders have to run around them
+      const goods = ['#E8734A', '#F2C14E', '#7FB3D5', '#8ED0A8', '#C97BA0', '#E4E1D6'];
+      for (const [sx, sz, len, rot] of [[-32, 34, 16, 0], [32, 34, 16, 0], [-17, 52, 13, 0], [17, 52, 13, 0], [0, 50, 15, Math.PI / 2]]) {
+        for (let i = -len / 2; i < len / 2; i += 2) {
+          const dx = rot ? i : 0, dz = rot ? 0 : i;
+          S.box(sx + dx, 1.1, sz + dz, rot ? 2.0 : 3.0, 2.2, rot ? 3.0 : 2.0, '#77807C');
+          for (let t = 0; t < 3; t++)
+            S.box(sx + dx, 0.5 + t * 0.72, sz + dz + (rot ? 0 : 1.05), rot ? 1.8 : 2.6, 0.5, rot ? 2.6 : 0.4, pick(goods));
+        }
+      }
+      // checkout lanes behind home plate
+      for (let i = -2; i <= 2; i++) {
+        S.box(i * 6, 0.5, -14, 4.4, 1.0, 2.4, '#D8CFC0');
+        S.box(i * 6 + 1.6, 1.3, -14, 1.0, 0.7, 1.4, '#465059');
+        S.cyl(i * 6 - 1.8, 1.6, -14, 0.12, 3.2, '#8E9298');
+        S.box(i * 6 - 1.8, 3.3, -14, 1.4, 0.9, 0.2, '#E8B23A');
+      }
+      S.box(0, 7.6, -22, 26, 2.4, 0.5, '#E8734A');
+      S.box(0, 7.6, -22.4, 22, 1.4, 0.3, '#FFF8E8');
+      return S;
+    },
+  },
+
+  /* ---------------------------------------------------- 4 */
+  {
+    id: 'river', name: '河川敷グラウンド', tag: 'NO FENCE',
+    desc: 'フェンスなし。抜けたら止まるまで走れるのでランニングホームランが出る。川まで届けば文句なしの一発。',
+    gravity: 9.8, fenceCenter: 112, fenceLine: 96, fenceH: 0, ceiling: 0,
+    fog: '#C6D3B8', skyTint: '#DCEAF2', gndTint: '#7A8A5C', fogDist: 300,
+    light: [-0.36, 0.82, 0.44], fielderSpeed: 1.0,
+    quirk: 'フェンスなし。長打はランニングホームランになりうる',
+    cardColors: ['#A8A06C', '#6FA8C4', '#7FA24E'],
+    build() {
+      const S = new Scene();
+      S.plate(0, 0, 40, 460, 460, '#8B9455');
+      for (let i = -5; i <= 8; i++) S.plate(rnd(-60, 60), 0.006, i * 18, rnd(14, 34), rnd(8, 16), '#7C8A4C');
+      addDiamond(S, { dirt: '#B08A56', chalk: '#EFEDE0', fill: 1,
+        ground: '#8B9455', foulLen: fenceAt(this, 45) });
+      // river across the back
+      S.plate(0, 0.2, 150, 460, 66, '#5E93B8');
+      for (let i = 0; i < 30; i++) S.plate(rnd(-150, 150), 0.24, rnd(126, 176), rnd(6, 16), rnd(1.2, 2.6), '#7FB2D2');
+      S.box(0, 0.55, 117, 460, 1.1, 6, '#8A8A6E');   // levee path
+      S.box(0, 1.6, 121, 460, 1.0, 1.4, '#C8C4A8');  // rail
+      // bridge in the distance
+      S.box(64, 8, 150, 12, 1.6, 80, '#9AA0A6');
+      for (const z of [128, 150, 172]) { S.cyl(60, 4, z, 1.4, 8, '#8A9098'); S.cyl(68, 4, z, 1.4, 8, '#8A9098'); }
+      for (let i = 0; i < 9; i++) S.box(64, 11, 118 + i * 9, 12.6, 5, 0.6, '#B4BAC0');
+      // trees, benches, bikes along the sides
+      for (let i = 0; i < 26; i++) {
+        const s = i % 2 ? 1 : -1;
+        addTree(S, s * rnd(62, 108), rnd(-24, 128), rnd(6, 11), pick(['#5E8A3E', '#6E9A46', '#4E7A36']));
+      }
+      for (let i = 0; i < 5; i++) {
+        const x = -54 - i * 3, z = -14 + i * 16;
+        S.box(x, 0.46, z, 3.4, 0.16, 1.0, '#8A6A46'); S.box(x, 0.86, z - 0.42, 3.4, 0.8, 0.16, '#8A6A46');
+        S.cyl(x - 1.3, 0.24, z, 0.1, 0.48, '#5A5A5A'); S.cyl(x + 1.3, 0.24, z, 0.1, 0.48, '#5A5A5A');
+      }
+      for (let i = 0; i < 8; i++) {
+        const x = 50 + i * 2.2, z = -6;
+        S.add('cyl', x, 0.62, z, Math.PI / 2, 0, 0, 1.24, 0.1, 1.24, col('#3C3C3C'));
+        S.add('cyl', x, 0.62, z + 1.5, Math.PI / 2, 0, 0, 1.24, 0.1, 1.24, col('#3C3C3C'));
+        S.box(x, 1.0, z + 0.75, 0.16, 0.7, 1.7, pick(['#C4483A', '#3E6FBF', '#4E8A5E']));
+      }
+      S.box(-40, 2.4, -20, 0.3, 4.8, 12, '#B0B4B8'); // backstop netting posts
+      S.box(40, 2.4, -20, 0.3, 4.8, 12, '#B0B4B8');
+      return S;
+    },
+  },
+
+  /* ---------------------------------------------------- 5 */
+  {
+    id: 'moon', name: '月面クレーター球場', tag: 'LOW GRAVITY',
+    desc: '重力は地球のおよそ半分。打球はよく伸びるがフェンスも中堅176mと遠く、滞空時間が1.4倍になるぶんフライは外野に追いつかれやすい。',
+    gravity: 5.4, fenceCenter: 176, fenceLine: 146, fenceH: 3.0, ceiling: 0,
+    fog: '#1B2230', skyTint: '#3E4C66', gndTint: '#5A5A5E', fogDist: 560,
+    light: [0.52, 0.72, 0.46], fielderSpeed: 0.9,
+    quirk: '低重力。飛距離も滞空時間も伸びる',
+    cardColors: ['#8E8E94', '#1B2230', '#C8D4E8'],
+    build() {
+      const S = new Scene();
+      S.plate(0, 0, 40, 700, 700, '#83838C');
+      for (let i = 0; i < 110; i++) {
+        const x = rnd(-280, 280), z = rnd(-70, 320);
+        if (dist2(x, z, 0, 19.4) < 30) continue;    // keep the diamond clear
+        const r = rnd(2.5, 16);
+        S.ring(x, 0.02, z, r, '#63636B'); S.ring(x, 0.03, z, r * 0.7, '#8E8E97');
+      }
+      for (let i = 0; i < 70; i++) {                 // scattered rocks
+        const x = rnd(-160, 160), z = rnd(-40, 220);
+        if (dist2(x, z, 0, 19.4) < 26) continue;
+        const r = rnd(0.5, 2.2);
+        S.sph(x, r * 0.4, z, r, i % 3 ? '#72727A' : '#8A8A93');
+      }
+      addDiamond(S, { dirt: '#9A9AA2', chalk: '#E8ECF4', fill: 1,
+        ground: '#83838C', foulLen: fenceAt(this, 45) });
+      addFenceArc(S, this, '#3E4658', '#96A2B8');
+      // stars
+      for (let i = 0; i < 150; i++) {
+        const a = rnd(-Math.PI, Math.PI), e = rnd(0.08, 0.9), d = 700;
+        S.sph(Math.sin(a) * Math.cos(e) * d, Math.sin(e) * d + 10, Math.cos(a) * Math.cos(e) * d, rnd(0.8, 2.4), '#E8EEFA');
+      }
+      // Earth hanging over centre field
+      S.sph(-66, 158, 560, 48, '#3E6FA8');
+      S.sph(-86, 172, 520, 19, '#5E9A5E'); S.sph(-36, 136, 526, 16, '#5E9A5E');
+      S.sph(-56, 186, 522, 12, '#E4EAF2'); S.sph(-78, 130, 528, 11, '#E4EAF2');
+      // base modules + rovers
+      for (const a of [-62, 62]) {
+        const [x, z] = polar(a, 218);
+        S.cyl(x, 4, z, 8, 8, '#C4C8D2'); S.add('dome', x, 8, z, 0, 0, 0, 16, 10, 16, col('#D6DAE4'));
+        S.cyl(x + 12, 3, z + 6, 1.0, 6, '#9AA0AC');
+        S.box(x + 12, 6.6, z + 6, 5, 0.4, 5, '#2E3A4E');
+      }
+      S.cyl(0, 6, 206, 0.4, 12, '#B4BAC6');
+      S.box(1.9, 11, 206, 3.6, 2.2, 0.12, '#D94A3A');
+      return S;
+    },
+  },
+];
+
+const stadiumById = (id) => STADIUMS.find((s) => s.id === id);
+
+/* ---------- fielder stations, derived from the park ---------- */
+const POS_DEF = [
+  { k: 'P',  a: 0,   d: () => 18.44,          nm: '投手',   sn: 'ピッチャー' },
+  { k: 'C',  a: 0,   d: () => -3.4,           nm: '捕手',   sn: 'キャッチャー' },
+  { k: '1B', a: -38, d: () => 27,             nm: '一塁手', sn: 'ファースト' },
+  { k: '2B', a: -20, d: () => 36,             nm: '二塁手', sn: 'セカンド' },
+  { k: 'SS', a: 20,  d: () => 36,             nm: '遊撃手', sn: 'ショート' },
+  { k: '3B', a: 38,  d: () => 27,             nm: '三塁手', sn: 'サード' },
+  { k: 'LF', a: 30,  d: (st) => fenceAt(st, 30) * 0.76,  nm: '左翼手', sn: 'レフト' },
+  { k: 'CF', a: 0,   d: (st) => fenceAt(st, 0) * 0.78,   nm: '中堅手', sn: 'センター' },
+  { k: 'RF', a: -30, d: (st) => fenceAt(st, -30) * 0.76, nm: '右翼手', sn: 'ライト' },
+];
+
+function stationsFor(st) {
+  return POS_DEF.map((p) => {
+    const d = p.d(st);
+    const [x, z] = polar(p.a, Math.abs(d));
+    return { k: p.k, nm: p.nm, sn: p.sn, x, z: d < 0 ? d : z, infield: ['P', 'C', '1B', '2B', 'SS', '3B'].includes(p.k) };
+  });
+}
+/* ============================================================
+   30-actors.js — deformed animal players, bats, gloves, the ball
+   ============================================================ */
+'use strict';
+
+/* local(character) -> world, given a yaw frame */
+function yawFrame(x, z, ry) { return { x, z, ry, c: Math.cos(ry), s: Math.sin(ry), t: 0 }; }
+function L2W(f, lx, lz) { return [f.x + lx * f.c + lz * f.s, f.z - lx * f.s + lz * f.c]; }
+
+/* f.t tips the whole body about its hips — used when a car flattens someone */
+function part(f, prim, lx, ly, lz, sx, sy, sz, c, rx, rz) {
+  let Y = ly, Z = lz;
+  if (f.t) {
+    const dy = ly - f.pivot;
+    Y = f.pivot + dy * f.ct - lz * f.st;
+    Z = dy * f.st + lz * f.ct;
+  }
+  const [wx, wz] = L2W(f, lx, Z);
+  R.d(prim, wx, Y, wz, (rx || 0) + f.t, f.ry, rz || 0, sx, sy, sz, c);
+}
+
+/* a limb hanging from a joint, rotated by rx (swing) and rz (splay) */
+function limb(f, jx, jy, jz, rx, rz, len, rad, c, endC, endS, flat) {
+  const cz = Math.cos(rz), sz = Math.sin(rz), cx = Math.cos(rx), sx = Math.sin(rx);
+  const dx = sz, dy = -cx * cz, dz = -sx * cz;
+  part(f, 'cyl', jx + dx * len * 0.5, jy + dy * len * 0.5, jz + dz * len * 0.5,
+       rad * 2, len, rad * 2, c, rx, rz);
+  if (endC === null) return [jx + dx * len, jy + dy * len, jz + dz * len];
+  if (endC) {
+    const s = endS || rad * 2.5;
+    if (flat) part(f, 'rbox', jx + dx * len, jy + dy * len - s * 0.08, jz + dz * len + s * 0.16,
+                   s * 0.92, s * 0.66, s * 1.34, endC, rx, rz);
+    else part(f, 'sphere', jx + dx * len, jy + dy * len, jz + dz * len, s, s * 0.9, s, endC);
+  }
+  return [jx + dx * len, jy + dy * len, jz + dz * len];
+}
+
+/* Two-bone IK in world space: the hand lands exactly on the target, so whatever
+   it is holding stays held. Cartoon arms stretch rather than fall short. */
+function armIK(sx, sy, sz, hx, hy, hz, L1, L2, pole, rad, c, handC) {
+  let dx = hx - sx, dy = hy - sy, dz = hz - sz;
+  let d = Math.hypot(dx, dy, dz) || 1e-4;
+  if (d > (L1 + L2) * 0.995) {
+    // cartoon arms give a little, but never more than a third of their length;
+    // past that the hand is pulled in rather than the limb turned into a pole
+    const need = d / (L1 + L2);
+    const give = Math.min(need, 1.32);
+    L1 *= give * 1.02; L2 *= give * 1.02;
+    if (need > 1.32) {
+      const k = ((L1 + L2) * 0.995) / d;
+      hx = sx + dx * k; hy = sy + dy * k; hz = sz + dz * k;
+      dx *= k; dy *= k; dz *= k; d *= k;
+    }
+  }
+  const ux = dx / d, uy = dy / d, uz = dz / d;
+  const a = clamp((d * d + L1 * L1 - L2 * L2) / (2 * d), -L1, L1);
+  const h = Math.sqrt(Math.max(0, L1 * L1 - a * a));
+  // project the pole hint onto the plane perpendicular to the shoulder->hand axis
+  let px = pole[0], py = pole[1], pz = pole[2];
+  const dot = px * ux + py * uy + pz * uz;
+  px -= ux * dot; py -= uy * dot; pz -= uz * dot;
+  let pl = Math.hypot(px, py, pz);
+  if (pl < 1e-4) { px = -ux * uy; py = 1 - uy * uy; pz = -uz * uy; pl = Math.hypot(px, py, pz) || 1; }
+  px /= pl; py /= pl; pz /= pl;
+  const ex = sx + ux * a + px * h, ey = sy + uy * a + py * h, ez = sz + uz * a + pz * h;
+  R.seg('cyl', sx, sy, sz, ex, ey, ez, rad, c);
+  R.seg('cyl', ex, ey, ez, hx, hy, hz, rad * 0.9, c);
+  R.b('sphere', ex, ey, ez, rad * 2, rad * 2, rad * 2, c);
+  if (handC !== null) R.b('sphere', hx, hy, hz, rad * 2.2, rad * 2.1, rad * 2.2, handC || c);
+  return [hx, hy, hz];
+}
+
+/* ---------- animal species ---------- */
+/* hw/hh/hd scale the head; muz is the size of the muzzle; brow adds the drawn
+   eyebrow strokes; earR/earX/earY place the ears. */
+const ANIMALS = {
+  bear:    { ink: 0.022, ear: 'round', fur: '#96683F', fur2: '#DFC49B', tail: 'nub',
+             head: 'rbox', hw: 1.16, hh: 1.08, hd: 1.00,
+             muz: [0.56, 0.365, 0.33], muzY: -0.135, muzZ: 0.230, noseR: 0.105,
+             brow: 1, earR: 0.245, earX: 0.325, earY: 0.315, earD: 0.60,
+             eyeX: 0.152, eyeW: 0.132, eyeH: 0.104 },
+
+  rabbit:  { ink: 0.022, ear: 'long', fur: '#F0EAE0', fur2: '#F6D7DA', tail: 'puff',
+             head: 'rbox', hw: 0.99, hh: 1.10, hd: 0.94,
+             muz: [0.34, 0.235, 0.24], muzY: -0.135, muzZ: 0.245,
+             noseR: 0.082, noseC: '#D9808F', cheek: 0.19,
+             earR: 0.165, earX: 0.145, earY: 0.50, earLen: 0.64, earIn: '#F6D7DA',
+             eyeX: 0.166, eyeW: 0.124, eyeH: 0.124 },
+
+  cat:     { ink: 0.022, ear: 'point', fur: '#E0A44F', fur2: '#F7EDDD', tail: 'long',
+             head: 'rbox', hw: 1.10, hh: 0.98, hd: 0.94,
+             muz: [0.46, 0.255, 0.26], muzY: -0.125, muzZ: 0.245,
+             noseR: 0.085, noseC: '#C2705E', whisk: 1,
+             earR: 0.255, earX: 0.235, earY: 0.36, earT: 0.26,
+             eyeX: 0.156, eyeW: 0.145, eyeH: 0.100, eyeTilt: 0.16 },
+
+  frog:    { ink: 0.022, ear: 'toad', fur: '#7DC163', fur2: '#E8F0C8', tail: 'none',
+             head: 'rbox', hw: 1.24, hh: 0.86, hd: 1.02,
+             noFaceEyes: 1, mouth: 1,
+             earR: 0.285, earX: 0.275, earY: 0.13, earZ: 0.24 },
+
+  penguin: { ink: 0.022, ear: 'none', fur: '#2E3B4A', fur2: '#F4F1E6', tail: 'nub',
+             beak: '#F2A93B', head: 'sphere', hw: 1.02, hh: 1.08, hd: 0.98,
+             facePatch: [0.54, 0.58, 0.30],
+             eyeX: 0.138, eyeW: 0.104, eyeH: 0.104 },
+
+  fox:     { ink: 0.022, ear: 'point', fur: '#D96F3A', fur2: '#F6EFE2', tail: 'bushy',
+             head: 'rbox', hw: 1.04, hh: 0.96, hd: 1.08,
+             muz: [0.33, 0.235, 0.46], muzY: -0.115, muzZ: 0.30, noseR: 0.082,
+             cheek: 0.21, cheekC: '#F6EFE2',
+             earR: 0.275, earX: 0.255, earY: 0.38, earT: 0.22, earTip: '#3C2A20',
+             eyeX: 0.156, eyeW: 0.140, eyeH: 0.098, eyeTilt: 0.20 },
+
+  panda:   { ink: 0.022, ear: 'round', fur: '#F0EDE6', fur2: '#2C3138', tail: 'nub', patch: 1,
+             head: 'rbox', hw: 1.12, hh: 1.04, hd: 0.98,
+             muz: [0.44, 0.28, 0.28], muzY: -0.13, muzZ: 0.24, noseR: 0.10,
+             earR: 0.25, earX: 0.32, earY: 0.315, earD: 0.60, earC: '#2C3138',
+             eyeX: 0.166, eyeW: 0.135, eyeH: 0.110 },
+
+  hippo:   { ink: 0.022, ear: 'round', fur: '#9E86C4', fur2: '#D8C9EC', tail: 'nub', big: 1,
+             head: 'rbox', hw: 1.18, hh: 0.92, hd: 1.02,
+             muz: [0.62, 0.36, 0.38], muzY: -0.115, muzZ: 0.24, noseR: 0.072, nostril: 1,
+             earR: 0.165, earX: 0.34, earY: 0.30, earD: 0.60,
+             eyeX: 0.186, eyeW: 0.115, eyeH: 0.095 },
+};
+
+const EYE = '#22282F', SHINE = '#FFFFFF';
+
+/* pose: { armL, armR, legL, legR, lean, bob, ry } — all radians */
+const IDLE = { armL: 0.12, armR: -0.12, legL: 0, legR: 0, lean: 0, bob: 0 };
+
+/* run `draw` once as an ink shell and once as the fill, for species drawn in
+   the line-art style */
+function inked(look, draw) {
+  const A = ANIMALS[look.animal];
+  if (A && A.ink && R.inkW === 0) { R.ink(A.ink); draw(); R.ink(0); }
+  draw();
+}
+
+function drawAnimal(x, z, ry, look, pose, y0) {
+  const A = ANIMALS[look.animal];
+  if (A.ink && R.inkW === 0) {                  // outline shell first
+    R.ink(A.ink);
+    drawAnimal(x, z, ry, look, pose, y0);
+    R.ink(0);
+  }
+  const p = pose || IDLE;
+  const f = yawFrame(x, z, ry);
+  const y = (y0 || 0) + (p.bob || 0);
+  if (p.fall) { f.t = p.fall; f.ct = Math.cos(p.fall); f.st = Math.sin(p.fall); f.pivot = y + 0.34; }
+  const big = A.big ? 1.12 : 1;
+  const fur = col(A.fur), fur2 = col(A.fur2);
+  const uni = col(look.uni), trim = col(look.trim), cap = col(look.cap);
+
+  shadow(x, z, (p.fall ? 0.72 : 0.44) * big, 0.34);
+
+  // legs (local -x is the character's right side, +x their left)
+  const sp = p.spread || 0;
+  const pant = shade(look.uni, 0.93), shoe = shade(look.cap, 0.66);
+  limb(f, -(0.155 * big + sp), y + 0.44, 0, p.legL || 0, -0.04, 0.36, 0.12, pant, shoe, 0.30, 1);
+  limb(f, 0.155 * big + sp, y + 0.44, 0, p.legR || 0, 0.04, 0.36, 0.12, pant, shoe, 0.30, 1);
+
+  // torso
+  part(f, 'sphere', 0, y + 0.74, 0, 0.66 * big, 0.70, 0.56 * big, uni, p.lean || 0);
+  part(f, 'sphere', 0, y + 0.97, 0.01, 0.50, 0.14, 0.45, trim);   // jersey collar
+  part(f, 'box', 0, y + 0.72, 0.185, 0.075, 0.42, 0.05, trim);  // button placket
+  // pinstripes down the front, and the belt at the waist
+  const stripe = shade(look.uni, 0.80);
+  for (const i of [-2, -1, 1, 2]) {
+    const px = i * 0.098 * big;
+    const k = Math.max(0, 1 - (px / (0.34 * big)) ** 2);
+    part(f, 'box', px, y + 0.74, 0.28 * big * Math.sqrt(k) - 0.01, 0.026, 0.34, 0.035, stripe);
+  }
+  part(f, 'sphere', 0, y + 0.515, 0.02, 0.60 * big, 0.10, 0.50 * big, shade(look.cap, 0.85));
+
+  // arms — either swung by rotation, or aimed at a world-space grip
+  const shY = y + 0.94;
+  let hl, hr;
+  if (p.handL || p.handR) {
+    // reaching arms hang off narrower shoulders and get a longer bone pair, so
+    // the front arm can cross the chest to the knob without rubber-banding
+    const SH = 0.17 * big, BONE = 0.32;
+    const [slx, slz] = L2W(f, -SH, 0);
+    const [srx, srz] = L2W(f, SH, 0);
+    const poleL = p.pole || [0, -1, 0], poleR = p.pole || [0, -1, 0];
+    const hand = p.gloveC ? col(p.gloveC) : fur;
+    hl = p.handL
+      ? armIK(slx, shY, slz, p.handL[0], p.handL[1], p.handL[2], BONE, BONE, poleL, 0.075, uni,
+              p.noPawL ? null : hand)
+      : limb(f, -0.33 * big, shY, 0, p.armL || 0, -0.30, 0.34, 0.112, uni, fur, 0.27);
+    hr = p.handR
+      ? armIK(srx, shY, srz, p.handR[0], p.handR[1], p.handR[2], BONE, BONE, poleR, 0.075, uni,
+              p.noPawR ? null : hand)
+      : limb(f, 0.33 * big, shY, 0, p.armR || 0, 0.30, 0.34, 0.112, uni,
+             p.noPawR ? null : fur, 0.27);
+  } else {
+    hl = limb(f, -0.33 * big, shY, 0, p.armL || 0, -0.30, 0.34, 0.112, uni,
+              p.noPawL ? null : fur, 0.27);
+    hr = limb(f, 0.33 * big, shY, 0, p.armR || 0, 0.30, 0.34, 0.112, uni,
+              p.noPawR ? null : fur, 0.27);
+  }
+
+  // head — may be turned independently of the body (a batter watching the ball)
+  const fh = p.headRy ? yawFrame(x, z, ry + p.headRy) : f;
+  const hy = y + 1.34;
+  const HW = A.hw || 1, HH = A.hh || 1, HD = A.hd || 1;
+  const hzF = 0.32 * HD + 0.02;                 // where the front of the face is
+  part(fh, A.head || 'sphere', 0, hy, 0.02, 0.68 * big * HW, 0.66 * HH, 0.64 * big * HD, fur);
+
+  if (A.patch) {                                // panda mask
+    for (const s of [-1, 1])
+      part(fh, 'sphere', s * 0.17, hy + 0.08, hzF - 0.07, 0.27, 0.29, 0.16, fur2);
+  }
+  if (A.facePatch) {                            // the penguin's white face
+    const fp = A.facePatch;
+    part(fh, 'sphere', 0, hy - 0.02, hzF - 0.10, fp[0], fp[1], fp[2], fur2);
+  }
+  if (A.cheek) {                                // fluffy cheeks
+    for (const s of [-1, 1])
+      part(fh, 'sphere', s * 0.29, hy - 0.09, 0.09, A.cheek, A.cheek * 0.94, A.cheek * 0.88,
+           A.cheekC ? col(A.cheekC) : fur2);
+  }
+
+  if (A.beak) {
+    part(fh, 'cone', 0, hy - 0.045, hzF - 0.03, 0.27, 0.32, 0.27, col(A.beak), -Math.PI / 2);
+    part(fh, 'box', 0, hy - 0.045, hzF + 0.07, 0.19, 0.022, 0.16, shade(A.beak, 0.62));
+  } else if (A.muz) {
+    const mz = A.muz, my = hy + (A.muzY === undefined ? -0.09 : A.muzY);
+    const mzz = A.muzZ === undefined ? 0.26 : A.muzZ;
+    part(fh, 'sphere', 0, my, mzz, mz[0], mz[1], mz[2], fur2);
+    const nr = A.noseR || 0.11;
+    if (A.nostril) {
+      for (const s of [-1, 1])
+        part(fh, 'sphere', s * mz[0] * 0.24, my + mz[1] * 0.28, mzz + mz[2] * 0.40,
+             nr, nr * 0.90, nr * 0.60, col('#3A3040'));
+    } else {
+      part(fh, 'sphere', 0, my + mz[1] * 0.40, mzz + mz[2] * 0.40,
+           nr, nr * 0.74, nr * 0.72, col(A.noseC || '#33291F'));
+    }
+    if (A.whisk) for (const s of [-1, 1]) for (let i = 0; i < 3; i++)
+      part(fh, 'box', s * (mz[0] * 0.60 + 0.13), my + 0.02 + (i - 1) * 0.05, mzz + 0.03,
+           0.28, 0.017, 0.017, col('#6B5A48'), 0, s * ((i - 1) * 0.24 + 0.05));
+  }
+  if (A.mouth) {                                // the frog's wide grin
+    for (const s of [-1, 1])
+      part(fh, 'box', s * 0.17, hy - 0.16, hzF - 0.02, 0.36, 0.036, 0.07,
+           shade(A.fur, 0.42), 0, s * -0.11);
+  }
+
+  // eyes, with the drawn brow line above them
+  if (!A.noFaceEyes) {
+    const ex = A.eyeX || 0.150, ew = A.eyeW || 0.140, eh = A.eyeH || 0.115;
+    const et = A.eyeTilt || 0;
+    for (const s of [-1, 1]) {
+      part(fh, 'sphere', s * ex, hy + 0.098, hzF - 0.025, ew, eh, 0.085, col('#F6F1E6'), 0, s * et);
+      part(fh, 'sphere', s * ex - s * 0.008, hy + 0.094, hzF + 0.012,
+           ew * 0.60, eh * 0.74, 0.058, col(EYE), 0, s * et);
+      part(fh, 'sphere', s * ex + 0.024, hy + 0.118, hzF + 0.028, 0.034, 0.034, 0.028, col(SHINE));
+      if (A.brow)
+        part(fh, 'box', s * ex, hy + 0.205, hzF - 0.030, 0.215, 0.040, 0.085,
+             shade(A.fur, 0.34), 0, s * 0.16);
+    }
+  }
+
+  // ears
+  const earC = A.earC ? col(A.earC) : fur;
+  if (A.ear === 'round') {
+    const er = A.earR || 0.26, exx = A.earX || 0.26, eyy = A.earY || 0.26, ed = A.earD || 0.77;
+    for (const s of [-1, 1]) {
+      part(fh, 'sphere', s * exx, hy + eyy, -0.02, er, er, er * ed, earC);
+      part(fh, 'sphere', s * exx, hy + eyy + 0.01, 0.04, er * 0.55, er * 0.55, er * 0.50, fur2);
+    }
+  }
+  if (A.ear === 'point') {
+    const er = A.earR || 0.26, exx = A.earX || 0.21, eyy = A.earY || 0.34, tl = A.earT || 0.22;
+    for (const s of [-1, 1]) {
+      part(fh, 'cone', s * exx, hy + eyy, -0.02, er, er * 1.30, er * 0.76, earC, 0, s * tl);
+      part(fh, 'cone', s * exx, hy + eyy - 0.01, 0.035, er * 0.52, er * 0.86, er * 0.42, fur2, 0, s * tl);
+      if (A.earTip)
+        part(fh, 'cone', s * (exx + er * 0.32), hy + eyy + er * 0.46, -0.02,
+             er * 0.60, er * 0.50, er * 0.46, col(A.earTip), 0, s * tl);
+    }
+  }
+  if (A.ear === 'long') {
+    const er = A.earR || 0.17, exx = A.earX || 0.15, eyy = A.earY || 0.44, el = A.earLen || 0.56;
+    for (const s of [-1, 1]) {
+      part(fh, 'sphere', s * exx, hy + eyy, -0.03, er, el, er * 0.85, fur, 0, s * 0.20);
+      part(fh, 'sphere', s * (exx + 0.012), hy + eyy + 0.01, 0.025,
+           er * 0.54, el * 0.72, er * 0.50, A.earIn ? col(A.earIn) : fur2, 0, s * 0.20);
+    }
+  }
+  if (A.ear === 'toad') {
+    const er = A.earR || 0.28, exx = A.earX || 0.19, eyy = A.earY || 0.26;
+    const ez = A.earZ === undefined ? 0.05 : A.earZ;
+    for (const s of [-1, 1]) {
+      part(fh, 'sphere', s * exx, hy + eyy, ez, er, er, er * 0.92, fur);
+      part(fh, 'sphere', s * exx, hy + eyy + 0.02, ez + 0.11, er * 0.66, er * 0.66, er * 0.46, col('#F6F1E6'));
+      part(fh, 'sphere', s * exx - s * 0.014, hy + eyy + 0.02, ez + 0.15,
+           er * 0.34, er * 0.42, er * 0.28, col(EYE));
+      part(fh, 'sphere', s * exx + 0.05, hy + eyy + 0.09, ez + 0.17, 0.036, 0.036, 0.030, col(SHINE));
+    }
+  }
+  // tail
+  if (A.tail === 'puff') part(f, 'sphere', 0, y + 0.66, -0.30, 0.24, 0.24, 0.24, fur2);
+  if (A.tail === 'nub') part(f, 'sphere', 0, y + 0.60, -0.30, 0.16, 0.16, 0.16, fur);
+  if (A.tail === 'long') part(f, 'sphere', 0, y + 0.78, -0.36, 0.14, 0.44, 0.14, fur, 0.5);
+  if (A.tail === 'bushy') {
+    part(f, 'sphere', 0, y + 0.72, -0.38, 0.26, 0.46, 0.26, fur, 0.6);
+    part(f, 'sphere', 0, y + 0.94, -0.50, 0.20, 0.20, 0.20, fur2);
+  }
+  // headwear: a batting helmet at the plate and on the bases, otherwise a cap
+  if (p.noHat) { /* a shopper, not a ballplayer */ }
+  else if (p.helmet) {
+    part(fh, 'dome', 0, hy + 0.27, 0.01, 0.80 * big, 0.44, 0.78 * big, cap);
+    part(fh, 'sphere', 0, hy + 0.285, 0.01, 0.80 * big, 0.22, 0.78 * big, cap);
+    part(fh, 'box', 0, hy + 0.265, 0.34, 0.50, 0.075, 0.26, cap);
+    // the flap covers the ear turned toward the pitcher (local +x)
+    part(fh, 'sphere', 0.335 * big, hy + 0.12, 0.02, 0.14, 0.32, 0.40, cap);
+    part(fh, 'box', 0, hy + 0.40, 0.10, 0.09, 0.06, 0.60, trim);
+  } else {
+    part(fh, 'dome', 0, hy + 0.29, 0.01, 0.74 * big, 0.38, 0.70 * big, cap);
+    part(fh, 'box', 0, hy + 0.283, 0.31, 0.46, 0.07, 0.30, cap);
+    part(fh, 'sphere', 0, hy + 0.46, 0.01, 0.09, 0.09, 0.09, trim);
+  }
+
+  return { f, hl, hr, hy, y };
+}
+
+/* A bat to real proportions: 2.5cm handle, a taper, a 6.5cm barrel, knob at the
+   bottom. `grip` is where the bottom hand sits, `dir` points at the barrel. */
+function drawBatRig(grip, dir, len, wood, tape) {
+  const P = (t) => [grip[0] + dir[0] * t, grip[1] + dir[1] * t, grip[2] + dir[2] * t];
+  const w = col(wood), g = col(tape);
+  const knob = P(-0.055), hEnd = P(0.34), taper = P(0.60), tip = P(len);
+  R.seg('cyl', knob[0], knob[1], knob[2], hEnd[0], hEnd[1], hEnd[2], 0.017, g);
+  R.seg('taper', taper[0], taper[1], taper[2], hEnd[0], hEnd[1], hEnd[2], 0.033, w);
+  R.seg('cyl', taper[0], taper[1], taper[2], tip[0], tip[1], tip[2], 0.033, w);
+  R.b('sphere', tip[0], tip[1], tip[2], 0.070, 0.070, 0.070, w);
+  const k2 = P(-0.02);
+  R.seg('cyl', knob[0], knob[1], knob[2], k2[0], k2[1], k2[2], 0.031, g);
+}
+
+/* the two fists wrapped around the handle */
+function drawGrip(grip, dir, at, c) {
+  const P = (t) => [grip[0] + dir[0] * t, grip[1] + dir[1] * t, grip[2] + dir[2] * t];
+  const a = P(at - 0.055), b = P(at + 0.055);
+  R.seg('sphere', a[0], a[1], a[2], b[0], b[1], b[2], 0.082, col(c));
+}
+
+/* A fielder's mitt: palm, four finger ridges, a thumb and the web between
+   them. All one leather; the shape does the work, not a painted pocket. */
+function drawGlove(pt, ry) {
+  if (!pt) return;
+  const a = ry || 0, fx = Math.sin(a), fz = Math.cos(a);
+  const sx = fz, sz = -fx;                       // across the mitt
+  const x = pt[0] + fx * 0.05, y = pt[1], z = pt[2] + fz * 0.05;
+  const hide = col('#7A4A22'), dark = col('#46280F'), web = col('#9A6B38');
+  R.d('rbox', x, y - 0.02, z, 0, a, 0, 0.38, 0.36, 0.20, hide);          // palm
+  for (let i = -1; i <= 2; i++)                                          // fingers
+    R.d('rbox', x + sx * i * 0.083, y + 0.20, z + sz * i * 0.083, 0, a, 0,
+        0.072, 0.22, 0.18, hide);
+  R.d('rbox', x - sx * 0.235, y - 0.03, z - sz * 0.235, 0, a, 0, 0.11, 0.30, 0.19, hide);
+  R.d('rbox', x - sx * 0.145, y + 0.18, z - sz * 0.145, 0, a, 0, 0.11, 0.20, 0.16, web);
+  R.d('rbox', x + fx * 0.075, y - 0.05, z + fz * 0.075, 0, a, 0, 0.20, 0.18, 0.05, dark);
+  R.d('rbox', x, y - 0.22, z, 0, a, 0, 0.32, 0.10, 0.18, dark);          // heel
+}
+
+/* ---------- the ball ---------- */
+const BALL_R = 0.14;
+/* a real ball is a speck at 80m — grow it with distance so the player can
+   always follow the flight */
+function ballScale(x, y, z) {
+  const d = Math.hypot(x - R.eye[0], y - R.eye[1], z - R.eye[2]);
+  // Nearly true perspective: the compensation is small enough that the ball
+  // visibly shrinks as it flies away, which is the whole depth cue.
+  return BALL_R * 2 * clamp(Math.pow(d / 12, 0.15), 1, 1.5) * (G.ballBoost || 1);
+}
+function drawBall(x, y, z, spin) {
+  const s = ballScale(x, y, z);
+  R.b('sphere', x, y, z, s, s, s, col('#FBF7EC'));
+  R.d('cyl', x, y, z, Math.PI / 2, spin || 0, 0, s * 0.78, s * 0.25, s * 0.78, col('#D9402E'));
+}
+function drawTrail(tr) {
+  for (let i = 0; i < tr.length; i += 3) {
+    const k = 1 - i / tr.length;
+    const s = ballScale(tr[i], tr[i + 1], tr[i + 2]) * 0.72 * k * k;
+    if (s < 0.012) continue;
+    R.b('sphere', tr[i], tr[i + 1], tr[i + 2], s, s, s, col('#FFE9B0'));
+  }
+}
+
+/* ============================================================
+   Teams
+   ============================================================ */
+const NAME_POOL = {
+  bear:    ['ゴロー', 'ブンタ', 'クマキチ', 'ドスコイ', 'ハチベエ', 'テツ', 'モリオ', 'ガンタ', 'ノボル'],
+  rabbit:  ['ミミ', 'ピョン', 'ラビ', 'シロタ', 'ハネダ', 'ツキノ', 'コハネ', 'トビオ', 'ユキ'],
+  cat:     ['タマ', 'ミケ', 'ニャン太', 'トラキチ', 'クロベエ', 'シッポ', 'モモ', 'ヒゲオ', 'コタツ'],
+  frog:    ['ケロ', 'ゲコタ', 'アマガエル', 'ピョンジ', 'ヌマオ', 'ハスオ', 'グエコ', 'ミズキ', 'カジカ'],
+  penguin: ['ペンタ', 'コオリ', 'フブキ', 'ヨチヨチ', 'シラス', 'アデリー', 'ヒレタ', 'ナンキョク', 'ツララ'],
+  fox:     ['コン', 'キツネビ', 'アカネ', 'シッポリ', 'イナリ', 'ゴンタ', 'ヒノ', 'ミミナガ', 'ユウ'],
+  panda:   ['パンダ丸', 'シャンシャン', 'ササオ', 'モウソウ', 'クロシロ', 'マルオ', 'ゴロゴロ', 'タケゾウ', 'リンリン'],
+  hippo:   ['カバオ', 'ドロン', 'ヌマヅ', 'オオクチ', 'ブクブク', 'ミズベ', 'ズッシリ', 'アグリ', 'ハナ'],
+};
+
+const TEAMS = [
+  { id: 'bears',    name: 'もりのクマーズ',   animal: 'bear',    uni: '#7B4B2A', trim: '#F0D9A8', cap: '#5E3620',
+    tag: 'POWER',   desc: 'とにかく長打。当たれば飛ぶが、確実性は低め。', pow: 5, con: 2, spd: 2, def: 3 },
+  { id: 'rabbits',  name: 'はらっぱラビッツ', animal: 'rabbit',  uni: '#E8EDF2', trim: '#E86A8A', cap: '#D9527A',
+    tag: 'SPEED',   desc: '足が速い。内野安打も盗塁もお手のもの。', pow: 2, con: 4, spd: 5, def: 4 },
+  { id: 'cats',     name: 'ねこじゃらしキャッツ', animal: 'cat', uni: '#F2C14E', trim: '#3A3630', cap: '#2E2A24',
+    tag: 'CONTACT', desc: 'バットに当てるのがうまい。四球も選ぶ。', pow: 3, con: 5, spd: 3, def: 3 },
+  { id: 'frogs',    name: 'ぬまたフロッグス', animal: 'frog',    uni: '#4E8A4E', trim: '#E8F0C8', cap: '#2E5E34',
+    tag: 'BALANCE', desc: 'すべてが平均的。クセがなく扱いやすい。', pow: 3, con: 3, spd: 3, def: 3 },
+  { id: 'penguins', name: 'こおりやまペンギンズ', animal: 'penguin', uni: '#28405E', trim: '#F4F1E6', cap: '#1B2C42',
+    tag: 'DEFENSE', desc: '守備が堅い。相手の打球をよく捕る。', pow: 3, con: 3, spd: 2, def: 5 },
+  { id: 'foxes',    name: 'あかやまフォクシーズ', animal: 'fox',  uni: '#C4502E', trim: '#F6EFE2', cap: '#8E3A20',
+    tag: 'PITCHING',desc: '投手陣が強力。変化球のキレがちがう。', pow: 3, con: 3, spd: 3, def: 4, arm: 5 },
+];
+
+const teamById = (id) => TEAMS.find((t) => t.id === id);
+
+/* Build a 9-man roster with a batting order and fielding positions. */
+function makeTeam(def) {
+  const names = NAME_POOL[def.animal].slice();
+  const order = ['CF', 'SS', 'RF', '1B', 'LF', '3B', 'C', '2B', 'P'];
+  const roster = order.map((posK, i) => {
+    const v = (s, spread) => clamp(s / 5 + rnd(-spread, spread), 0.12, 1.0);
+    return {
+      name: names[i], no: i + 1, pos: posK,
+      look: { animal: def.animal, uni: def.uni, trim: def.trim, cap: def.cap },
+      power: v(def.pow, 0.14), contact: v(def.con, 0.14), speed: v(def.spd, 0.12), defense: v(def.def, 0.12),
+      arm: (def.arm || 3) / 5,
+      ab: 0, h: 0, hr: 0, rbi: 0, k: 0, bb: 0, hbp: 0,
+    };
+  });
+  // the pitcher bats ninth but is the best arm
+  roster[8].arm = clamp((def.arm || 3) / 5 + 0.18, 0, 1);
+  roster[8].power = clamp(roster[8].power - 0.22, 0.1, 1);
+  roster[8].contact = clamp(roster[8].contact - 0.18, 0.1, 1);
+  return { def, name: def.name, roster, animal: def.animal, uni: def.uni, trim: def.trim, cap: def.cap };
+}
+/* ============================================================
+   40-game.js — the rules: counts, outs, innings, batted balls,
+   fielding, base running, and the end of the game.
+   ============================================================ */
+'use strict';
+
+const ZX = 0.30, ZY0 = 0.50, ZY1 = 1.26;      // strike zone
+const SWING_LAG = 0.09;                        // press -> barrel in the zone
+const TIME_WIN = 0.115;                        // usable timing window (s)
+const MEET_WIN = 0.46;                         // usable aim window (m)
+const BAT_X = 0.95, BAT_Z = 0.25;              // right-handed batter's box (+x = 3B side)
+
+const PITCHES = [
+  { k: 'straight', nm: 'ストレート', en: 'FASTBALL', spd: 33.0, bx: 0,     by: 0,     pw: 2.0 },
+  { k: 'curve',    nm: 'カーブ',     en: 'CURVE',    spd: 24.5, bx: -0.20, by: -0.55, pw: 2.0 },
+  { k: 'slider',   nm: 'スライダー', en: 'SLIDER',   spd: 29.0, bx: -0.44, by: -0.18, pw: 2.6 },
+  { k: 'fork',     nm: 'フォーク',   en: 'SPLITTER', spd: 27.5, bx: 0,     by: -0.80, pw: 3.4 },
+  { k: 'shoot',    nm: 'シュート',   en: 'SHOOT',    spd: 30.0, bx: 0.38,  by: -0.12, pw: 2.2 },
+];
+
+function gauss(sd) {
+  let u = 0, v = 0;
+  while (u === 0) u = Math.random();
+  while (v === 0) v = Math.random();
+  return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v) * sd;
+}
+
+const G = {
+  active: false, over: false,
+  st: null, stations: [], away: null, home: null, userSide: 0,
+  inning: 1, half: 0, outs: 0, balls: 0, strikes: 0,
+  bases: [null, null, null], score: [0, 0], lines: [[], []], order: [0, 0],
+  hits: [0, 0], errs: [0, 0], lob: [0, 0], inningRuns: 0,
+  phase: 'idle', pt: 0, phaseLen: 0,
+  pitch: null, ball: { x: 0, y: 0, z: 0, vis: false }, trail: [],
+  reticle: { x: 0, y: 0.88 }, swingT: -1, contactAt: -1, decided: null,
+  batSwingT: -1, bunting: false, pitchType: 0,
+  fielders: [], movers: [], flight: null, chase: null,
+  camMode: 'bat', lastText: '', mode: 'cpu', paused: false, playScript: null, traffic: null, carStall: 0,
+  firstPitch: false, ballBoost: 1,
+  innings: 6, hbpT: 0,
+};
+
+const batTeam = () => (G.half === 0 ? G.away : G.home);
+const fldTeam = () => (G.half === 0 ? G.home : G.away);
+const userBatting = () => (G.half === 0 ? 0 : 1) === G.userSide;
+/* who is at the controls right now */
+const humanBats = () => (G.mode === 'vs' ? true : G.mode === 'auto' ? false : userBatting());
+const humanPitches = () => (G.mode === 'vs' ? true : G.mode === 'auto' ? false : !userBatting());
+/* 1P is always the away side */
+const battingPlayer = () => (G.half === 0 ? '1P' : '2P');
+const pitchingPlayer = () => (G.half === 0 ? '2P' : '1P');
+const curBatter = () => batTeam().roster[G.order[G.half]];
+const curPitcher = () => fldTeam().roster[8];
+const basePt = (i) => (i < 0 || i >= 3 ? HOME_POS : BASE_POS[i]);
+
+/* ============================================================
+   setup
+   ============================================================ */
+function startGame(stadiumId, awayTeamId, homeTeamId) {
+  const st = stadiumById(stadiumId);
+  G.st = st;
+  G.stations = stationsFor(st);
+  G.scene = st.build();
+  const others = TEAMS.filter((t) => t.id !== awayTeamId);
+  G.away = makeTeam(teamById(awayTeamId));
+  G.home = makeTeam(homeTeamId ? teamById(homeTeamId) : pick(others));
+  G.userSide = 0;
+  G.inning = 1; G.half = 0; G.outs = 0; G.balls = 0; G.strikes = 0;
+  G.bases = [null, null, null];
+  G.score = [0, 0]; G.lines = [[], []]; G.order = [0, 0];
+  G.hits = [0, 0]; G.errs = [0, 0]; G.lob = [0, 0]; G.inningRuns = 0;
+  G.over = false; G.active = true; G.paused = false; G.movers = []; G.flight = null; G.playScript = null;
+  G.firstPitch = true;
+  // start already looking down the barrel instead of swinging in from the menu
+  CAM.ex = 0.55; CAM.ey = 4.6; CAM.ez = -9.0; CAM.tx = 0; CAM.ty = 0.4; CAM.tz = 7.0; CAM.fov = 40;
+  CAM.wx = CAM.ex; CAM.wy = CAM.ey; CAM.wz = CAM.ez;
+  G.fielders = G.stations.map((s) => ({ st: s, x: s.x, z: s.z, tx: s.x, tz: s.z, ry: Math.PI, run: 0, hold: false, down: 0, dvz: 0, dodge: 0 }));
+  G.traffic = makeTraffic(st);
+  uiTeams();
+  clearLog();
+  logLine(`${G.st.name}での試合です。${G.away.name} 対 ${G.home.name}。`, true);
+  logLine(`ルール：${G.st.quirk}`);
+  nextBatter();
+}
+
+function setPhase(p, len) { G.phase = p; G.pt = 0; G.phaseLen = len || 0; }
+
+function nextBatter() {
+  G.balls = 0; G.strikes = 0;
+  G.swingT = -1; G.contactAt = -1; G.decided = null; G.batSwingT = -1; G.bunting = false;
+  G.reticle.x = 0; G.reticle.y = 0.88;
+  G.ball.vis = false; G.trail.length = 0;
+  G.camMode = 'bat';
+  placeFielders();
+  uiScore();                       // the pips belong to this batter, not the last
+  uiBatter();
+  setPhase('ready', G.firstPitch ? 3.0 : 1.5);
+}
+
+function placeFielders() {
+  for (const f of G.fielders) { f.tx = f.st.x; f.tz = f.st.z; f.hold = false; }
+}
+
+/* traffic keeps rolling whatever the game is doing */
+function updateTraffic(dt) {
+  if (!G.traffic) return;
+  stepTraffic(G.traffic, dt);
+  for (const f of G.fielders) {
+    if (f.down > 0) { f.down -= dt; f.z += f.dvz * dt; f.dvz *= 0.90; continue; }
+    if (f.dodge > 0) { f.dodge -= dt; continue; }   // just got out of the way
+    if (f.scripted) continue;            // he is on the play; leave him to it
+    for (const c of G.traffic) {
+      if (carHits(c, f.x, 0.6, f.z, 0.30)) {
+        if (!chance(c.walk ? 0.20 : 0.13)) { f.dodge = 1.3; break; }  // he skips clear
+        f.down = c.walk ? 1.4 : 2.0;
+        f.dvz = Math.sign(c.vz) * (c.walk ? 2.0 : 6.0);
+        Snd.crash();
+        logLine(c.walk ? `${f.st.sn}が買い物客とぶつかって転倒！`
+                       : `${f.st.sn}が車にはねられた！`, true);
+        break;
+      }
+    }
+  }
+}
+
+/* A runner flattened between the bags never gets there: he is out, and any run
+   he was in the middle of scoring comes back off the board. */
+function runOverRunner(m, walk) {
+  if (m.retired) return;
+  m.retired = true;
+  for (let i = 0; i < 3; i++) if (G.bases[i] === m.p) G.bases[i] = null;
+  if (m.scored) {
+    G.score[G.half] = Math.max(0, G.score[G.half] - 1);
+    G.inningRuns = Math.max(0, G.inningRuns - 1);
+    if (m.rbiOwner) m.rbiOwner.rbi = Math.max(0, m.rbiOwner.rbi - 1);
+    m.scored = false;
+  }
+  if (G.outs < 3) G.outs++;
+  banner(walk ? `${m.p.name} 買い物客と衝突\nアウト！` : `${m.p.name} 車にはねられ\nアウト！`, true);
+  logLine(walk ? `${m.p.name}が買い物客とぶつかってアウト！` : `${m.p.name}が車にはねられてアウト！`, true);
+  uiScore();
+}
+
+/* ============================================================
+   pitching
+   ============================================================ */
+function cpuPitchChoice() {
+  const p = curPitcher();
+  const behind = G.balls >= 2 && G.strikes < 2;
+  const ahead = G.strikes === 2 || (G.strikes > G.balls);
+  let ti = 0;
+  if (behind) ti = chance(0.7) ? 0 : rint(1, 4);
+  else if (ahead) ti = chance(0.72) ? rint(1, 4) : 0;
+  else ti = rint(0, 4);
+  // aim: ahead in the count -> chase pitch just off the plate
+  const wide = ahead && chance(0.55);
+  const ax = clamp(gauss(wide ? 0.44 : 0.36) + (wide ? (chance(0.5) ? 0.34 : -0.34) : 0), -0.85, 0.85);
+  const ay = clamp(0.88 + gauss(wide ? 0.40 : 0.34) + (wide ? -0.18 : 0), 0.20, 1.66);
+  const acc = 0.62 + p.arm * 0.38;
+  let fx = ax + gauss((1 - acc) * 0.30), fy = ay + gauss((1 - acc) * 0.28);
+  if (chance(0.10)) { fx += gauss(0.40); fy += gauss(0.38); }   // he misses his spot
+  return { ti, ax: fx, ay: fy };
+}
+
+function throwPitch(ti, ax, ay) {
+  const p = curPitcher();
+  const P = PITCHES[ti];
+  // no two pitches come out quite the same
+  const spd = P.spd * (0.90 + p.arm * 0.16) * (1 + gauss(0.040));
+  const T = 18.15 / spd;
+  const slip = (1 - p.arm) * 0.11;             // even his own aim drifts a little
+  const bx = P.bx * (1 + gauss(0.20)), by = P.by * (1 + gauss(0.20));
+  const arrive = { x: clamp(ax + gauss(slip), -0.95, 0.95),
+                   y: clamp(ay + gauss(slip), 0.22, 1.68) };
+  const pf = G.fielders[0];
+  G.pitch = {
+    P, T, t: 0, ti, bx, by,
+    x0: (pf ? pf.x : 0) + 0.46, y0: 1.92, z0: (pf ? pf.z : MOUND_POS[1]) - 0.16,
+    tx: arrive.x - bx, ty: arrive.y - by,
+    ax: arrive.x, ay: arrive.y,
+    inZone: Math.abs(arrive.x) <= ZX + 0.05 && arrive.y >= ZY0 - 0.05 && arrive.y <= ZY1 + 0.05,
+    // way inside and at body height: it is going to hit him unless he spins away
+    hbp: arrive.x > 0.80 && arrive.y > 0.18 && arrive.y < 1.58 && chance(0.12),
+  };
+  G.swingT = -1; G.contactAt = -1; G.decided = null; G.batSwingT = -1;
+  G.ball.vis = true; G.trail.length = 0; G.firstPitch = false;
+  // in two-player games the hitter re-aims from scratch each pitch
+  if (G.mode === 'vs') { G.reticle.x = 0; G.reticle.y = 0.88; }
+  if (!humanBats()) cpuBatterDecide();
+  Snd.blip();
+  setPhase('pitch');
+  if (G.mode === 'vs') uiHint();   // controls hand over to the hitter
+}
+
+function pitchPos(pc, t) {
+  const u = clamp(t / pc.T, 0, 1.6);
+  const k = Math.pow(Math.min(u, 1), pc.P.pw);
+  return {
+    x: lerp(pc.x0, pc.tx, u) + pc.bx * k,
+    y: lerp(pc.y0, pc.ty, u) + pc.by * k - (u > 1 ? (u - 1) * 0.5 : 0),
+    z: lerp(pc.z0, 0.15, u),
+  };
+}
+
+function cpuBatterDecide() {
+  const b = curBatter(), pc = G.pitch;
+  const eye = 0.34 + b.contact * 0.5;
+  let sw;
+  if (pc.inZone) sw = chance(0.42 + eye * 0.32 + G.strikes * 0.09);
+  else {
+    const close = Math.abs(pc.ax) < ZX + 0.28 && pc.ay > ZY0 - 0.28 && pc.ay < ZY1 + 0.28;
+    sw = chance((close ? 0.34 : 0.09) + (G.strikes === 2 ? (close ? 0.40 : 0.14) : 0) - eye * 0.12);
+  }
+  if (!sw) return;
+  const jitter = 1.75 - b.contact * 0.65;
+  G.swingT = pc.T - SWING_LAG + gauss(0.062 * jitter);
+  G.cpuAim = {
+    x: pc.ax + gauss(0.22 * jitter),
+    y: pc.ay + gauss(0.20 * jitter),
+  };
+}
+
+/* ============================================================
+   the swing
+   ============================================================ */
+function playerSwing(bunt) {
+  if (G.phase !== 'pitch' || G.swingT >= 0 || !humanBats()) return;
+  G.swingT = G.pitch.t;
+  G.bunting = !!bunt;
+  G.batSwingT = 0;
+  judgeSwing();
+}
+
+function judgeSwing() {
+  const pc = G.pitch, b = curBatter();
+  const contactT = G.swingT + SWING_LAG;
+  const dt = contactT - pc.T;
+  const aim = humanBats() ? G.reticle : G.cpuAim;
+  const err = Math.hypot(pc.ax - aim.x, (pc.ay - aim.y) * 1.05);
+  const tw = TIME_WIN * (0.80 + b.contact * 0.42) * (G.bunting ? 1.7 : 1);
+  const mw = MEET_WIN * (0.80 + b.contact * 0.42) * (G.bunting ? 1.5 : 1);
+  if (Math.abs(dt) > tw || err > mw) { G.decided = { miss: true }; return; }
+  const qT = 1 - Math.abs(dt) / tw, qM = 1 - err / mw;
+  const q = clamp(qT * 0.56 + qM * 0.44, 0, 1);
+  G.decided = { miss: false, q, dt, err, dy: pc.ay - aim.y };
+  G.contactAt = Math.max(contactT, pc.T * 0.97);
+}
+
+/* ============================================================
+   ball flight simulation
+   ============================================================ */
+/* a snapshot of the traffic, advanced with the ball so the carom is part of
+   the same simulation the ruling is read from */
+function carsSnapshot() {
+  return (G.traffic || []).map((c) => ({ x: c.x, z0: c.z, vz: c.vz, hw: c.hw, hh: c.hh, hl: c.hl }));
+}
+
+function simFlight(v0, laDeg, dirDeg, st) {
+  const la = laDeg * DEG, dir = dirDeg * DEG;
+  let x = BAT_X - 0.80, y = 1.05, z = BAT_Z + 0.17;
+  const vh = v0 * Math.cos(la);
+  let vx = vh * Math.sin(dir), vz = vh * Math.cos(dir), vy = v0 * Math.sin(la);
+  const path = [];
+  const cars = carsSnapshot();
+  let carHit = 0;
+  let t = 0, hr = false, ceilHit = false, apex = y, hang = 0, bounced = 0, groundIdx = -1;
+  const dt = 1 / 90, drag = 0.0019;
+  const wallTest = () => {
+    const d = Math.hypot(x, z), a = angOf(x, z);
+    if (Math.abs(a) > 50) return 0;
+    const fd = fenceAt(st, a);
+    if (d >= fd) return y > st.fenceH ? 2 : 1;
+    return 0;
+  };
+  while (t < 11) {
+    const sp = Math.hypot(vx, vy, vz);
+    const k = drag * sp;
+    vx -= vx * k * dt; vz -= vz * k * dt;
+    vy -= (st.gravity + vy * k) * dt;
+    x += vx * dt; y += vy * dt; z += vz * dt; t += dt;
+    if (y > apex) apex = y;
+    if (st.ceiling && y > st.ceiling - BALL_R && !ceilHit) {
+      ceilHit = true; y = st.ceiling - BALL_R; vy = -Math.abs(vy) * 0.32; vx *= 0.6; vz *= 0.6;
+    }
+    if (y <= BALL_R) {
+      if (!hang) hang = t;
+      if (groundIdx < 0) groundIdx = path.length;
+      y = BALL_R;
+      if (bounced < 6 && Math.abs(vy) > 0.9) { vy = -vy * 0.36; vx *= 0.82; vz *= 0.82; bounced++; }
+      else { vy = 0; vx -= vx * 1.15 * dt; vz -= vz * 1.15 * dt; }  // rolling friction
+      if (Math.hypot(vx, vz) < 0.6) { path.push({ x, y, z, t }); break; }
+    }
+    if (carHit < 3) {
+      for (const c of cars) {
+        const cz = c.z0 + c.vz * t;
+        if (Math.abs(x - c.x) >= c.hw + BALL_R || Math.abs(z - cz) >= c.hl + BALL_R || y >= c.hh + BALL_R) continue;
+        const px = (c.hw + BALL_R) - Math.abs(x - c.x);
+        const pz = (c.hl + BALL_R) - Math.abs(z - cz);
+        const py = (c.hh + BALL_R) - y;
+        if (py <= px && py <= pz) {                       // off the roof
+          y = c.hh + BALL_R; vy = Math.abs(vy) * 0.45 + 2.2; vz += c.vz * 0.25;
+        } else if (px < pz) {                             // off the flank
+          const s2 = Math.sign(x - c.x) || 1;
+          x = c.x + s2 * (c.hw + BALL_R);
+          vx = s2 * (Math.abs(vx) * 0.55 + 3.5); vz += c.vz * 0.35; vy = Math.abs(vy) * 0.4 + 1.2;
+        } else {                                          // off the nose or tail
+          const s2 = Math.sign(z - cz) || 1;
+          z = cz + s2 * (c.hl + BALL_R);
+          vz = s2 * (Math.abs(vz) * 0.5 + 2.0) + c.vz * 0.55; vy = Math.abs(vy) * 0.4 + 1.5;
+        }
+        carHit++; groundIdx = groundIdx < 0 ? -1 : groundIdx;
+        break;
+      }
+    }
+    const w = st.fenceH > 0 ? wallTest() : 0;
+    if (w === 2) { hr = true; path.push({ x, y, z, t }); break; }
+    if (w === 1) { vx *= -0.32; vz *= -0.32; x += vx * dt * 2; z += vz * dt * 2; }
+    path.push({ x, y, z, t });
+  }
+  if (!hang) hang = t;
+  // where it first comes down — that is what fielders play
+  let land = { x, z }, landT = t;
+  for (const p of path) if (p.y <= BALL_R + 0.05) { land = { x: p.x, z: p.z }; landT = p.t; break; }
+  const a = angOf(land.x, land.z);
+  return {
+    path, hang: landT, apex, hr, ceilHit, la: laDeg, dir: dirDeg, v0,
+    groundIdx: groundIdx < 0 ? path.length : groundIdx, carHit,
+    land, dist: Math.hypot(land.x, land.z), ang: a,
+    finalDist: Math.hypot(x, z), finalX: x, finalZ: z, total: t,
+    foul: Math.abs(a) > 45,
+  };
+}
+
+/* ============================================================
+   turning a batted ball into a baseball outcome
+   ============================================================ */
+const fielderOf = (team, k) => team.roster.find((r) => r.pos === k) || team.roster[0];
+
+/* The first moment a fielder starting at (sx,sz) can put a glove on the ball.
+   Only points below jumping height count, and he needs time to get there. */
+function interceptOn(fl, sx, sz, spd) {
+  const path = fl.path;
+  for (let i = 0; i < path.length; i++) {
+    const q = path[i];
+    if (q.y > 2.6) continue;                       // still over his head
+    const reach = 0.9 + spd * Math.max(0, q.t - 0.35) * 0.88;
+    if (Math.hypot(q.x - sx, q.z - sz) <= reach)
+      return { i, t: q.t, p: q, air: i < fl.groundIdx };
+  }
+  const i = path.length - 1;
+  return { i, t: path[i].t, p: path[i], air: false, late: true };
+}
+
+/* transfer + throw, with a cut-off man on anything long */
+function throwTime(from, tx, tz, arm) {
+  const d = Math.hypot(from.x - tx, from.z - tz);
+  return 0.55 + d / (27 + (arm || 0.6) * 13) + (d > 42 ? 1.05 : 0);
+}
+
+const LEAD_OFF = 2.6;              // how far a runner edges off the bag
+
+/* seconds from contact for a runner to reach base n (1 = first) */
+function baseTime(p, n) {
+  const first = 27.43 / (5.6 + p.speed * 1.7);   // 4.9s slow .. 3.8s quick
+  const rest = 27.43 / (7.6 + p.speed * 2.2);
+  return first + (n - 1) * rest + (n > 1 ? 0.25 : 0);
+}
+
+/* which fielder covers a bag for the throw; if he is the one who fielded the
+   ball, the usual back-up takes it instead */
+const BACKUP = { '1B': 'P', '2B': 'SS', '3B': 'P', C: 'P', SS: '2B' };
+function coverFor(tx, tz, busy) {
+  const near = (b) => dist2(tx, tz, b[0], b[1]) < 1.5;
+  const want = near(BASE_POS[0]) ? '1B' : near(BASE_POS[1]) ? '2B'
+    : near(BASE_POS[2]) ? '3B'
+    : dist2(tx, tz, HOME_POS[0], HOME_POS[1]) < 2.5 ? 'C' : null;
+  if (!want) {
+    // not a bag — a lob back to the mound, a cut-off. The nearest infielder
+    // takes it; the catcher never leaves the plate to chase a throw.
+    let bi = -1, bd = 1e9;
+    for (let i = 0; i < G.stations.length; i++) {
+      const s = G.stations[i];
+      if (s.k === 'C' || !s.infield || i === busy) continue;
+      const d = dist2(tx, tz, s.x, s.z);
+      if (d < bd) { bd = d; bi = i; }
+    }
+    return bi;
+  }
+  let i = G.stations.findIndex((s) => s.k === want);
+  if (i === busy && BACKUP[want]) i = G.stations.findIndex((s) => s.k === BACKUP[want]);
+  return i;
+}
+const stationIdx = (k) => G.stations.findIndex((s) => s.k === k);
+
+/* the ball squirts out of the glove and he has to go and get it */
+const FUMBLE_T = 0.66;
+function fumble(play, P) {
+  const a = rnd(0, Math.PI * 2), d = rnd(2.2, 3.6);
+  play.fumble = 1;
+  play.fumbleTo = [P.x + Math.cos(a) * d, P.z + Math.sin(a) * d];
+}
+
+function fieldBall(fl) {
+  const st = G.st, bat = curBatter(), def = fldTeam();
+
+  if (fl.foul) return { kind: 'foul', text: 'ファウル' };
+  if (fl.hr) {
+    const far = fl.finalDist > fenceAt(st, fl.ang) * 1.22;
+    return { kind: 'hr', bases: 4, big: true,
+      text: far ? 'ホームラン！\n特大の一発だ' : 'ホームラン！' };
+  }
+  if (fl.ceilHit && st.ceiling && fl.dist >= fenceAt(st, fl.ang) * 0.94)
+    return { kind: 'ground_rule', bases: 2, hit: true, text: '天井に当たった！\nエンタイトルツーベース' };
+  if (st.fenceH === 0 && fl.dist >= fenceAt(st, fl.ang) && fl.la >= 14)
+    return { kind: 'hr', bases: 4, big: true, text: 'ホームラン！\n川まで届いた' };
+
+  /* who actually gets to it first */
+  let best = null;
+  const rest = fl.path[fl.path.length - 1];
+  for (let i = 0; i < G.stations.length; i++) {
+    if (G.fielders[i] && G.fielders[i].down > 0) continue;   // flattened by a car
+    const s = G.stations[i], pl = fielderOf(def, s.k);
+    // a pitcher fields comebackers and bunts, not gaps
+    const spd = 6.0 * st.fielderSpeed * (0.86 + pl.defense * 0.28) * (s.k === 'P' ? 0.72 : 1);
+    const fx = G.fielders[i] ? G.fielders[i].x : s.x;
+    const fz = G.fielders[i] ? G.fielders[i].z : s.z;
+    const it = interceptOn(fl, fx, fz, spd);
+    // if nobody could cut it off, whoever is nearest where it stops goes and
+    // gets it — otherwise the tie always fell to the pitcher
+    const key = it.late ? 1e5 + dist2(fx, fz, rest.x, rest.z) : it.t;
+    if (!best || key < best.key) best = { i, s, pl, spd, it, key };
+  }
+  let downNote = '';
+  {
+    let nd = null;
+    for (let i = 0; i < G.stations.length; i++) {
+      const st2 = G.stations[i], d = dist2(st2.x, st2.z, fl.land.x, fl.land.z);
+      if (!nd || d < nd.d) nd = { i, d, sn: st2.sn };
+    }
+    if (nd && G.fielders[nd.i] && G.fielders[nd.i].down > 0 && nd.d < 22)
+      downNote = `${nd.sn}が倒れている！\n`;
+  }
+  if (!best) {   // everybody is down — the ball just sits there
+    const q = fl.path[fl.path.length - 1];
+    return { kind: 'hit', bases: 3, hit: true, text: '誰も追いつけない！\nスリーベース',
+             play: { fidx: 0, cutIdx: fl.path.length - 1, cutT: q.t,
+                     pt: { x: q.x, y: q.y, z: q.z }, air: false, coverIdx: -1 } };
+  }
+  const P = best.it.p;
+  const errP = clamp((1 - best.pl.defense) * 0.05
+    + (st.id === 'market' ? 0.03 : 0) + (st.id === 'road' ? 0.025 : 0), 0, 0.13);
+  const play = { fidx: best.i, cutIdx: best.it.i, cutT: best.it.t,
+                 pt: { x: P.x, y: P.y, z: P.z }, air: best.it.air, moves: [] };
+  /* someone has to be standing on the bag when the throw gets there */
+  const sendTo = (bx, bz, fromPt, arm, after) => {
+    const dur = throwTime(fromPt, bx, bz, arm);
+    const ci = coverFor(bx, bz, play.fidx);
+    if (ci >= 0 && ci !== play.fidx) {
+      const st2 = G.stations[ci];
+      const isC = st2.k === 'C';               // he sets up just behind the plate
+      const tx2 = isC ? 0 : bx, tz2 = isC ? -1.1 : bz;
+      // never drag someone clear across the diamond to take a routine lob
+      if (dist2(st2.x, st2.z, tx2, tz2) < 34)
+        play.moves.push({ idx: ci, x: tx2, z: tz2, byT: (after || play.cutT) + dur });
+    }
+    return dur;
+  };
+  const aimAt = (bx, bz) => {
+    play.throwTo = [bx, bz];
+    play.throwDur = sendTo(bx, bz, P, best.pl.arm);
+  };
+
+  /* ---- caught on the fly ---- */
+  if (best.it.air) {
+    if (chance(errP * 0.55)) {
+      G.errs[1 - G.half]++;
+      fumble(play, P);
+      aimAt(BASE_POS[1][0], BASE_POS[1][1]);
+      return { kind: 'error', bases: fl.dist > 62 ? 2 : 1, err: true, play,
+               text: `${best.s.sn}が落球！\nエラー` };
+    }
+    const liner = fl.la < 24 && fl.hang < 1.7;
+    const tight = best.it.t > fl.hang - 0.45;
+    // an infielder just holds it; only an outfielder lobs the ball back in
+    if (best.s.infield) { play.throwTo = null; play.throwDur = 0; }
+    else aimAt(MOUND_POS[0], MOUND_POS[1]);
+    return { kind: 'flyout', outs: 1, fielder: best.s, play,
+      canSac: !liner && Math.hypot(P.x, P.z) > 48,
+      text: liner ? `${best.s.sn}ライナー\nアウト`
+        : (tight ? `${best.s.sn}が好捕！\nアウト` : `${best.s.sn}フライ\nアウト`) };
+  }
+
+  /* ---- played off the ground: race the throw to the bag ---- */
+  let safeTo = 0;
+  for (let n = 1; n <= 3; n++) {
+    const arrives = best.it.t + throwTime(P, basePt(n - 1)[0], basePt(n - 1)[1], best.pl.arm);
+    if (arrives > baseTime(bat, n) + 0.12) safeTo = n; else break;
+  }
+  const infield = best.s.infield;
+  const outDist = Math.hypot(P.x, P.z);
+  // nobody throws the batter out at first from deep in the outfield
+  if (safeTo === 0 && !infield && outDist > 40) safeTo = 1;
+  // once it is past the outfielders he is standing on second before the relay
+  if (!infield && outDist > fenceAt(st, fl.ang) * 0.76 + 6) safeTo = Math.max(safeTo, 2);
+
+  if (chance(errP)) {
+    G.errs[1 - G.half]++;
+    fumble(play, P);
+    aimAt(BASE_POS[0][0], BASE_POS[0][1]);
+    return { kind: 'error', bases: Math.max(1, safeTo), err: true, play,
+             text: `${best.s.sn}がはじいた！\nエラー` };
+  }
+
+  if (safeTo === 0) {
+    if (G.bases[0] && G.outs < 2 && infield && fl.v0 > 17
+        && chance(0.34 + best.pl.defense * 0.28)) {
+      // ball to the third-base side: the second baseman takes the bag and the
+      // shortstop backs him up; to the first-base side it is the other way round
+      const leftSide = fl.ang > 0;
+      let pivotK = leftSide ? '2B' : 'SS', backK = leftSide ? 'SS' : '2B';
+      if (stationIdx(pivotK) === best.i) { const t2 = pivotK; pivotK = backK; backK = t2; }
+      const pivotI = stationIdx(pivotK), backI = stationIdx(backK);
+      const pivotP = fielderOf(def, pivotK);
+      const bag2 = BASE_POS[1], bag1 = BASE_POS[0];
+
+      play.via = bag2;
+      play.viaDur = throwTime(P, bag2[0], bag2[1], best.pl.arm);
+      play.moves.push({ idx: pivotI, x: bag2[0], z: bag2[1], byT: play.cutT + play.viaDur });
+      if (backI >= 0 && backI !== best.i)     // the other one converges as back-up
+        play.moves.push({ idx: backI, x: bag2[0] + (leftSide ? 2.6 : -2.6), z: bag2[1] + 3.4,
+                          byT: play.cutT + play.viaDur });
+      play.throwTo = bag1;
+      play.throwDur = throwTime({ x: bag2[0], z: bag2[1] }, bag1[0], bag1[1], pivotP.arm);
+      const fbI = coverFor(bag1[0], bag1[1], best.i);
+      if (fbI >= 0 && fbI !== best.i && fbI !== pivotI)
+        play.moves.push({ idx: fbI, x: bag1[0], z: bag1[1],
+                          byT: play.cutT + play.viaDur + play.throwDur });
+      return { kind: 'dp', outs: 2, fielder: best.s, play,
+               text: `${best.s.sn}→${pivotK === '2B' ? 'セカンド' : 'ショート'}→ファースト\nゲッツー！` };
+    }
+    if (G.bases[0] && G.outs < 2 && chance(0.22)) {
+      aimAt(BASE_POS[1][0], BASE_POS[1][1]);
+      return { kind: 'fc', outs: 1, fielder: best.s, play,
+               text: `${best.s.sn}\nフィルダースチョイス` };
+    }
+    aimAt(BASE_POS[0][0], BASE_POS[0][1]);
+    return { kind: 'groundout', outs: 1, fielder: best.s, play,
+             text: `${best.s.sn}ゴロ\nアウト` };
+  }
+
+  /* ---- a base hit ---- */
+  if (infield) {
+    aimAt(BASE_POS[0][0], BASE_POS[0][1]);
+  } else if (G.bases[1] || G.bases[2]) {
+    aimAt(HOME_POS[0], HOME_POS[1]);        // a runner is coming round: back home
+  } else if (safeTo === 2) {
+    aimAt(BASE_POS[1][0], BASE_POS[1][1]);  // he is pulling into second: throw there
+  } else {
+    // never throw to the bag ahead of the runner from the outfield — a throw to
+    // third on a triple only opens up the plate. It goes to the cut-off man.
+    const d0 = Math.hypot(P.x, P.z) || 1;
+    const rx = (P.x / d0) * 36, rz = (P.z / d0) * 36;
+    let cutK = fl.ang > 0 ? 'SS' : '2B';
+    if (stationIdx(cutK) === best.i) cutK = cutK === 'SS' ? '2B' : 'SS';
+    const ci = stationIdx(cutK);
+    play.throwTo = [rx, rz];
+    play.throwDur = throwTime(P, rx, rz, best.pl.arm);
+    if (ci >= 0 && ci !== best.i)
+      play.moves.push({ idx: ci, x: rx, z: rz, byT: play.cutT + play.throwDur });
+  }
+  if (st.fenceH === 0 && safeTo === 3 && bat.speed > 0.72 && chance(0.22))
+    return { kind: 'ihr', bases: 4, hit: true, big: true, play, text: 'ランニングホームラン！' };
+  const carNote = fl.carHit ? '車に当たった！\n' : downNote;
+  const text = carNote + (safeTo === 3 ? `${best.s.sn}へ\nスリーベースヒット！`
+    : safeTo === 2 ? `${best.s.sn}へ\nツーベースヒット！`
+    : infield ? '内野安打！'
+    : outDist < 46 ? 'ポテンヒット！' : `${best.s.sn}前ヒット！`);
+  return { kind: 'hit', bases: safeTo, hit: true, play, text };
+}
+
+/* ============================================================
+   base running
+   ============================================================ */
+/* A runner follows the base paths and touches every bag on the way, so a man
+   on first going to third rounds second instead of cutting the corner. */
+function moveRunner(p, from, to, delay, retired) {
+  const pts = [];
+  for (let b = from; b <= to; b++) {
+    let q = basePt(b);
+    if (b === from && b >= 0 && b <= 2) {      // he was already off the bag
+      const n2 = basePt(b + 1);
+      const ux = n2[0] - q[0], uz = n2[1] - q[1], ul = Math.hypot(ux, uz) || 1;
+      q = [q[0] + (ux / ul) * LEAD_OFF, q[1] + (uz / ul) * LEAD_OFF];
+    }
+    // bags he only rounds are taken a little wide, as a runner actually does
+    if (b > from && b < to && b >= 0 && b <= 2) {
+      const ox = q[0] - 0, oz = q[1] - 19.4, l = Math.hypot(ox, oz) || 1;
+      pts.push([q[0] + (ox / l) * 1.7, q[1] + (oz / l) * 1.7]);
+    } else pts.push([q[0], q[1]]);
+  }
+  if (pts.length < 2) pts.push(basePt(to));
+  const segs = [];
+  let total = 0;
+  for (let i = 0; i < pts.length - 1; i++) {
+    const d = Math.hypot(pts[i + 1][0] - pts[i][0], pts[i + 1][1] - pts[i][1]);
+    segs.push(d); total += d;
+  }
+  const legs = Math.max(1, to - from);
+  // the first 90 feet take exactly as long as the ruling gives him, so a throw
+  // that beats him is seen to beat him; later bases are compressed a little
+  const first = 27.43 / (5.6 + p.speed * 1.7);
+  const rest = 27.43 / (7.6 + p.speed * 2.2);
+  let dur = first * (legs === 1 ? 1 : 0.72) + (legs - 1) * rest * 0.48;
+  if (legs >= 4) dur = Math.min(dur, 6.0);
+  G.movers.push({
+    p, from, to, pts, segs, total, t: -(delay || 0), dur,
+    scored: to >= 3, retired: !!retired,
+    rbiOwner: to >= 3 ? curBatter() : null,
+  });
+}
+
+function scoreRun(p, batter) {
+  G.score[G.half]++;
+  if (batter) batter.rbi++;
+}
+
+function advanceOnHit(nb, batter) {
+  let runs = 0, block = null;
+  for (let i = 2; i >= 0; i--) {
+    const r = G.bases[i];
+    if (!r) continue;
+    let adv = nb;
+    if (nb < 3 && r.speed > 0.5 && chance(0.22 + r.speed * 0.34)) adv++;
+    let t = i + adv;
+    if (block !== null) t = Math.min(t, block - 1);
+    G.bases[i] = null;
+    if (t >= 3) { runs++; scoreRun(r, batter); moveRunner(r, i, 3); }
+    else { G.bases[t] = r; block = t; moveRunner(r, i, t); }
+  }
+  let bt = nb - 1;
+  if (block !== null) bt = Math.min(bt, block - 1);
+  if (bt >= 3) { runs++; scoreRun(batter, batter); moveRunner(batter, -1, 3); }
+  else { G.bases[bt] = batter; moveRunner(batter, -1, bt); }
+  return runs;
+}
+
+function advanceOnWalk(batter) {
+  let runs = 0;
+  if (G.bases[0]) {
+    if (G.bases[1]) {
+      if (G.bases[2]) { runs++; scoreRun(G.bases[2], batter); moveRunner(G.bases[2], 2, 3); G.bases[2] = null; }
+      G.bases[2] = G.bases[1]; moveRunner(G.bases[1], 1, 2); G.bases[1] = null;
+    }
+    G.bases[1] = G.bases[0]; moveRunner(G.bases[0], 0, 1); G.bases[0] = null;
+  }
+  G.bases[0] = batter; moveRunner(batter, -1, 0);
+  return runs;
+}
+
+/* everyone still on base moves up one, lead runner first */
+function advanceOneAll(batter, allowScore) {
+  let runs = 0;
+  for (let i = 2; i >= 0; i--) {
+    const r = G.bases[i];
+    if (!r) continue;
+    G.bases[i] = null;
+    if (i === 2) {
+      if (allowScore) { runs++; scoreRun(r, batter); moveRunner(r, 2, 3); }
+      else G.bases[2] = r;
+    } else { G.bases[i + 1] = r; moveRunner(r, i, i + 1); }
+  }
+  return runs;
+}
+
+/* ============================================================
+   applying an outcome
+   ============================================================ */
+function applyOutcome(o) {
+  const bat = curBatter();
+  let runs = 0, outsAdded = 0;
+  G.movers = [];
+
+  switch (o.kind) {
+    case 'hr': case 'ihr':
+      bat.ab++; bat.h++; bat.hr++; G.hits[G.half]++;
+      runs = advanceOnHit(4, bat);
+      Snd.cheer();
+      break;
+    case 'hit': case 'ground_rule':
+      bat.ab++; bat.h++; G.hits[G.half]++;
+      runs = advanceOnHit(o.bases, bat);
+      Snd.good();
+      break;
+    case 'error':
+      bat.ab++;
+      runs = advanceOnHit(o.bases, bat);
+      Snd.bad();
+      break;
+    case 'flyout': {
+      bat.ab++; outsAdded = 1; moveRunner(bat, -1, 0, 0, true);
+      // a runner tagging up cannot leave until the ball is caught
+      const held = o.play ? o.play.cutT + 0.12 : 1.2;
+      if (o.canSac && G.outs < 2 && G.bases[2]) {
+        runs++; scoreRun(G.bases[2], bat); moveRunner(G.bases[2], 2, 3, held); G.bases[2] = null;
+        o.text = '犠牲フライ！\n1点';
+      } else if (G.outs < 2 && G.bases[1] && o.canSac && chance(0.62)) {
+        G.bases[2] = G.bases[1]; moveRunner(G.bases[1], 1, 2, held); G.bases[1] = null;
+      }
+      Snd.mitt();
+      break;
+    }
+    case 'groundout':
+      bat.ab++; outsAdded = 1; moveRunner(bat, -1, 0, 0, true);
+      // with the play going to first, everyone else moves up
+      if (chance(0.86)) runs += advanceOneAll(bat, G.outs < 2 && chance(0.85));
+      Snd.mitt();
+      break;
+    case 'fc':
+      bat.ab++; outsAdded = 1;
+      if (G.bases[2]) { runs++; scoreRun(G.bases[2], bat); moveRunner(G.bases[2], 2, 3); G.bases[2] = null; }
+      if (G.bases[1]) { G.bases[2] = G.bases[1]; moveRunner(G.bases[1], 1, 2); G.bases[1] = null; }
+      G.bases[0] = bat; moveRunner(bat, -1, 0);
+      Snd.mitt();
+      break;
+    case 'dp': {
+      bat.ab++; outsAdded = Math.min(2, 3 - G.outs);
+      const forced = G.bases[0];
+      G.bases[0] = null;
+      moveRunner(bat, -1, 0, 0, true);
+      if (forced) moveRunner(forced, 0, 1, 0, true);
+      runs += advanceOneAll(bat, G.outs < 2);
+      if (G.bases[1]) { G.bases[2] = G.bases[1]; moveRunner(G.bases[1], 1, 2); G.bases[1] = null; }
+      Snd.mitt();
+      break;
+    }
+    case 'strikeout':
+      bat.ab++; bat.k++; outsAdded = 1;
+      Snd.miss();
+      break;
+    case 'walk':
+      bat.bb++;
+      runs = advanceOnWalk(bat);
+      break;
+    case 'hbp':
+      bat.hbp++;
+      runs = advanceOnWalk(bat);
+      // he takes a moment to shake it off before trotting down
+      for (const mv of G.movers) mv.t = -0.65;
+      G.hbpT = 1.05;
+      Snd.crash();
+      logLine(`${bat.name}にデッドボール！`, true);
+      break;
+    case 'bunt_out':
+      bat.ab++; outsAdded = 1; moveRunner(bat, -1, 0, 0, true);
+      runs += advanceOneAll(bat, G.outs < 2);
+      break;
+  }
+
+  G.outs += outsAdded;
+  if (runs > 0) {
+    logLine(`${bat.name}の${o.kind === 'walk' ? '押し出し' : (o.text.split('\n')[0])} — ${runs}点`, true);
+  }
+  G.inningRuns += runs;
+  G.lastText = o.text;
+  banner(o.text, o.big);
+  uiScore();
+
+  // hand the ball back to the fielders
+  placeFielders();
+  return runs;
+}
+
+/* ============================================================
+   count handling
+   ============================================================ */
+function afterPitch(kind) {
+  const bat = curBatter();
+  if (kind === 'hbp') {
+    finishAtBat({ kind: 'hbp', text: 'デッドボール！' });
+    return;
+  }
+  if (kind === 'ball') {
+    G.balls++;
+    if (G.balls >= 4) { finishAtBat({ kind: 'walk', text: 'フォアボール' }); return; }
+    banner('ボール');
+    uiScore(); setPhase('result', 0.70);
+    return;
+  }
+  if (kind === 'strike' || kind === 'whiff' || kind === 'foul') {
+    if (kind === 'foul' && G.strikes >= 2) { banner('ファウル'); uiScore(); setPhase('result', 0.70); return; }
+    G.strikes++;
+    if (G.strikes >= 3) {
+      finishAtBat({ kind: 'strikeout', text: kind === 'whiff' ? '空振り三振！' : '見逃し三振！' });
+      return;
+    }
+    banner(kind === 'whiff' ? '空振り' : kind === 'foul' ? 'ファウル' : 'ストライク');
+    if (kind === 'whiff') Snd.miss();
+    uiScore(); setPhase('result', 0.70);
+  }
+}
+
+function finishAtBat(o) {
+  applyOutcome(o);
+  logLine(`${G.inning}回${G.half === 0 ? '表' : '裏'} ${curBatter().name}：${o.text.replace('\n', ' ')}`);
+  G.order[G.half] = (G.order[G.half] + 1) % 9;
+  if (!G.flight) G.ball.vis = false;   // a batted ball stays on screen
+  setPhase('play', Math.max(1.5, playLength()));
+}
+
+function playLength() {
+  let m = 1.4;
+  for (const mv of G.movers) if (!mv.retired) m = Math.max(m, Math.min(mv.dur - mv.t + 0.5, 6.6));
+  const pl = G.playScript;
+  if (pl) m = Math.max(m, pl.cutT + (pl.fumble ? FUMBLE_T + 0.45 : 0)
+                          + (pl.viaDur || 0) + (pl.via ? 0.28 : 0)
+                          + (pl.throwDur || 0) + 0.7);
+  else if (G.flight) m = Math.max(m, Math.min(G.flight.total, 5.0) + 0.8);
+  return m;
+}
+
+/* ============================================================
+   innings
+   ============================================================ */
+function endHalfInning() {
+  let onBase = 0;
+  for (const b of G.bases) if (b) onBase++;
+  G.lob[G.half] += onBase;
+  recordInningRuns(G.half, G.inning, G.inningRuns);
+  G.inningRuns = 0;
+  G.bases = [null, null, null];
+  G.outs = 0;
+  G.movers = [];
+  logLine(`${G.inning}回${G.half === 0 ? '表' : '裏'}おわり — ${G.away.name} ${G.score[0]} : ${G.score[1]} ${G.home.name}`, true);
+
+  if (G.half === 0) {
+    G.half = 1;
+    // home team leads after the top of the 9th or later: no need to bat
+    if (G.inning >= G.innings && G.score[1] > G.score[0]) { endGame(); return; }
+  } else {
+    G.half = 0; G.inning++;
+    if (G.inning > G.innings && G.score[0] !== G.score[1]) { endGame(); return; }
+    if (G.inning > G.innings + 3) { endGame(); return; }   // three extra, then a tie
+  }
+  uiScore();
+  banner(`${G.inning}回${G.half === 0 ? '表' : 'ウラ'}`);
+  setPhase('halfend', 1.6);
+}
+
+function inningLine(half, inn) {
+  while (G.lines[half].length < inn) G.lines[half].push(null);
+}
+
+function recordInningRuns(half, inn, runs) {
+  inningLine(half, inn);
+  G.lines[half][inn - 1] = (G.lines[half][inn - 1] || 0) + runs;
+}
+
+function endGame() {
+  if (G.inningRuns > 0) { recordInningRuns(G.half, G.inning, G.inningRuns); G.inningRuns = 0; }
+  G.over = true; G.active = false;
+  setPhase('gameover', 0);
+  showResult();
+}
+
+/* walk-off check after runs score in the bottom half */
+function checkWalkoff() {
+  if (G.half === 1 && G.inning >= G.innings && G.score[1] > G.score[0]) {
+    logLine('サヨナラ！', true);
+    banner('サヨナラ！', true);
+    Snd.cheer();
+    setPhase('walkoff', 2.1);
+    return true;
+  }
+  return false;
+}
+/* ============================================================
+   50-main.js — screens, input, the frame loop, and drawing
+   ============================================================ */
+'use strict';
+
+const $ = (s) => document.querySelector(s);
+const $$ = (s) => Array.from(document.querySelectorAll(s));
+
+const CAM = { ex: 0, ey: 4, ez: -14, tx: 0, ty: 1.4, tz: 14, fov: 46 };
+const KEYS = Object.create(null);
+let chosenStadium = null, teamPick = 0, team1 = null;
+
+function showTeamPick() {
+  const vs = G.mode === 'vs';
+  $('#team-head').textContent = vs
+    ? (teamPick === 0 ? '1P（先攻）のチームは？' : '2P（後攻）のチームは？')
+    : 'どのチームを使う？';
+  $('#team-sub').innerHTML = vs
+    ? (teamPick === 0
+        ? '1Pは<b>先攻</b>。1回表に打って、裏は投げます。'
+        : '2Pは<b>後攻</b>。1回表は投げて、裏に打ちます。')
+    : 'あなたは<b>先攻</b>。1回表からいきなり打席に立ちます。';
+  show('#s-team');
+}
+
+function togglePause() {
+  if (!G.active || G.over) return;
+  G.paused = !G.paused;
+  if (G.paused) {
+    $('#pause-score').textContent =
+      `${G.inning}回${G.half === 0 ? '表' : '裏'}  ${G.away.name} ${G.score[0]} - ${G.score[1]} ${G.home.name}`;
+    show('#s-pause');
+  } else show(null);
+}
+
+/* ============================================================
+   card art — 2D sketches so the menus show what you are picking
+   ============================================================ */
+function faceCanvas(team, w, h) {
+  const c = document.createElement('canvas');
+  c.width = w * 2; c.height = h * 2;
+  const g = c.getContext('2d'); g.scale(2, 2);
+  const A = ANIMALS[team.animal];
+  g.fillStyle = '#20303F'; g.fillRect(0, 0, w, h);
+  // pennant stripes behind the face
+  g.fillStyle = team.uni;
+  for (let i = -2; i < 10; i++) { g.beginPath(); g.moveTo(i * 22, h); g.lineTo(i * 22 + 26, 0); g.lineTo(i * 22 + 38, 0); g.lineTo(i * 22 + 12, h); g.fill(); }
+  g.globalAlpha = 0.22; g.fillStyle = '#000'; g.fillRect(0, 0, w, h); g.globalAlpha = 1;
+
+  const cx = w / 2, cy = h * 0.60, r = h * 0.34;
+  const ear = (dx, dy, rr) => { g.beginPath(); g.arc(cx + dx, cy + dy, rr, 0, 7); g.fill(); };
+  g.fillStyle = A.fur;
+  if (A.ear === 'round') { ear(-r * 0.82, -r * 0.72, r * 0.36); ear(r * 0.82, -r * 0.72, r * 0.36); }
+  if (A.ear === 'point') {
+    for (const s of [-1, 1]) { g.beginPath(); g.moveTo(cx + s * r * 0.3, cy - r * 0.8); g.lineTo(cx + s * r * 0.95, cy - r * 1.35); g.lineTo(cx + s * r * 1.0, cy - r * 0.5); g.fill(); }
+  }
+  if (A.ear === 'toad') { ear(-r * 0.72, -r * 0.66, r * 0.34); ear(r * 0.72, -r * 0.66, r * 0.34); }
+  g.beginPath(); g.arc(cx, cy, r, 0, 7); g.fill();
+  // cap
+  g.fillStyle = team.cap;
+  g.beginPath(); g.arc(cx, cy - r * 0.16, r * 1.0, Math.PI, 0); g.fill();
+  g.fillRect(cx - r * 1.05, cy - r * 0.2, r * 2.1, r * 0.16);
+  g.beginPath(); g.ellipse(cx, cy - r * 0.16, r * 1.25, r * 0.2, 0, Math.PI, 0); g.fill();
+  g.fillStyle = team.trim; g.beginPath(); g.arc(cx, cy - r * 1.1, r * 0.12, 0, 7); g.fill();
+  // long ears sit on top of the cap, not under it
+  if (A.ear === 'long') {
+    for (const s of [-1, 1]) {
+      g.save(); g.translate(cx + s * r * 0.46, cy - r * 1.16); g.rotate(s * 0.26);
+      g.fillStyle = A.fur; g.beginPath(); g.ellipse(0, 0, r * 0.23, r * 0.66, 0, 0, 7); g.fill();
+      g.fillStyle = A.fur2; g.beginPath(); g.ellipse(0, r * 0.06, r * 0.11, r * 0.44, 0, 0, 7); g.fill();
+      g.restore();
+    }
+  }
+  // muzzle + eyes
+  g.fillStyle = A.fur2;
+  g.beginPath(); g.ellipse(cx, cy + r * 0.36, r * 0.44, r * 0.32, 0, 0, 7); g.fill();
+  if (A.beak) {
+    g.fillStyle = A.beak;
+    g.beginPath(); g.moveTo(cx - r * 0.20, cy + r * 0.26); g.lineTo(cx + r * 0.20, cy + r * 0.26);
+    g.lineTo(cx, cy + r * 0.66); g.closePath(); g.fill();
+  }
+  g.fillStyle = '#22282F';
+  if (A.ear === 'toad') { g.fillStyle = A.fur; ear(-r * 0.72, -r * 0.66, r * 0.34); ear(r * 0.72, -r * 0.66, r * 0.34); g.fillStyle = '#22282F'; ear(-r * 0.72, -r * 0.72, r * 0.15); ear(r * 0.72, -r * 0.72, r * 0.15); }
+  g.beginPath(); g.ellipse(cx - r * 0.34, cy + r * 0.02, r * 0.11, r * 0.14, 0, 0, 7); g.fill();
+  g.beginPath(); g.ellipse(cx + r * 0.34, cy + r * 0.02, r * 0.11, r * 0.14, 0, 0, 7); g.fill();
+  if (!A.beak) { g.beginPath(); g.ellipse(cx, cy + r * 0.26, r * 0.13, r * 0.10, 0, 0, 7); g.fill(); }
+  g.fillStyle = '#fff';
+  g.beginPath(); g.arc(cx - r * 0.30, cy - r * 0.04, r * 0.045, 0, 7); g.fill();
+  g.beginPath(); g.arc(cx + r * 0.38, cy - r * 0.04, r * 0.045, 0, 7); g.fill();
+  if (A.brow) {                      // the drawn brow line, as on the model
+    g.strokeStyle = '#3A2A1A'; g.lineWidth = r * 0.11; g.lineCap = 'round';
+    for (const s of [-1, 1]) {
+      g.beginPath();
+      g.moveTo(cx + s * r * 0.16, cy - r * 0.30);
+      g.lineTo(cx + s * r * 0.52, cy - r * 0.24);
+      g.stroke();
+    }
+  }
+  return c;
+}
+
+function parkCanvas(st, w, h) {
+  const c = document.createElement('canvas');
+  c.width = w * 2; c.height = h * 2;
+  const g = c.getContext('2d'); g.scale(2, 2);
+  const [a, b, sky] = st.cardColors;
+  const horizon = h * 0.52;
+  g.fillStyle = sky; g.fillRect(0, 0, w, horizon);
+  g.fillStyle = a; g.fillRect(0, horizon, w, h - horizon);
+  const rect = (x, y, ww, hh, f) => { g.fillStyle = f; g.fillRect(x, y, ww, hh); };
+  if (st.id === 'dome') {
+    rect(0, horizon - 12, w, 12, '#2F6C57');
+    for (let i = 0; i < 5; i++) rect(6 + i * 26, horizon - 30, 4, 30, '#5A6A78');
+    g.fillStyle = b; g.beginPath(); g.moveTo(w / 2, h); g.lineTo(w / 2 - 46, horizon + 4); g.lineTo(w / 2 + 46, horizon + 4); g.fill();
+    g.fillStyle = '#F4EFE2'; g.beginPath(); g.arc(w / 2, h - 8, 4, 0, 7); g.fill();
+  }
+  if (st.id === 'road') {
+    for (let i = 0; i < 4; i++) { rect(2 + i * 16, horizon - 34 - i * 4, 13, 34 + i * 4, i % 2 ? '#8C7F72' : '#7A8A93'); rect(w - 15 - i * 16, horizon - 30 - i * 5, 13, 30 + i * 5, i % 2 ? '#9A8577' : '#6F7C86'); }
+    rect(w / 2 - 34, horizon - 16, 68, 16, '#7E8489');
+    for (let i = 0; i < 4; i++) rect(w / 2 - 2, horizon + 6 + i * 12, 4, 7, b);
+    rect(w / 2 - 26, h - 16, 16, 9, '#D9483B'); rect(w / 2 + 12, h - 20, 16, 9, '#3E6FBF');
+  }
+  if (st.id === 'market') {
+    rect(0, 0, w, 14, '#C4C7BE');
+    for (let i = 0; i < 5; i++) rect(8 + i * 24, 4, 16, 4, '#FFF8DC');
+    for (let i = 0; i < 4; i++) { rect(10 + i * 30, horizon - 22, 22, 22, '#9EA6A2'); for (let j = 0; j < 3; j++) rect(12 + i * 30, horizon - 20 + j * 7, 18, 4, [b, '#F2C14E', '#7FB3D5'][j]); }
+    for (let x = 0; x < w; x += 14) for (let y = horizon; y < h; y += 14) rect(x, y, 13, 13, ((x + y) / 14) % 2 ? '#DCDDD4' : '#D0D2C8');
+  }
+  if (st.id === 'river') {
+    rect(0, horizon - 10, w, 10, '#6FA8C4');
+    for (let i = 0; i < 6; i++) { g.fillStyle = '#5E8A3E'; g.beginPath(); g.arc(10 + i * 34, horizon - 12, 9, 0, 7); g.fill(); g.fillStyle = '#6B4A32'; g.fillRect(9 + i * 34, horizon - 12, 3, 12); }
+    g.fillStyle = b; g.beginPath(); g.moveTo(w / 2, h); g.lineTo(w / 2 - 40, horizon + 6); g.lineTo(w / 2 + 40, horizon + 6); g.fill();
+  }
+  if (st.id === 'moon') {
+    g.fillStyle = '#E8EEFA';
+    for (let i = 0; i < 40; i++) { const x = Math.random() * w, y = Math.random() * horizon; g.fillRect(x, y, 1.5, 1.5); }
+    g.fillStyle = '#3E6FA8'; g.beginPath(); g.arc(w * 0.78, horizon * 0.42, 16, 0, 7); g.fill();
+    g.fillStyle = '#5E9A5E'; g.beginPath(); g.arc(w * 0.74, horizon * 0.36, 6, 0, 7); g.fill();
+    g.fillStyle = '#6E6E76';
+    for (let i = 0; i < 6; i++) { g.beginPath(); g.ellipse(Math.random() * w, horizon + 8 + Math.random() * (h - horizon - 8), 8 + Math.random() * 12, 4, 0, 0, 7); g.fill(); }
+  }
+  return c;
+}
+
+/* ============================================================
+   screens
+   ============================================================ */
+function show(id) {
+  for (const s of $$('.screen')) s.classList.add('hidden');
+  if (id) $(id).classList.remove('hidden');
+  $('#hud').classList.toggle('hidden', id !== null);
+}
+
+function statBar(label, v) {
+  return `<i title="${label}"><b style="width:${v * 20}%"></b></i>`;
+}
+
+function paintInnings() {
+  const ip = $('#inn-pick');
+  ip.innerHTML = '<span>イニング</span>' + [3, 6, 9].map((n) =>
+    `<button data-n="${n}" class="${G.innings === n ? 'on' : ''}">${n}回</button>`).join('');
+  for (const el of ip.querySelectorAll('button'))
+    el.onclick = () => { Snd.blip(); G.innings = +el.dataset.n; paintInnings(); };
+}
+
+function buildMenus() {
+  paintInnings();
+  const sg = $('#stadium-grid');
+  sg.innerHTML = '';
+  for (const st of STADIUMS) {
+    const b = document.createElement('button');
+    b.className = 'card';
+    b.innerHTML = `<div class="art"></div><div class="bd">
+      <div class="tag">${st.tag}</div><div class="nm">${st.name}</div>
+      <div class="ds">${st.desc}</div></div>`;
+    b.querySelector('.art').appendChild(parkCanvas(st, 240, 104));
+    b.onclick = () => { Snd.boot(); chosenStadium = st.id; teamPick = 0; showTeamPick(); };
+    sg.appendChild(b);
+  }
+  const tg = $('#team-grid');
+  tg.innerHTML = '';
+  for (const t of TEAMS) {
+    const b = document.createElement('button');
+    b.className = 'card';
+    b.innerHTML = `<div class="art"></div><div class="bd">
+      <div class="tag">${t.tag}</div><div class="nm">${t.name}</div>
+      <div class="ds">${t.desc}</div>
+      <div class="stats">${statBar('パワー', t.pow)}${statBar('ミート', t.con)}${statBar('走力', t.spd)}${statBar('守備', t.def)}</div>
+      <div class="statrow"><span>パワー</span><span>ミート</span><span>走力</span><span>守備</span></div></div>`;
+    b.querySelector('.art').appendChild(faceCanvas(t, 240, 104));
+    b.onclick = () => {
+      Snd.boot();
+      if (G.mode === 'vs' && teamPick === 0) { team1 = t.id; teamPick = 1; showTeamPick(); return; }
+      show(null);
+      startGame(chosenStadium, G.mode === 'vs' ? team1 : t.id, G.mode === 'vs' ? t.id : null);
+    };
+    tg.appendChild(b);
+  }
+  $('#rules-grid').innerHTML = [
+    ['打つ', '球が来たら <b>スペース</b> でスイング。<b>矢印キー</b>（またはマウス）でミートカーソルを動かし、ボールに重ねてから振る。カーソルより上のボールを打つとフライ、下だとゴロになる。'],
+    ['投げる', '守るイニングでは <b>1〜5</b> で球種、<b>矢印キー</b>でコース、<b>スペース</b>で投球。ストライクゾーンの外に外して振らせるのも手。'],
+    ['バント', '<b>Shift＋スペース</b>でバント。転がして走者を進める。'],
+    ['ルール', '4ボールで四球、3ストライクで三振、当たればデッドボール、3アウトでチェンジ。イニング数は球場選択の画面で<b>3回・6回・9回</b>から選べる（初期設定は6回）。同点ならさらに3イニングまで延長し、それでも決まらなければ引き分け。あなたは先攻。'],
+    ['球場のクセ', '球場ごとに重力・フェンス距離・障害物がちがう。月面は1/6重力、スーパーは天井直撃でエンタイトルツーベース。'],
+    ['勝ち方', '打球の質は「タイミング」と「カーソルの位置」で決まる。芯を外すとファウルになって粘れるので、追い込まれても諦めないこと。'],
+    ['ふたりで対戦', 'キーボードひとつを交代で使う。投手（<b>1〜5</b>で球種、<b>矢印</b>でコース、<b>スペース</b>で投球）が投げたら、そのまま打者（<b>矢印</b>でねらう、<b>スペース</b>でスイング）の番。1Pが先攻、2Pが後攻。'],
+    ['中断する', '右上の<b>やめる</b>、または<b>Escキー</b>でいつでも中断できる。そのまま続けるか、タイトルに戻るかを選べる。'],
+  ].map(([h, d]) => `<div class="card"><div class="bd"><div class="nm">${h}</div><div class="ds">${d}</div></div></div>`).join('');
+}
+
+/* ============================================================
+   HUD
+   ============================================================ */
+function uiTeams() {
+  const tag = G.mode === 'vs' ? ['1P ', '2P '] : G.mode === 'auto' ? ['', ''] : ['', 'CPU '];
+  $('#sb-away .sb-nm').textContent = tag[0] + G.away.name;
+  $('#sb-home .sb-nm').textContent = tag[1] + G.home.name;
+  $('#sb-away .sb-dot').style.background = G.away.uni;
+  $('#sb-home .sb-dot').style.background = G.home.uni;
+  uiScore();
+}
+
+function uiScore() {
+  $('#sb-away .sb-run').textContent = G.score[0];
+  $('#sb-home .sb-run').textContent = G.score[1];
+  $('#sb-num').textContent = G.inning;
+  $('#sb-half').textContent = G.half === 0 ? '表' : '裏';
+  $('#sb-away').classList.toggle('bat', G.half === 0);
+  $('#sb-home').classList.toggle('bat', G.half === 1);
+  for (let i = 0; i < 3; i++) $('#b' + i).className = 'pip' + (G.balls > i ? ' b' : '');
+  for (let i = 0; i < 2; i++) $('#s' + i).className = 'pip' + (G.strikes > i ? ' s' : '');
+  for (let i = 0; i < 2; i++) $('#o' + i).className = 'pip' + (G.outs > i ? ' o' : '');
+  for (let i = 0; i < 3; i++) $('#bs' + (i + 1)).classList.toggle('on', !!G.bases[i]);
+}
+
+function uiBatter() {
+  const b = curBatter(), p = curPitcher();
+  const vs = G.mode === 'vs';
+  const half = `${G.inning}回${G.half === 0 ? 'オモテ' : 'ウラ'}`;
+  if (vs) {
+    $('#batter .role').textContent = `${half}  ${G.order[G.half] + 1}番`;
+    $('#batter .who').textContent = `${battingPlayer()} ${b.name}`;
+    $('#batter .meta').textContent = `投 ${pitchingPlayer()} ${p.name}`;
+  } else if (userBatting()) {
+    $('#batter .role').textContent = `${half} ${G.order[G.half] + 1}番`;
+    $('#batter .who').textContent = b.name;
+    $('#batter .meta').textContent = `${batTeam().name}  P${'★'.repeat(Math.round(b.power * 5)) || '-'}`;
+  } else {
+    $('#batter .role').textContent = 'PITCHING';
+    $('#batter .who').textContent = p.name;
+    $('#batter .meta').textContent = `対 ${b.name}（${batTeam().name}）`;
+  }
+  uiHint();
+}
+
+function uiHint() {
+  // in a two-player game the controls hand over at the release; against the
+  // computer the side you are on does not change mid-pitch
+  const pitching = G.mode === 'vs' ? (G.phase === 'aim' || G.phase === 'ready') : !userBatting();
+  const touch = matchMedia('(pointer:coarse)').matches;
+  const who = G.mode === 'vs' ? (pitching ? `${pitchingPlayer()} ` : `${battingPlayer()} `) : '';
+  const keys = !pitching
+    ? (touch ? [['ドラッグ', 'ねらう'], ['タップ', 'スイング']]
+             : [['矢印 / マウス', 'ねらう'], ['SPACE', 'スイング'], ['SHIFT+SPACE', 'バント']])
+    : (touch ? [['球種ボタン', 'えらぶ'], ['ドラッグ', 'コース'], ['タップ', '投げる']]
+             : [['1〜5', '球種'], ['矢印 / マウス', 'コース'], ['SPACE', '投げる']]);
+  $('#hint').innerHTML = (who ? `<span class="key act"><kbd>${who.trim()}</kbd>${pitching ? 'が投げる' : 'が打つ'}</span>` : '')
+    + keys.map(([k, d]) => `<span class="key"><kbd>${k}</kbd>${d}</span>`).join('');
+  const pp = $('#pitchpick');
+  pp.classList.toggle('hidden', !pitching || !G.active);
+  if (pitching) {
+    pp.innerHTML = PITCHES.map((p, i) =>
+      `<button class="pc${i === G.pitchType ? ' sel' : ''}" data-i="${i}">${p.nm}<small>${i + 1} · ${p.en}</small></button>`).join('');
+    for (const el of pp.querySelectorAll('.pc'))
+      el.onclick = () => { G.pitchType = +el.dataset.i; uiHint(); };
+  }
+}
+
+let bannerTimer = null;
+function banner(text, big) {
+  const el = $('#banner');
+  el.textContent = text;
+  el.style.color = big ? 'var(--amber)' : 'var(--cream)';
+  el.classList.remove('show');
+  void el.offsetWidth;
+  el.classList.add('show');
+}
+
+function clearLog() { $('#log').innerHTML = ''; }
+
+function logLine(text, hi) {
+  const el = document.createElement('p');
+  if (hi) el.className = 'hi';
+  el.textContent = text;
+  const box = $('#log');
+  box.appendChild(el);
+  while (box.children.length > 6) box.removeChild(box.firstChild);
+}
+
+function showResult() {
+  const innings = Math.max(G.innings, G.lines[0].length, G.lines[1].length);
+  const head = ['<tr><th></th>'];
+  for (let i = 0; i < innings; i++) head.push(`<th>${i + 1}</th>`);
+  head.push('<th>R</th><th>H</th><th>E</th></tr>');
+  const row = (side, team) => {
+    const cells = [`<td class="nm">${team.name}</td>`];
+    for (let i = 0; i < innings; i++) {
+      const v = G.lines[side][i];
+      cells.push(`<td>${v === null || v === undefined ? '&ndash;' : v}</td>`);
+    }
+    cells.push(`<td class="tot">${G.score[side]}</td><td>${G.hits[side]}</td><td>${G.errs[side]}</td>`);
+    return `<tr>${cells.join('')}</tr>`;
+  };
+  $('#res-line').innerHTML = head.join('') + row(0, G.away) + row(1, G.home);
+
+  const w = G.score[0] === G.score[1] ? null : (G.score[0] > G.score[1] ? 0 : 1);
+  $('#res-head').textContent = w === null ? '引き分け'
+    : G.mode === 'vs' ? `${w === 0 ? '1P' : '2P'}の勝ち！ — ${(w === 0 ? G.away : G.home).name}`
+    : w === G.userSide ? 'あなたの勝ち！'
+    : `${(w === 0 ? G.away : G.home).name}の勝ち`;
+
+  // best hitter of the game
+  let star = null;
+  for (const t of [G.away, G.home]) for (const p of t.roster) {
+    const s = p.h * 2 + p.hr * 3 + p.rbi;
+    if (!star || s > star.s) star = { s, p, t };
+  }
+  $('#res-stats').innerHTML = [
+    `<span class="pill">球場 <b>${G.st.name}</b></span>`,
+    `<span class="pill">${innings > G.innings ? '延長' + innings + '回' : G.innings + '回'}</span>`,
+    star ? `<span class="pill">お手柄 <b>${star.p.name}</b> ${star.p.h}安打 ${star.p.rbi}打点</span>` : '',
+  ].join('');
+  show('#s-result');
+}
+
+/* ============================================================
+   input
+   ============================================================ */
+const pointer = { x: 0.5, y: 0.5, has: false };
+
+function bindInput() {
+  addEventListener('keydown', (e) => {
+    if (e.repeat) return;
+    KEYS[e.code] = true;
+    if (!G.active) return;
+    if (e.code === 'Escape') { togglePause(); return; }
+    if (G.paused) return;
+    if (e.code === 'Space') {
+      e.preventDefault();
+      Snd.boot();
+      if (G.phase === 'aim' && humanPitches()) throwPitch(G.pitchType, G.reticle.x, G.reticle.y);
+      else if (G.phase === 'pitch' && humanBats()) playerSwing(e.shiftKey || KEYS.ShiftLeft || KEYS.ShiftRight);
+    }
+    if (G.phase === 'aim' && humanPitches() && e.code >= 'Digit1' && e.code <= 'Digit5') {
+      G.pitchType = +e.code.slice(5) - 1; uiHint();
+    }
+  });
+  addEventListener('keyup', (e) => { KEYS[e.code] = false; });
+
+  const cv = $('#gl');
+  const track = (e) => {
+    const r = cv.getBoundingClientRect();
+    pointer.x = (e.clientX - r.left) / r.width;
+    pointer.y = (e.clientY - r.top) / r.height;
+    pointer.has = true;
+  };
+  cv.addEventListener('pointermove', track);
+  cv.addEventListener('pointerdown', (e) => {
+    track(e); Snd.boot();
+    if (!G.active || G.paused) return;
+    if (G.phase === 'aim' && humanPitches()) throwPitch(G.pitchType, G.reticle.x, G.reticle.y);
+    else if (G.phase === 'pitch' && humanBats()) playerSwing(KEYS.ShiftLeft || KEYS.ShiftRight);
+  });
+  addEventListener('blur', () => { for (const k in KEYS) KEYS[k] = false; });
+}
+
+function updateAim(dt) {
+  const k = 1.55 * dt;
+  let moved = false;
+  if (KEYS.ArrowLeft || KEYS.KeyA) { G.reticle.x += k; moved = true; }
+  if (KEYS.ArrowRight || KEYS.KeyD) { G.reticle.x -= k; moved = true; }
+  if (KEYS.ArrowUp || KEYS.KeyW) { G.reticle.y += k; moved = true; }
+  if (KEYS.ArrowDown || KEYS.KeyS) { G.reticle.y -= k; moved = true; }
+  if (!moved && pointer.has) {
+    const tx = lerp(1.05, -1.05, clamp((pointer.x - 0.22) / 0.56, 0, 1));
+    const ty = lerp(1.72, 0.16, clamp((pointer.y - 0.20) / 0.58, 0, 1));
+    G.reticle.x += (tx - G.reticle.x) * Math.min(1, dt * 12);
+    G.reticle.y += (ty - G.reticle.y) * Math.min(1, dt * 12);
+  }
+  G.reticle.x = clamp(G.reticle.x, -1.05, 1.05);
+  G.reticle.y = clamp(G.reticle.y, 0.16, 1.72);
+}
+
+/* ============================================================
+   contact -> flight
+   ============================================================ */
+function doContact() {
+  const d = G.decided, bat = curBatter(), pc = G.pitch;
+  let la, v0, dir;
+  if (G.bunting) {
+    la = rnd(-5, 9);
+    v0 = rnd(6.5, 11) * (0.9 + bat.contact * 0.2);
+    dir = rnd(-40, 40);
+  } else {
+    la = clamp(13 + d.dy * 96 + gauss(6), -22, 62);
+    v0 = lerp(13, 43, d.q) * (0.90 + bat.power * 0.22);
+    dir = clamp(-d.dt * 330 + (pc.ax - (humanBats() ? G.reticle.x : G.cpuAim.x)) * 18 + gauss(9), -58, 58);
+    // catching it off the end, under it, off the handle: poor contact is fouled
+    // off far more often than it is put in play
+    if (chance(clamp(0.70 - d.q * 0.62, 0, 0.70))) {
+      dir = (chance(0.5) ? 1 : -1) * rnd(55, 88);
+      la = clamp(la + rnd(10, 38), 12, 80);
+      v0 *= rnd(0.50, 0.86);
+    }
+  }
+  G.flight = simFlight(v0, la, dir, G.st);
+  G.ball.vis = true;
+  G.trail.length = 0;
+  Snd.hit(clamp(d.q, 0, 1));
+
+  const o = fieldBall(G.flight);
+  G.flightT = 0;
+  G.playScript = o.play || null;
+  G.camMode = o.kind === 'foul' ? 'foul' : 'fly';
+  G.ballBoost = o.kind === 'foul' ? 1.7 : 1;
+
+  if (o.kind === 'foul') {
+    // freeze it a beat after it first lands, so it does not roll into the next
+    // county with the camera chasing it
+    const fl2 = G.flight;
+    const gi = Math.min(fl2.groundIdx + 14, fl2.path.length - 1);
+    const q = fl2.path[gi];
+    G.playScript = { fidx: -1, coverIdx: -1, cutIdx: gi, cutT: q.t,
+                     pt: { x: q.x, y: q.y, z: q.z }, air: false, throwTo: null, throwDur: 0 };
+    G.pendingCount = 'foul';
+    setPhase('play', Math.min(q.t, 1.5) + 0.45);
+    banner('ファウル');
+    return;
+  }
+  G.pendingCount = null;
+  G.carStall = 0;
+  if (G.flight.carHit) Snd.clang();
+  finishAtBat(o);
+}
+
+/* ============================================================
+   per-frame update
+   ============================================================ */
+function update(dt) {
+  if (!G.active || G.paused) return;
+  G.pt += dt;
+  if (G.phase === 'pitch' || G.phase === 'aim') updateAim(dt);
+  if (G.batSwingT >= 0) G.batSwingT += dt;
+
+  switch (G.phase) {
+    case 'ready':
+      // never deliver until the camera is back behind the plate and the
+      // pitcher has actually returned to the mound
+      if (G.pt >= G.phaseLen
+          && (camSettled() || G.pt > G.phaseLen + 2.2)
+          && (pitcherSet() || G.pt > G.phaseLen + 3.2)) {
+        if (humanPitches()) { setPhase('aim'); uiHint(); }
+        else { const c = cpuPitchChoice(); throwPitch(c.ti, c.ax, c.ay); }
+      }
+      break;
+
+    case 'aim':
+      break;
+
+    case 'pitch': {
+      const pc = G.pitch;
+      pc.t += dt;
+      const p = pitchPos(pc, pc.t);
+      // the ball dies in the mitt rather than carrying on through the catcher
+      const cst = G.stations[1];
+      const mitt = cst.z + 0.62;
+      G.ball.x = p.x; G.ball.y = Math.max(p.y, 0.42); G.ball.z = Math.max(p.z, mitt);
+      G.trail.unshift(p.x, p.y, p.z);
+      if (G.trail.length > 42) G.trail.length = 42;
+      if (!humanBats() && G.swingT >= 0 && !G.decided && pc.t >= G.swingT) {
+        G.batSwingT = 0; judgeSwing();
+      }
+      if (G.contactAt >= 0 && pc.t >= G.contactAt) { doContact(); break; }
+      if (pc.hbp && G.swingT < 0 && pc.t >= pc.T + 0.02) {
+        G.ball.vis = false;
+        afterPitch('hbp');
+        break;
+      }
+      if (pc.t > pc.T + 0.42) {
+        if (G.decided && G.decided.miss) afterPitch('whiff');
+        else if (G.swingT >= 0) afterPitch('whiff');
+        else afterPitch(pc.inZone ? 'strike' : 'ball');
+        G.ball.vis = false;
+      }
+      break;
+    }
+
+    case 'result':
+      if (G.pt >= G.phaseLen) { G.swingT = -1; G.decided = null; G.contactAt = -1; G.batSwingT = -1; G.bunting = false; setPhase('ready', 0.42); }
+      break;
+
+    case 'play': {
+      if (G.flight) {
+        G.flightT += dt;
+        const fl = G.flight, pl = G.playScript, path = fl.path;
+        const stop = pl ? Math.min(pl.cutIdx, path.length - 1) : path.length - 1;
+        const p = path[Math.min(stop, Math.floor(G.flightT / (1 / 90)))];
+        let bx = p.x, by = p.y, bz = p.z, live = true;
+
+        if (pl && pl.fidx >= 0) {
+          // the fielder runs to the ball and arrives with it
+          const f = G.fielders[pl.fidx];
+          f.scripted = true;
+          const u = clamp((G.flightT - 0.22) / Math.max(0.25, pl.cutT - 0.22), 0, 1);
+          const e = u * u * (3 - 2 * u);
+          f.x = lerp(f.st.x, pl.pt.x, e); f.z = lerp(f.st.z, pl.pt.z, e);
+          f.run = u < 1 ? 1.2 : 0;
+          f.fumbling = false;
+          if (pl.fumble && G.flightT > pl.cutT + 0.16) {     // go and pick it up
+            const fu = clamp((G.flightT - pl.cutT - 0.16) / (FUMBLE_T + 0.25), 0, 1);
+            const fe = fu * fu * (3 - 2 * fu);
+            f.x = lerp(pl.pt.x, pl.fumbleTo[0], fe); f.z = lerp(pl.pt.z, pl.fumbleTo[1], fe);
+            f.run = fu < 1 ? 1.2 : 0;
+            f.fumbling = G.flightT < pl.cutT + 0.46;
+          }
+          // team-mates cover the bags and back up the play
+          for (const mv of pl.moves || []) {
+            const c = G.fielders[mv.idx];
+            if (!c || mv.idx === pl.fidx) continue;
+            c.scripted = true;
+            const cu = clamp(G.flightT / Math.max(0.5, mv.byT), 0, 1);
+            const ce = cu * cu * (3 - 2 * cu);
+            c.x = lerp(c.st.x, mv.x, ce); c.z = lerp(c.st.z, mv.z, ce);
+            c.run = cu < 1 ? 1.2 : 0;
+          }
+        }
+        if (pl && G.flightT > pl.cutT) {
+          {
+            live = false;
+            let tt = G.flightT - pl.cutT;
+            let fromX = pl.pt.x, fromZ = pl.pt.z, fromY = Math.max(pl.pt.y, 1.0);
+            let loose = false;
+            if (pl.fumble) {                  // it pops out of the glove first
+              if (tt <= FUMBLE_T + 0.45) {
+                const u = clamp(tt / FUMBLE_T, 0, 1);
+                bx = lerp(pl.pt.x, pl.fumbleTo[0], u);
+                bz = lerp(pl.pt.z, pl.fumbleTo[1], u);
+                by = lerp(Math.max(pl.pt.y, 0.95), 0.14, u) + Math.sin(u * Math.PI) * 0.85;
+                loose = true;
+              } else {
+                tt -= FUMBLE_T + 0.45;
+                fromX = pl.fumbleTo[0]; fromZ = pl.fumbleTo[1]; fromY = 0.7;
+              }
+            }
+            const arc = (ax, az, ay, bx2, bz2, u) => {
+              bx = lerp(ax, bx2, u); bz = lerp(az, bz2, u);
+              by = lerp(ay, 1.0, u) + Math.sin(u * Math.PI) * 2.4;
+              if (u >= 1) by = 1.0;
+            };
+            if (loose) { /* still skipping away from him */ }
+            else if (pl.via) {                  // the relay through second
+              if (tt <= pl.viaDur) {
+                arc(fromX, fromZ, fromY, pl.via[0], pl.via[1], clamp(tt / pl.viaDur, 0, 1));
+              } else {
+                bx = pl.via[0]; bz = pl.via[1]; by = 1.0;
+                tt -= pl.viaDur + 0.28;         // a beat on the bag, then away
+                if (tt > 0 && pl.throwTo && pl.throwDur > 0)
+                  arc(pl.via[0], pl.via[1], 1.0, pl.throwTo[0], pl.throwTo[1],
+                      clamp(tt / pl.throwDur, 0, 1));
+              }
+            } else if (pl.throwTo && pl.throwDur > 0) {
+              arc(fromX, fromZ, fromY, pl.throwTo[0], pl.throwTo[1], clamp(tt / pl.throwDur, 0, 1));
+            } else {
+              bx = pl.pt.x; by = Math.max(pl.pt.y, 0.14); bz = pl.pt.z;
+            }
+          }
+        }
+        G.ball.x = bx; G.ball.y = by; G.ball.z = bz;
+        if (live) {
+          G.trail.unshift(bx, by, bz);
+          if (G.trail.length > 60) G.trail.length = 60;
+        } else if (G.trail.length) {
+          G.trail.length = Math.max(0, G.trail.length - 6);
+        }
+        // a foul stays on the close camera so it can snap back for the next pitch
+        const foulPlay = pl && pl.fidx < 0;
+        const wide = pl ? pl.cutT * 0.72 : fl.total * 0.62;
+        if (!foulPlay && (G.flightT > wide || G.flightT > 2.8)) G.camMode = 'field';
+      }
+      if (G.pt >= G.phaseLen) endPlay();
+      break;
+    }
+
+    case 'halfend':
+      if (G.pt >= G.phaseLen) nextBatter();
+      break;
+
+    case 'walkoff':
+      if (G.pt >= G.phaseLen) endGame();
+      break;
+  }
+
+  if (G.hbpT > 0) G.hbpT -= dt;
+  updateTraffic(dt);
+  // runners (a flattened one lies there until he can get up)
+  let stalled = false;
+  for (const m of G.movers) {
+    if (m.down > 0) { m.down -= dt; stalled = true; continue; }
+    m.t += dt;
+    if (G.traffic && !m.retired && m.t > 0 && m.t < m.dur) {
+      if (m.dodge > 0) m.dodge -= dt;
+      else {
+        const r = runnerAt(m);
+        for (const c of G.traffic) {
+          if (carHits(c, r.x, 0.6, r.z, 0.30)) {
+            if (!chance(c.walk ? 0.13 : 0.09)) { m.dodge = 1.3; break; }
+            m.down = c.walk ? 1.3 : 1.6;
+            Snd.crash();
+            runOverRunner(m, !!c.walk);    // he is out where he stands
+            stalled = true;
+            break;
+          }
+        }
+      }
+    }
+  }
+  if (stalled && G.phase === 'play' && G.carStall < 2.6) { G.phaseLen += dt; G.carStall += dt; }
+  // fielders drift back / converge
+  for (const f of G.fielders) {
+    if (!f.scripted) {
+      const k = Math.min(1, dt * 3.4);         // get back to your position
+      f.x += (f.tx - f.x) * k; f.z += (f.tz - f.z) * k;
+      f.run = Math.hypot(f.tx - f.x, f.tz - f.z);
+    }
+    // a fielder making a play watches the ball; otherwise he faces the plate
+    if (f.scripted && G.ball.vis) f.ry = Math.atan2(G.ball.x - f.x, G.ball.z - f.z);
+    else f.ry = Math.atan2(-f.x, -f.z);
+  }
+  updateCamera(dt);
+}
+
+function endPlay() {
+  G.carStall = 0;
+  G.ballBoost = 1;
+  G.camMode = 'bat';        // back behind the plate before anything else
+  G.ball.vis = false;
+  G.flight = null;
+  G.playScript = null;
+  for (const f of G.fielders) f.scripted = false;
+  G.movers = [];
+  G.trail.length = 0;
+  if (G.pendingCount) { const c = G.pendingCount; G.pendingCount = null; afterPitch(c); return; }
+  if (checkWalkoff()) return;
+  if (G.outs >= 3) { endHalfInning(); return; }
+  nextBatter();
+}
+
+/* ============================================================
+   camera
+   ============================================================ */
+const camSettled = () =>
+  CAM.wx === undefined ||
+  Math.hypot(CAM.ex - CAM.wx, CAM.ey - CAM.wy, CAM.ez - CAM.wz) < 0.9;
+
+/* the pitcher has to be back on the rubber before he can deliver */
+const pitcherSet = () => {
+  const f = G.fielders[0];
+  return !f || (f.down <= 0 && Math.hypot(f.x - f.st.x, f.z - f.st.z) < 0.7);
+};
+
+function updateCamera(dt) {
+  // indoors the camera must stay under the roof or it looks through it
+  const ceilY = G.st && G.st.ceiling ? G.st.ceiling - 1.4 : 1e9;
+  let ex, ey, ez, tx, ty, tz, fov = 46, sp = 3.2;
+  if (G.camMode === 'bat') {
+    const tall = clamp(1.25 - R.w / R.h, 0, 0.5);   // >0 once the view goes portrait
+    ex = 0.55; ey = 4.6 + tall * 3.2; ez = -9.0 - tall * 5.0;
+    tx = 0; ty = 0.4 + tall * 0.5; tz = 7.0; fov = 40; sp = 5;
+  } else if (G.camMode === 'fly') {
+    const b = G.ball;
+    ex = b.x * 0.55; ey = clamp(6 + b.y * 0.55, 6, 46); ez = b.z * 0.30 - 21;
+    tx = b.x * 0.9; ty = b.y * 0.85 + 0.6; tz = b.z * 0.96; fov = 48; sp = 3.4;
+  } else if (G.camMode === 'foul') {
+    // the eye stays at the plate so the ball genuinely recedes; only the aim
+    // and the field of view open up to keep it in shot
+    const b = G.ball;
+    ex = 0.55; ey = 5.2; ez = -10.0;
+    tx = clamp(b.x * 0.62, -15, 15); ty = clamp(b.y * 0.30 + 1.0, 1.0, 6.5);
+    tz = 8; fov = 62; sp = 4.5;
+  } else if (ceilY < 40) {
+    // indoors: as high as the roof allows, and in front of the checkouts
+    ex = 0; ey = Math.min(9.0, ceilY); ez = -11;
+    tx = 0; ty = 0.9; tz = 28; fov = 68; sp = 1.8;
+  } else {
+    ex = 0; ey = 33; ez = -26;
+    tx = 0; ty = 0; tz = 30; fov = 50; sp = 1.8;
+  }
+  ey = Math.min(ey, ceilY);
+  ty = Math.min(ty, ceilY - 0.6);
+  CAM.wx = ex; CAM.wy = ey; CAM.wz = ez;
+  const k = Math.min(1, dt * sp);
+  CAM.ex += (ex - CAM.ex) * k; CAM.ey += (ey - CAM.ey) * k; CAM.ez += (ez - CAM.ez) * k;
+  CAM.tx += (tx - CAM.tx) * k; CAM.ty += (ty - CAM.ty) * k; CAM.tz += (tz - CAM.tz) * k;
+  CAM.fov += (fov - CAM.fov) * k;
+}
+
+/* ============================================================
+   drawing
+   ============================================================ */
+let clock = 0;
+
+/* ---------- the swing ----------
+   Keyframes in seconds from the press. Contact lands at 0.090s, which is
+   SWING_LAG, so the barrel is in the zone exactly when the hit is judged.
+     az    bat azimuth, degrees (0 = toward centre field)
+     tilt  barrel elevation
+     r/gy  where the hands ride: radius from the spine, and height
+     ry    body turn, added to the batter's facing
+     shift stride toward the pitcher                                        */
+const BAT_LEN = 0.98;
+/* gx/gy/gz put the bottom hand at an explicit point (gx and gz are offsets from
+   the batter's spot); az/tilt aim the barrel from there. px/py/pz hint which
+   way the elbows break. */
+const SWING = [
+  { t: 0.000, gx: 0.13, gy: 1.05, gz: -0.40, az: 145, tilt: 0.95, ry: -0.34, lean: 0.05, spread: 0.05, lgL: 0.10, lgR: -0.10, shift: 0.00, head: 1.64, px: 0.35, py: -0.70, pz: -0.45 },
+  { t: 0.032, gx: 0.17, gy: 1.10, gz: -0.48, az: 152, tilt: 1.05, ry: -0.50, lean: 0.02, spread: 0.06, lgL: 0.13, lgR: -0.17, shift: -0.03, head: 1.86, px: 0.40, py: -0.65, pz: -0.50 },
+  { t: 0.090, gx: -0.40, gy: 1.00, gz: 0.05, az: -90, tilt: 0.02, ry: 0.26, lean: 0.14, spread: 0.15, lgL: -0.02, lgR: 0.07, shift: 0.11, head: 0.79, px: 0.20, py: -0.90, pz: 0.10 },
+  { t: 0.200, gx: -0.20, gy: 1.06, gz: 0.30, az: -40, tilt: -0.15, ry: 0.70, lean: 0.17, spread: 0.16, lgL: -0.05, lgR: 0.09, shift: 0.13, head: 0.15, px: 0.10, py: -0.90, pz: 0.30 },
+  { t: 0.520, gx: 0.05, gy: 1.26, gz: 0.34, az: 45, tilt: 0.75, ry: 1.10, lean: 0.09, spread: 0.12, lgL: -0.02, lgR: 0.05, shift: 0.11, head: -0.15, px: 0.10, py: -0.75, pz: 0.45 },
+];
+
+function batterRig(t, clk) {
+  let k;
+  if (t < 0) {
+    k = Object.assign({}, SWING[0]);           // waiting: a small bat waggle
+    k.az += Math.sin(clk * 2.4) * 6.0;
+    k.tilt += Math.sin(clk * 2.4 + 0.6) * 0.08;
+    k.gy += Math.sin(clk * 1.9) * 0.015;
+    k.gz += Math.sin(clk * 1.9 + 1.1) * 0.012;
+  } else {
+    const last = SWING[SWING.length - 1];
+    const tt = Math.min(t, last.t);
+    let i = 0;
+    while (i < SWING.length - 2 && tt > SWING[i + 1].t) i++;
+    const a = SWING[i], b = SWING[i + 1];
+    const u = clamp((tt - a.t) / (b.t - a.t), 0, 1);
+    const e = u * u * (3 - 2 * u);
+    k = {};
+    for (const key in a) k[key] = lerp(a[key], b[key], e);
+  }
+  const az = k.az * DEG, ct = Math.cos(k.tilt), st = Math.sin(k.tilt);
+  const grip = [BAT_X + k.gx, k.gy, BAT_Z + k.gz];
+  const dir = [Math.sin(az) * ct, st, Math.cos(az) * ct];
+  const on = (d) => [grip[0] + dir[0] * d, grip[1] + dir[1] * d, grip[2] + dir[2] * d];
+  k.grip = grip; k.dir = dir; k.bx = BAT_X; k.bz = BAT_Z + k.shift;
+  // right-handed hitter: left hand at the knob, right hand above it. The
+  // character's local +x side faces the pitcher, so that is the left arm.
+  k.topAt = 0.20; k.botAt = 0.06;
+  k.handTop = on(k.topAt);
+  k.handBot = on(k.botAt);
+  k.pole = [k.px, k.py, k.pz];
+  return k;
+}
+
+/* runners follow the base-path polyline, touching every bag */
+function runnerAt(m) {
+  const u = clamp(m.t / m.dur, 0, 1);
+  const e = u * u * (3 - 2 * u);
+  let d = e * m.total;
+  const n = m.segs.length;
+  for (let i = 0; i < n; i++) {
+    if (d <= m.segs[i] || i === n - 1) {
+      const k = m.segs[i] > 1e-6 ? clamp(d / m.segs[i], 0, 1) : 1;
+      const a = m.pts[i], b = m.pts[i + 1];
+      return { x: lerp(a[0], b[0], k), z: lerp(a[1], b[1], k), done: u >= 1, u,
+               ry: Math.atan2(b[0] - a[0], b[1] - a[1]) };
+    }
+    d -= m.segs[i];
+  }
+  return { x: m.pts[0][0], z: m.pts[0][1], done: u >= 1, u, ry: 0 };
+}
+
+/* a hand target, pulled back so it stays within `max` of the shoulder */
+function reachFrom(sx, sy, sz, tx, ty, tz, max) {
+  const dx = tx - sx, dy = ty - sy, dz = tz - sz;
+  const d = Math.hypot(dx, dy, dz) || 1;
+  const k = Math.min(1, max / d);
+  return [sx + dx * k, sy + dy * k, sz + dz * k];
+}
+
+function drawScene() {
+  const st = G.st;
+  const env = { light: st.light, skyTint: st.skyTint, gndTint: st.gndTint, fog: st.fog, fogDist: st.fogDist };
+  R.begin(CAM, env);
+  G.scene.draw();
+
+  const bt = batTeam(), ft = fldTeam();
+  const bob = Math.sin(clock * 2.2) * 0.03;
+  if (G.traffic) for (const c of G.traffic) { if (c.walk) drawShopper(c); else drawCar(c); }
+
+  // fielders
+  for (let i = 0; i < G.fielders.length; i++) {
+    const f = G.fielders[i];
+    const pl = ft.roster.find((r) => r.pos === f.st.k) || ft.roster[i];
+    const running = f.run > 0.6;
+    const swing = running ? Math.sin(clock * 13) * 0.8 : 0;
+    const pose = {
+      armL: running ? swing * 0.7 : 0.2 + bob, armR: running ? -swing * 0.7 : -0.2 - bob,
+      legL: swing, legR: -swing, bob: running ? Math.abs(Math.sin(clock * 13)) * 0.06 : bob * 0.5,
+    };
+    if (f.down > 0) {                       // run over: flat on his back
+      const settle = clamp(f.down * 2.2, 0, 1);
+      drawAnimal(f.x, f.z, f.ry, pl.look, {
+        fall: -1.45, spread: 0.18, legL: -0.5, legR: 0.4,
+        armL: -1.1, armR: 1.1, bob: -0.30,
+      }, 0);
+      for (let s2 = 0; s2 < 3; s2++) {
+        const a2 = clock * 5 + s2 * 2.1;
+        R.b('sphere', f.x + Math.cos(a2) * 0.34, 0.92 + Math.sin(clock * 6 + s2) * 0.05,
+            f.z + Math.sin(a2) * 0.34, 0.13, 0.13, 0.13, col('#FFE04A'));
+      }
+      continue;
+    }
+    const isP = f.st.k === 'P', isC = f.st.k === 'C';
+    let ry = f.ry;
+    if (isP) {
+      if (G.phase === 'ready') {                 // wind up
+        const u = clamp(G.pt / Math.max(0.3, G.phaseLen), 0, 1);
+        pose.armL = -0.5 - u * 2.0; pose.armR = -0.4 - u * 0.8; pose.legR = -u * 0.45;
+      } else if (G.phase === 'pitch') {
+        const t = G.pitch.t;
+        if (t < 0.10 && G.ball.vis) {             // the ball is still in his hand
+          pose.handL = reachFrom(f.x, 0.94, f.z, G.ball.x, G.ball.y, G.ball.z, 0.60);
+          pose.pole = [0.4, -0.6, 0.2];
+        }
+        pose.armR = -1.6 + clamp(t * 5, 0, 2.0);
+      }
+    }
+    // The glove goes on the LEFT hand, which is the local +x arm: a character
+    // faces its local +z, so its right side is local -x. The right hand throws.
+    pose.noPawR = 1;
+    if (!isP && G.ball.vis) {
+      const shy = 0.94 + (f.st.k === 'C' ? -0.22 : 0);
+      const shx = f.x + 0.17 * Math.cos(f.ry), shz = f.z - 0.17 * Math.sin(f.ry);
+      if (Math.hypot(G.ball.x - shx, G.ball.y - shy, G.ball.z - shz) < 2.3) {
+        pose.handR = reachFrom(shx, shy, shz, G.ball.x,
+                               clamp(G.ball.y, 0.15, 2.1), G.ball.z, 0.62);
+        pose.pole = [0, -0.7, 0.5];
+      }
+    }
+    if (f.fumbling) {                       // arms up — it got away from him
+      pose.handR = null; pose.armL = -2.3; pose.armR = -2.2; pose.lean = -0.20;
+    }
+    if (isC && G.phase === 'pitch') {
+      // the mitt sits up in front of him and only moves the last little bit to
+      // meet the ball — it never chases it out toward the mound
+      const shy = 0.94 - 0.22;
+      let tx = f.x * 0.4, ty = 0.78, tz = f.z + 0.62;
+      if (G.ball.vis && G.ball.z < f.z + 2.6) {
+        tx = G.ball.x; ty = clamp(G.ball.y, 0.28, 1.75); tz = Math.max(G.ball.z, f.z + 0.42);
+      }
+      pose.handR = reachFrom(f.x, shy, f.z, tx, ty, tz, 0.60);
+      pose.pole = [0, -0.7, 0.7];
+    }
+    const y0 = isC ? -0.22 : 0;
+    const a = drawAnimal(f.x, f.z, ry, pl.look, pose, y0);
+    if (!f.fumbling) {
+      const gp = L2W(a.f, a.hr[0], a.hr[2]);
+      inked(pl.look, () => drawGlove(pose.handR
+        ? [pose.handR[0], pose.handR[1], pose.handR[2]]
+        : [gp[0], a.hr[1], gp[1]], f.ry));
+    }
+  }
+
+  // umpire
+  drawAnimal(-1.55, -4.9, 0, { animal: 'hippo', uni: '#2B3138', trim: '#4A525C', cap: '#1E242A' },
+    { armL: 0.5, armR: -0.5, bob: bob * 0.4 }, -0.30);
+
+  // batter (unless already running)
+  const batterRunning = G.movers.some((m) => m.from === -1 && m.t >= 0);
+  if (!batterRunning) {
+    const b = curBatter();
+    if (G.hbpT > 0) {                       // just wore one — no bat, on the deck
+      drawAnimal(BAT_X + 0.25, BAT_Z - 0.2, -Math.PI / 2, b.look,
+        { fall: -0.62, spread: 0.20, legL: -0.35, legR: 0.30,
+          armL: -1.7, armR: -1.6, bob: -0.12, helmet: 1 }, 0);
+      for (let s2 = 0; s2 < 3; s2++) {
+        const a2 = clock * 5 + s2 * 2.1;
+        R.b('sphere', BAT_X + 0.25 + Math.cos(a2) * 0.34, 1.05 + Math.sin(clock * 6 + s2) * 0.05,
+            BAT_Z - 0.2 + Math.sin(a2) * 0.34, 0.13, 0.13, 0.13, col('#FFE04A'));
+      }
+    } else {
+    const rig = batterRig(G.batSwingT, clock);
+    drawAnimal(rig.bx, rig.bz, -Math.PI / 2 + rig.ry, b.look, {
+      handL: rig.handTop, handR: rig.handBot, pole: rig.pole,
+      legL: rig.lgL, legR: rig.lgR, spread: rig.spread,
+      lean: rig.lean, headRy: rig.head,
+      helmet: 1, gloveC: bt.trim,
+      bob: G.batSwingT < 0 ? bob * 0.5 : 0.015,
+    }, 0);
+    inked(b.look, () => {
+      drawBatRig(rig.grip, rig.dir, BAT_LEN, '#C99A5E', '#6B4A2A');
+      drawGrip(rig.grip, rig.dir, rig.botAt, bt.trim);
+      drawGrip(rig.grip, rig.dir, rig.topAt, bt.trim);
+    });
+    }
+  }
+
+  // runners in motion
+  for (const m of G.movers) {
+    if (m.t < 0) continue;
+    const r = runnerAt(m);
+    if (r.done && m.scored) continue;
+    if (m.down > 0) {
+      drawAnimal(r.x, r.z, r.ry, m.p.look,
+        { fall: -1.45, spread: 0.18, legL: -0.5, legR: 0.4, armL: -1.1, armR: 1.1,
+          bob: -0.30, helmet: 1 }, 0);
+      for (let s2 = 0; s2 < 3; s2++) {
+        const a2 = clock * 5 + s2 * 2.1;
+        R.b('sphere', r.x + Math.cos(a2) * 0.34, 0.92 + Math.sin(clock * 6 + s2) * 0.05,
+            r.z + Math.sin(a2) * 0.34, 0.13, 0.13, 0.13, col('#FFE04A'));
+      }
+      continue;
+    }
+    const sw = r.done ? 0 : Math.sin(clock * 15) * 0.9;
+    drawAnimal(r.x, r.z, r.ry, m.p.look, {
+      armL: sw * 0.8, armR: -sw * 0.8, legL: sw, legR: -sw, helmet: 1,
+      bob: r.done ? 0 : Math.abs(Math.sin(clock * 15)) * 0.07, lean: 0.16,
+    }, 0);
+  }
+  // runners standing on base
+  for (let i = 0; i < 3; i++) {
+    const p = G.bases[i];
+    if (!p || G.movers.some((m) => m.p === p)) continue;
+    // he takes his lead down the line, shuffling and watching the pitcher
+    const b = BASE_POS[i], n2 = basePt(i + 1);
+    const ux = n2[0] - b[0], uz = n2[1] - b[1], ul = Math.hypot(ux, uz) || 1;
+    // he only takes his lead before the pitch — once the ball is hit he is
+    // back on the bag, watching the fly
+    const off = G.phase === 'play' ? 0.25
+      : LEAD_OFF + Math.sin(clock * 1.7 + i * 2) * 0.34;
+    const lx = b[0] + (ux / ul) * off, lz = b[1] + (uz / ul) * off;
+    // he edges down the line but stays squared up to the pitcher
+    drawAnimal(lx, lz, Math.atan2(MOUND_POS[0] - lx, MOUND_POS[1] - lz), p.look,
+               { armL: 0.42, armR: 0.42, legL: 0.10, legR: -0.10, spread: 0.19,
+                 lean: 0.17, bob: bob * 0.6, helmet: 1 }, 0);
+  }
+
+  // ball, with a shadow on the ground so its height and distance are readable
+  if (G.ball.vis) {
+    if (G.phase === 'play' && G.ball.y > 0.28)
+      shadow(G.ball.x, G.ball.z, 0.30 * (G.ballBoost || 1), clamp(0.38 - G.ball.y * 0.007, 0.14, 0.38));
+    drawTrail(G.trail);
+    drawBall(G.ball.x, G.ball.y, G.ball.z, clock * 9);
+  }
+
+  // aiming overlay, only while the pitch is live
+  if ((G.phase === 'pitch' || G.phase === 'aim') && !G.over) drawZone();
+
+  flushShadows(0);
+}
+
+function drawZone() {
+  const z = 0.30;
+  R.unlit(true, 0.55);
+  // two passes: a dark backing then a light face, so the zone reads on grass,
+  // asphalt, a white tiled floor and grey regolith alike
+  const frame = (c, t, dz, a) => {
+    R.gl.uniform1f(R.u.uAlpha, a);
+    const seg = (x, y, w, h) => R.b('box', x, y, z + dz, w, h, 0.02, c);
+    seg(0, ZY0, ZX * 2 + t, t); seg(0, ZY1, ZX * 2 + t, t);
+    seg(-ZX, (ZY0 + ZY1) / 2, t, ZY1 - ZY0); seg(ZX, (ZY0 + ZY1) / 2, t, ZY1 - ZY0);
+  };
+  frame(col('#141C26'), 0.075, 0.012, 0.5);
+  frame(col('#FFFFFF'), 0.035, 0, 0.9);
+  // meet cursor
+  const a = col('#FFC44D'), ao = col('#5A3B06');
+  const rx = G.reticle.x, ry = G.reticle.y;
+  for (let i = 0; i < 8; i++) {
+    const th = (i / 8) * Math.PI * 2;
+    const px = rx + Math.cos(th) * 0.2, py = ry + Math.sin(th) * 0.2;
+    R.gl.uniform1f(R.u.uAlpha, 0.55);
+    R.b('box', px, py, z - 0.01, 0.105, 0.105, 0.02, ao);
+    R.gl.uniform1f(R.u.uAlpha, 0.95);
+    R.b('box', px, py, z - 0.03, 0.07, 0.07, 0.02, a);
+  }
+  R.b('box', rx, ry, z - 0.03, 0.05, 0.05, 0.02, a);
+  R.unlit(false);
+}
+
+/* ============================================================
+   boot
+   ============================================================ */
+function frame(now) {
+  const dt = Math.min(0.05, (now - frame.last || 16) / 1000);
+  frame.last = now;
+  clock += dt;
+  update(dt);
+  if (G.st) drawScene();
+  else drawIdle();
+  requestAnimationFrame(frame);
+}
+frame.last = 0;
+
+let idleScene = null, idleTeam = null, idleStations = null;
+function drawIdle() {
+  if (!idleScene) {
+    idleScene = STADIUMS[0].build();
+    idleTeam = makeTeam(TEAMS[3]);
+    idleStations = stationsFor(STADIUMS[0]);
+  }
+  const st = STADIUMS[0];
+  const a = clock * 0.16;
+  CAM.ex = Math.sin(a) * 26; CAM.ez = 6 + Math.cos(a) * 26; CAM.ey = 7.5;
+  CAM.tx = 0; CAM.ty = 1.2; CAM.tz = 16; CAM.fov = 48;
+  R.begin(CAM, { light: st.light, skyTint: st.skyTint, gndTint: st.gndTint, fog: st.fog, fogDist: st.fogDist });
+  idleScene.draw();
+  const bob = Math.sin(clock * 2.2) * 0.03;
+  for (let i = 0; i < 9; i++) {
+    const s = idleStations[i];
+    drawAnimal(s.x, s.z, Math.atan2(-s.x, -s.z), idleTeam.roster[i].look, { armL: 0.2 + bob, armR: -0.2 - bob, bob }, 0);
+  }
+  flushShadows(0);
+}
+
+function boot() {
+  const cv = $('#gl');
+  if (!R.init(cv)) {
+    document.body.innerHTML = '<div style="padding:40px;font-family:sans-serif;color:#F6EFE1">' +
+      'このブラウザではWebGLが使えないため、ゲームを表示できません。</div>';
+    return;
+  }
+  buildMenus();
+  bindInput();
+  $('#btn-start').onclick = () => { Snd.boot(); G.mode = 'cpu'; show('#s-stadium'); };
+  $('#btn-vs').onclick = () => { Snd.boot(); G.mode = 'vs'; show('#s-stadium'); };
+  $('#btn-quit').onclick = () => togglePause();
+  $('#btn-resume').onclick = () => togglePause();
+  $('#btn-abandon').onclick = () => {
+    G.paused = false; G.active = false; G.over = false; G.st = null;
+    show('#s-title');
+  };
+  $('#btn-rules').onclick = () => show('#s-rules');
+  $('#btn-rules-back').onclick = () => show('#s-title');
+  $('#btn-st-back').onclick = () => show('#s-title');
+  $('#btn-tm-back').onclick = () => show('#s-stadium');
+  $('#btn-again').onclick = () => { G.st = null; teamPick = 0; show('#s-stadium'); };
+  $('#btn-menu').onclick = () => { G.st = null; show('#s-title'); };
+  addEventListener('resize', () => R.resize());
+  requestAnimationFrame(frame);
+}
+boot();
+</script>
