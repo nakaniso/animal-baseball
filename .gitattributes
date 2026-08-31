@@ -1,0 +1,5 @@
+# animal-baseball.html は src/ を連結した生成物。
+# 1行の変更でファイル全体が変わるため、行単位のマージは無意味で必ず衝突する。
+# 衝突したら解決せず「片方を取って再生成」する:
+#   git checkout --ours animal-baseball.html && sh build.sh && git add animal-baseball.html
+animal-baseball.html -merge -diff
