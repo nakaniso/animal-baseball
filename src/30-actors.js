@@ -80,12 +80,14 @@ const ANIMALS = {
              brow: 1, earR: 0.245, earX: 0.325, earY: 0.315, earD: 0.60,
              eyeX: 0.152, eyeW: 0.132, eyeH: 0.104 },
 
-  rabbit:  { ink: 0.022, ear: 'long', fur: '#F0EAE0', fur2: '#F6D7DA', tail: 'puff',
-             head: 'rbox', hw: 0.99, hh: 1.10, hd: 0.94,
-             muz: [0.34, 0.235, 0.24], muzY: -0.135, muzZ: 0.245,
-             noseR: 0.082, noseC: '#D9808F', cheek: 0.19,
-             earR: 0.165, earX: 0.145, earY: 0.50, earLen: 0.64, earIn: '#F6D7DA',
-             eyeX: 0.166, eyeW: 0.124, eyeH: 0.124 },
+  // drawn from the reference sketch: tall straight ears, round head, dot eyes
+  rabbit:  { ink: 0.022, ear: 'long', fur: '#F4F0E8', fur2: '#F6D7DA', tail: 'puff',
+             head: 'sphere', hw: 1.08, hh: 1.06, hd: 0.98, capY: -0.075,
+             muz: [0.17, 0.11, 0.13], muzY: -0.145, muzZ: 0.260, muzC: '#F4F0E8',
+             noseR: 0.060, noseC: '#4A3438', smallMouth: 1, buttons: 1,
+             earR: 0.152, earX: 0.145, earY: 0.62, earLen: 0.86, earTilt: 0.10,
+             earIn: '#F6D7DA',
+             dotEyes: 1, eyeX: 0.150, eyeW: 0.086, eyeH: 0.098 },
 
   cat:     { ink: 0.022, ear: 'point', fur: '#E0A44F', fur2: '#F7EDDD', tail: 'long',
              head: 'rbox', hw: 1.10, hh: 0.98, hd: 0.94,
@@ -151,6 +153,7 @@ function drawAnimal(x, z, ry, look, pose, y0) {
   const big = A.big ? 1.12 : 1;
   const fur = col(A.fur), fur2 = col(A.fur2);
   const uni = col(look.uni), trim = col(look.trim), cap = col(look.cap);
+  const trim2 = shade(look.trim, 0.72);
 
   shadow(x, z, (p.fall ? 0.72 : 0.44) * big, 0.34);
 
@@ -164,6 +167,8 @@ function drawAnimal(x, z, ry, look, pose, y0) {
   part(f, 'sphere', 0, y + 0.74, 0, 0.66 * big, 0.70, 0.56 * big, uni, p.lean || 0);
   part(f, 'sphere', 0, y + 0.97, 0.01, 0.50, 0.14, 0.45, trim);   // jersey collar
   part(f, 'box', 0, y + 0.72, 0.185, 0.075, 0.42, 0.05, trim);  // button placket
+  if (A.buttons) for (let i = 0; i < 3; i++)                     // ...and its buttons
+    part(f, 'sphere', 0, y + 0.86 - i * 0.145, 0.292 - i * 0.012, 0.058, 0.058, 0.050, trim2);
   // pinstripes down the front, and the belt at the waist
   const stripe = shade(look.uni, 0.80);
   for (const i of [-2, -1, 1, 2]) {
@@ -227,15 +232,16 @@ function drawAnimal(x, z, ry, look, pose, y0) {
   } else if (A.muz) {
     const mz = A.muz, my = hy + (A.muzY === undefined ? -0.09 : A.muzY);
     const mzz = A.muzZ === undefined ? 0.26 : A.muzZ;
-    part(fh, 'sphere', 0, my, mzz, mz[0], mz[1], mz[2], fur2);
+    part(fh, 'sphere', 0, my, mzz, mz[0], mz[1], mz[2], A.muzC ? col(A.muzC) : fur2);
     const nr = A.noseR || 0.11;
     if (A.nostril) {
       for (const s of [-1, 1])
         part(fh, 'sphere', s * mz[0] * 0.24, my + mz[1] * 0.28, mzz + mz[2] * 0.40,
              nr, nr * 0.90, nr * 0.60, col('#3A3040'));
     } else {
-      part(fh, 'sphere', 0, my + mz[1] * 0.40, mzz + mz[2] * 0.40,
-           nr, nr * 0.74, nr * 0.72, col(A.noseC || '#33291F'));
+      if (!(A.dotEyes && R.inkW > 0))
+        part(fh, 'sphere', 0, my + mz[1] * 0.40, mzz + mz[2] * 0.40,
+             nr, nr * 0.74, nr * 0.72, col(A.noseC || '#33291F'));
     }
     if (A.whisk) for (const s of [-1, 1]) for (let i = 0; i < 3; i++)
       part(fh, 'box', s * (mz[0] * 0.60 + 0.13), my + 0.02 + (i - 1) * 0.05, mzz + 0.03,
@@ -248,7 +254,20 @@ function drawAnimal(x, z, ry, look, pose, y0) {
   }
 
   // eyes, with the drawn brow line above them
-  if (!A.noFaceEyes) {
+  if (A.smallMouth && R.inkW === 0) {           // a little mouth under the nose
+    const mz = A.muz || [0.2, 0.13, 0.16];
+    const my2 = hy + (A.muzY === undefined ? -0.09 : A.muzY) + mz[1] * 0.40 - 0.078;
+    for (const s of [-1, 1])
+      part(fh, 'box', s * 0.038, my2, hzF - 0.062, 0.074, 0.024, 0.05,
+           col('#4A3438'), 0, s * 0.30);
+  }
+  if (!A.noFaceEyes && A.dotEyes) {              // simple dots, as drawn
+    const ex = A.eyeX || 0.150, ew = A.eyeW || 0.078, eh = A.eyeH || 0.086;
+    if (R.inkW === 0) for (const s of [-1, 1]) {
+      part(fh, 'sphere', s * ex, hy + 0.085, hzF - 0.028, ew, eh, 0.070, col(EYE));
+      part(fh, 'sphere', s * ex + 0.016, hy + 0.102, hzF - 0.006, 0.021, 0.021, 0.018, col(SHINE));
+    }
+  } else if (!A.noFaceEyes) {
     const ex = A.eyeX || 0.150, ew = A.eyeW || 0.140, eh = A.eyeH || 0.115;
     const et = A.eyeTilt || 0;
     for (const s of [-1, 1]) {
@@ -282,11 +301,12 @@ function drawAnimal(x, z, ry, look, pose, y0) {
     }
   }
   if (A.ear === 'long') {
-    const er = A.earR || 0.17, exx = A.earX || 0.15, eyy = A.earY || 0.44, el = A.earLen || 0.56;
+    const er = A.earR || 0.17, exx = A.earX || 0.15, eyy = A.earY || 0.44;
+    const el = A.earLen || 0.56, tl = A.earTilt === undefined ? 0.20 : A.earTilt;
     for (const s of [-1, 1]) {
-      part(fh, 'sphere', s * exx, hy + eyy, -0.03, er, el, er * 0.85, fur, 0, s * 0.20);
-      part(fh, 'sphere', s * (exx + 0.012), hy + eyy + 0.01, 0.025,
-           er * 0.54, el * 0.72, er * 0.50, A.earIn ? col(A.earIn) : fur2, 0, s * 0.20);
+      part(fh, 'sphere', s * exx, hy + eyy, -0.03, er, el, er * 0.82, fur, 0, s * tl);
+      part(fh, 'sphere', s * (exx + 0.010), hy + eyy + 0.02, 0.020,
+           er * 0.50, el * 0.80, er * 0.46, A.earIn ? col(A.earIn) : fur2, 0, s * tl);
     }
   }
   if (A.ear === 'toad') {
@@ -311,16 +331,18 @@ function drawAnimal(x, z, ry, look, pose, y0) {
   // headwear: a batting helmet at the plate and on the bases, otherwise a cap
   if (p.noHat) { /* a shopper, not a ballplayer */ }
   else if (p.helmet) {
-    part(fh, 'dome', 0, hy + 0.27, 0.01, 0.80 * big, 0.44, 0.78 * big, cap);
-    part(fh, 'sphere', 0, hy + 0.285, 0.01, 0.80 * big, 0.22, 0.78 * big, cap);
-    part(fh, 'box', 0, hy + 0.265, 0.34, 0.50, 0.075, 0.26, cap);
+    const cy = A.capY || 0;
+    part(fh, 'dome', 0, hy + 0.27 + cy, 0.01, 0.80 * big, 0.44, 0.78 * big, cap);
+    part(fh, 'sphere', 0, hy + 0.285 + cy, 0.01, 0.80 * big, 0.22, 0.78 * big, cap);
+    part(fh, 'box', 0, hy + 0.265 + cy, 0.34, 0.50, 0.075, 0.26, cap);
     // the flap covers the ear turned toward the pitcher (local +x)
-    part(fh, 'sphere', 0.335 * big, hy + 0.12, 0.02, 0.14, 0.32, 0.40, cap);
-    part(fh, 'box', 0, hy + 0.40, 0.10, 0.09, 0.06, 0.60, trim);
+    part(fh, 'sphere', 0.335 * big, hy + 0.12 + cy, 0.02, 0.14, 0.32, 0.40, cap);
+    part(fh, 'box', 0, hy + 0.40 + cy, 0.10, 0.09, 0.06, 0.60, trim);
   } else {
-    part(fh, 'dome', 0, hy + 0.29, 0.01, 0.74 * big, 0.38, 0.70 * big, cap);
-    part(fh, 'box', 0, hy + 0.283, 0.31, 0.46, 0.07, 0.30, cap);
-    part(fh, 'sphere', 0, hy + 0.46, 0.01, 0.09, 0.09, 0.09, trim);
+    const cy = A.capY || 0;
+    part(fh, 'dome', 0, hy + 0.29 + cy, 0.01, 0.74 * big, 0.38, 0.70 * big, cap);
+    part(fh, 'box', 0, hy + 0.283 + cy, 0.31, 0.46, 0.07, 0.30, cap);
+    part(fh, 'sphere', 0, hy + 0.46 + cy, 0.01, 0.09, 0.09, 0.09, trim);
   }
 
   return { f, hl, hr, hy, y };
