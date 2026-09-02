@@ -115,7 +115,7 @@ geoPart('box', (v, t) => {
 });
 
 geoPart('sphere', (v, t) => {
-  const RN = 8, SN = 14;
+  const RN = 16, SN = 24;
   for (let r = 0; r <= RN; r++) {
     const phi = (r / RN) * Math.PI, sp = Math.sin(phi), cp = Math.cos(phi);
     for (let s = 0; s <= SN; s++) {
@@ -131,7 +131,7 @@ geoPart('sphere', (v, t) => {
 });
 
 function tube(v, t, rTop, rBot, capped) {
-  const N = 16;
+  const N = 24;
   let i = 0;
   for (let s = 0; s <= N; s++) {
     const th = (s / N) * Math.PI * 2, cx = Math.cos(th), sz = Math.sin(th);
@@ -159,7 +159,7 @@ geoPart('cone', (v, t) => tube(v, t, .001, .5, true));
 geoPart('taper',(v, t) => tube(v, t, .26, .5, true));
 
 geoPart('disc', (v, t) => {
-  const N = 22;
+  const N = 32;
   v(0, 0, 0, 0, 1, 0);
   for (let s = 0; s <= N; s++) {
     const th = (s / N) * Math.PI * 2;
@@ -178,7 +178,7 @@ geoPart('quad', (v, t) => {
 /* Rounded box — a superellipsoid with |x|^4+|y|^4+|z|^4 = 1. Heads drawn as a
    soft square read far more like a drawn character than a plain sphere does. */
 geoPart('rbox', (v, t) => {
-  const RN = 10, SN = 16, e = 0.5;
+  const RN = 16, SN = 24, e = 0.5;
   const pw = (a, k) => (a < 0 ? -Math.pow(-a, k) : Math.pow(a, k));
   for (let r = 0; r <= RN; r++) {
     const phi = (r / RN) * Math.PI, sp = Math.sin(phi), cp = Math.cos(phi);
@@ -229,7 +229,7 @@ geoPrism('plate5', [[0, 0], [-0.5, 0.5], [-0.5, 1.0], [0.5, 1.0], [0.5, 0.5]]);
 
 /* half sphere (dome) — caps, hats, hills */
 geoPart('dome', (v, t) => {
-  const RN = 5, SN = 14;
+  const RN = 9, SN = 24;
   for (let r = 0; r <= RN; r++) {
     const phi = (r / RN) * (Math.PI / 2), sp = Math.sin(phi), cp = Math.cos(phi);
     for (let s = 0; s <= SN; s++) {
@@ -251,14 +251,22 @@ const VS = `
 attribute vec3 aPos; attribute vec3 aNor;
 uniform mat4 uVP, uM;
 uniform float uOutline;
+uniform vec3 uCam;
 varying vec3 vN, vW;
 void main(){
   vec4 w = uM * vec4(aPos,1.0);
   vec3 n = (uM * vec4(aNor,0.0)).xyz;
   float l = length(n);
   vN = n;
-  // inverted hull: push the shell out along the world normal, draw back faces
-  if (uOutline > 0.0 && l > 0.0001) w.xyz += (n / l) * uOutline;
+  // Inverted hull: push the shell out along the world normal, draw back faces.
+  // The push is in metres, so it has to grow with distance or the line weight
+  // is ~10x heavier on the batter (10m) than on a right fielder (100m).
+  // uOutline is tuned at INK_REF; the clamp stops close-ups from going to
+  // hairlines and distant players from turning into ink blobs.
+  if (uOutline > 0.0 && l > 0.0001) {
+    float k = clamp(distance(uCam, w.xyz) / 11.0, 0.30, 3.6);
+    w.xyz += (n / l) * uOutline * k;
+  }
   vW = w.xyz;
   gl_Position = uVP * w;
 }`;
@@ -299,9 +307,14 @@ const R = {
     const p = gl.createProgram();
     gl.attachShader(p, mk(gl.VERTEX_SHADER, VS));
     gl.attachShader(p, mk(gl.FRAGMENT_SHADER, FS));
-    gl.linkProgram(p); gl.useProgram(p);
+    gl.linkProgram(p);
+    if (!gl.getProgramParameter(p, gl.LINK_STATUS)) {
+      console.error('shader link failed: ' + gl.getProgramInfoLog(p));
+      return false;
+    }
+    gl.useProgram(p);
     this.prog = p;
-    for (const n of ['uVP', 'uM', 'uColor', 'uLight', 'uSky', 'uGnd', 'uFog', 'uEye', 'uFogD', 'uUnlit', 'uAlpha', 'uOutline'])
+    for (const n of ['uVP', 'uM', 'uColor', 'uLight', 'uSky', 'uGnd', 'uFog', 'uEye', 'uFogD', 'uUnlit', 'uAlpha', 'uOutline', 'uCam'])
       this.u[n] = gl.getUniformLocation(p, n);
 
     const vb = gl.createBuffer();
@@ -357,6 +370,7 @@ const R = {
     gl.uniform3fv(this.u.uGnd, col(env.gndTint));
     gl.uniform3fv(this.u.uFog, bg);
     gl.uniform3fv(this.u.uEye, this.eye);
+    gl.uniform3fv(this.u.uCam, this.eye);
     gl.uniform1f(this.u.uFogD, env.fogDist);
     gl.uniform1f(this.u.uUnlit, 0);
     gl.uniform1f(this.u.uAlpha, 1);
