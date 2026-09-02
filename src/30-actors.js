@@ -128,6 +128,199 @@ const ANIMALS = {
 
 const EYE = '#22282F', SHINE = '#FFFFFF';
 
+/* ============================================================
+   Face atlas — the faces are drawn as art into a texture rather
+   than assembled out of spheres. 8 cells across x 8 down, 128px
+   each: row = species, cols 0-3 = the head (eyes, brows, cheeks),
+   cols 4-7 = the muzzle (nose, mouth), one column per expression.
+   ============================================================ */
+const FACE_N = 8, FACE_PX = 128;
+const FACE_ORDER = ['bear', 'rabbit', 'cat', 'frog', 'penguin', 'fox', 'panda', 'hippo'];
+const EXPR = { idle: 0, focus: 1, happy: 2, down: 3 };
+
+/* eye/nose/mouth art per species, in 0..1 of a cell, y measured from the top */
+const FACES = {
+  bear:    { eye: 'round',  eyeX: 0.190, eyeY: 0.340, eyeR: 0.086, brow: '#5B3E24',
+             nose: 'tri',   noseC: '#3A2A22', noseY: 0.300, noseR: 0.150, mouth: 'w' },
+  // the rabbit's muzzle is a flush bump, so its nose and mouth go on the head
+  rabbit:  { eye: 'dot',    eyeX: 0.200, eyeY: 0.355, eyeR: 0.062, onHead: 1,
+             nose: 'dot',   noseC: '#4A3438', noseY: 0.655, noseR: 0.050, mouth: 'w',
+             mouthC: '#4A3438', mouthY: 0.745, mouthW: 0.085 },
+  cat:     { eye: 'almond', eyeX: 0.205, eyeY: 0.355, eyeR: 0.092, tilt: 0.16, whisk: '#B0895A',
+             nose: 'tri',   noseC: '#C2705E', noseY: 0.295, noseR: 0.140, mouth: 'w' },
+  frog:    { eye: 'none',   headMouth: 'wide', mouthC: '#3E6B33' },
+  penguin: { eye: 'bead',   eyeX: 0.250, eyeY: 0.300, eyeR: 0.076, onPatch: 1 },
+  fox:     { eye: 'almond', eyeX: 0.205, eyeY: 0.350, eyeR: 0.084, tilt: 0.20,
+             nose: 'tri',   noseC: '#3C2A20', noseY: 0.300, noseR: 0.175, mouth: 'w',
+             mouthY: 0.560, mouthW: 0.200 },
+  panda:   { eye: 'round',  eyeX: 0.215, eyeY: 0.345, eyeR: 0.076,
+             nose: 'tri',   noseC: '#2C3138', noseY: 0.295, noseR: 0.140, mouth: 'w' },
+  hippo:   { eye: 'round',  eyeX: 0.245, eyeY: 0.360, eyeR: 0.062,
+             nose: 'nostril', noseC: '#6B5487', noseY: 0.300, noseR: 0.095, mouth: 'line' },
+};
+
+function fStroke(g, c, w) { g.strokeStyle = c; g.lineWidth = w; g.lineCap = 'round'; g.lineJoin = 'round'; }
+
+/* one eye, centred on (x,y). s is -1 for the reader's left eye, +1 the right */
+function drawEye(g, F, exp, x, y, s) {
+  const r = F.eyeR, tilt = (F.tilt || 0) * s;
+  if (exp === EXPR.happy) {                       // a closed upward arc
+    fStroke(g, EYE, r * 0.52);
+    g.beginPath();
+    g.arc(x, y + r * 0.42, r * 0.98, Math.PI * 1.12, Math.PI * 1.88);
+    g.stroke();
+    return;
+  }
+  const squash = exp === EXPR.focus ? 0.74 : exp === EXPR.down ? 0.58 : 1;
+  const drop = exp === EXPR.down ? r * 0.20 : 0;
+  g.save();
+  g.translate(x, y + drop);
+  g.rotate(tilt);
+  g.fillStyle = EYE;
+  g.beginPath();
+  g.ellipse(0, 0, r, r * (F.eye === 'almond' ? 1.06 : 1) * squash, 0, 0, Math.PI * 2);
+  g.fill();
+  if (exp !== EXPR.down) {                        // catchlight
+    const k = F.eye === 'dot' || F.eye === 'bead' ? 0.22 : 0.30;
+    g.fillStyle = SHINE;
+    g.beginPath();
+    g.ellipse(r * 0.28, -r * 0.32 * squash, r * k, r * k * squash, 0, 0, Math.PI * 2);
+    g.fill();
+  }
+  g.restore();
+}
+
+/* the brow stroke: level when idle, driven in when focused, up at the outer
+   end when dejected — it carries most of the expression */
+function drawBrow(g, F, exp, x, y, s, col) {
+  if (exp === EXPR.happy) return;
+  const r = F.eyeR, w = r * 1.55, lift = exp === EXPR.focus ? r * 0.62 : r * 1.05;
+  const inner = exp === EXPR.focus ? r * 0.46 : exp === EXPR.down ? -r * 0.34 : 0;
+  fStroke(g, col, r * 0.40);
+  g.beginPath();
+  g.moveTo(x - s * w * 0.5, y - lift - inner);
+  g.quadraticCurveTo(x, y - lift - inner * 0.45 - r * 0.18, x + s * w * 0.5, y - lift + inner * 0.30);
+  g.stroke();
+}
+
+function drawHeadCell(g, F, exp) {
+  if (F.eye !== 'none') {
+    for (const s of [-1, 1]) drawEye(g, F, exp, 0.5 + s * F.eyeX, F.eyeY, s);
+    if (F.brow) for (const s of [-1, 1]) drawBrow(g, F, exp, 0.5 + s * F.eyeX, F.eyeY, s, F.brow);
+  }
+  if (F.whisk) {
+    fStroke(g, F.whisk, 0.013);
+    for (const s of [-1, 1]) for (let i = 0; i < 3; i++) {
+      const y = 0.50 + (i - 1) * 0.055;
+      g.beginPath();
+      g.moveTo(0.5 + s * 0.20, y);
+      g.quadraticCurveTo(0.5 + s * 0.36, y - 0.02 + (i - 1) * 0.02,
+                         0.5 + s * 0.49, y - 0.05 + (i - 1) * 0.05);
+      g.stroke();
+    }
+  }
+  if (F.nose && F.onHead) drawSnout(g, F, exp);
+  if (F.headMouth === 'wide') {                   // the frog's grin spans the head
+    const y = 0.60;
+    fStroke(g, F.mouthC, 0.036);
+    g.beginPath();
+    if (exp === EXPR.down) { g.moveTo(0.16, y + 0.09); g.quadraticCurveTo(0.5, y - 0.05, 0.84, y + 0.09); }
+    else if (exp === EXPR.happy) { g.moveTo(0.14, y - 0.07); g.quadraticCurveTo(0.5, y + 0.16, 0.86, y - 0.07); }
+    else { g.moveTo(0.16, y - 0.02); g.quadraticCurveTo(0.5, y + 0.10, 0.84, y - 0.02); }
+    g.stroke();
+  }
+}
+
+function drawSnout(g, F, exp) {
+  const nx = 0.5, ny = F.noseY, nr = F.noseR;
+  g.fillStyle = F.noseC;
+  if (F.nose === 'tri') {                         // a rounded triangle, point down
+    const w = nr, h = nr * 0.80;
+    g.beginPath();
+    g.moveTo(nx - w, ny - h * 0.55);
+    g.quadraticCurveTo(nx, ny - h * 0.95, nx + w, ny - h * 0.55);
+    g.quadraticCurveTo(nx + w * 0.55, ny + h * 0.75, nx, ny + h);
+    g.quadraticCurveTo(nx - w * 0.55, ny + h * 0.75, nx - w, ny - h * 0.55);
+    g.fill();
+  } else if (F.nose === 'nostril') {
+    for (const s of [-1, 1]) {
+      g.beginPath();
+      g.ellipse(nx + s * nr * 1.5, ny, nr * 0.52, nr * 0.72, 0, 0, Math.PI * 2);
+      g.fill();
+    }
+  } else {
+    g.beginPath(); g.ellipse(nx, ny, nr, nr * 0.82, 0, 0, Math.PI * 2); g.fill();
+  }
+
+  const my = F.mouthY || 0.520, mw = F.mouthW || 0.180, mc = F.mouthC || F.noseC;
+  fStroke(g, mc, 0.028);
+  if (F.mouth === 'line') {
+    g.beginPath();
+    if (exp === EXPR.happy) { g.moveTo(nx - mw, my); g.quadraticCurveTo(nx, my + mw * 0.55, nx + mw, my); }
+    else if (exp === EXPR.down) { g.moveTo(nx - mw, my + mw * 0.40); g.quadraticCurveTo(nx, my - mw * 0.25, nx + mw, my + mw * 0.40); }
+    else { g.moveTo(nx - mw, my); g.lineTo(nx + mw, my); }
+    g.stroke();
+    return;
+  }
+  // the default: a stem down from the nose, splitting into two lobes
+  g.beginPath(); g.moveTo(nx, ny + nr * 0.72); g.lineTo(nx, my - mw * 0.30); g.stroke();
+  if (exp === EXPR.happy) {                       // open, filled
+    g.fillStyle = mc;
+    g.beginPath();
+    g.moveTo(nx - mw, my - mw * 0.22);
+    g.quadraticCurveTo(nx, my + mw * 1.15, nx + mw, my - mw * 0.22);
+    g.quadraticCurveTo(nx, my + mw * 0.10, nx - mw, my - mw * 0.22);
+    g.fill();
+    return;
+  }
+  for (const s of [-1, 1]) {
+    g.beginPath();
+    if (exp === EXPR.down) {
+      g.moveTo(nx, my + mw * 0.34);
+      g.quadraticCurveTo(nx + s * mw * 0.52, my + mw * 0.20, nx + s * mw, my - mw * 0.22);
+    } else if (exp === EXPR.focus) {
+      g.moveTo(nx, my - mw * 0.10);
+      g.lineTo(nx + s * mw * 0.86, my - mw * 0.10);
+    } else {
+      g.moveTo(nx, my - mw * 0.18);
+      g.quadraticCurveTo(nx + s * mw * 0.55, my + mw * 0.42, nx + s * mw, my - mw * 0.08);
+    }
+    g.stroke();
+  }
+}
+
+/* built once at boot; nothing here runs per frame */
+function drawMuzCell(g, F, exp) { if (F.nose && !F.onHead) drawSnout(g, F, exp); }
+
+function buildFaceAtlas() {
+  const S = FACE_PX, cv = document.createElement('canvas');
+  cv.width = cv.height = FACE_N * S;
+  const g = cv.getContext('2d');
+  FACE_ORDER.forEach((name, row) => {
+    const F = FACES[name];
+    if (!F) return;
+    for (let e = 0; e < 4; e++) {
+      for (const cell of [[e, drawHeadCell], [e + 4, drawMuzCell]]) {
+        g.save();
+        g.translate(cell[0] * S, row * S);
+        g.beginPath(); g.rect(0, 0, S, S); g.clip();
+        g.scale(S, S);
+        cell[1](g, F, e);
+        g.restore();
+      }
+    }
+  });
+  return cv;
+}
+
+/* uv rect for one cell: [scaleU, scaleV, offsetU, offsetV] */
+function faceRect(animal, exp, muz) {
+  const row = FACE_ORDER.indexOf(animal);
+  if (row < 0) return null;
+  const col = (exp || 0) + (muz ? 4 : 0), k = 1 / FACE_N;
+  return [k, k, col * k, row * k];
+}
+
 /* pose: { armL, armR, legL, legR, lean, bob, ry } — all radians */
 const IDLE = { armL: 0.12, armR: -0.12, legL: 0, legR: 0, lean: 0, bob: 0 };
 
@@ -147,6 +340,7 @@ function drawAnimal(x, z, ry, look, pose, y0) {
     R.ink(0);
   }
   const p = pose || IDLE;
+  const FC = FACES[look.animal] || null;
   const f = yawFrame(x, z, ry);
   const y = (y0 || 0) + (p.bob || 0);
   if (p.fall) { f.t = p.fall; f.ct = Math.cos(p.fall); f.st = Math.sin(p.fall); f.pivot = y + 0.34; }
@@ -226,6 +420,20 @@ function drawAnimal(x, z, ry, look, pose, y0) {
            A.cheekC ? col(A.cheekC) : fur2);
   }
 
+  if (FC && R.atlas && R.inkW === 0) {            // eyes and brows, as art
+    R.decal(faceRect(look.animal, p.face || 0, 0));
+    const k = 1.015;
+    if (FC.onPatch && A.facePatch) {
+      const fp = A.facePatch;                      // the patch stands proud of
+      part(fh, 'facep', 0, hy - 0.02, hzF - 0.10,  // the skull, so sit on that
+           fp[0] * k, fp[1] * k, fp[2] * k, fur);
+    } else {
+      part(fh, A.head === 'rbox' ? 'facepr' : 'facep', 0, hy, 0.02,
+           0.68 * big * HW * k, 0.66 * HH * k, 0.64 * big * HD * k, fur);
+    }
+    R.decal(null);
+  }
+
   if (A.beak) {
     part(fh, 'cone', 0, hy - 0.045, hzF - 0.03, 0.27, 0.32, 0.27, col(A.beak), -Math.PI / 2);
     part(fh, 'box', 0, hy - 0.045, hzF + 0.07, 0.19, 0.022, 0.16, shade(A.beak, 0.62));
@@ -233,35 +441,40 @@ function drawAnimal(x, z, ry, look, pose, y0) {
     const mz = A.muz, my = hy + (A.muzY === undefined ? -0.09 : A.muzY);
     const mzz = A.muzZ === undefined ? 0.26 : A.muzZ;
     part(fh, 'sphere', 0, my, mzz, mz[0], mz[1], mz[2], A.muzC ? col(A.muzC) : fur2);
+    if (FC && !FC.onHead && R.atlas && R.inkW === 0) {   // nose and mouth, as art
+      R.decal(faceRect(look.animal, p.face || 0, 1));
+      part(fh, 'facep', 0, my, mzz, mz[0] * 1.03, mz[1] * 1.03, mz[2] * 1.03, fur);
+      R.decal(null);
+    }
     const nr = A.noseR || 0.11;
-    if (A.nostril) {
+    if (!FC && A.nostril) {
       for (const s of [-1, 1])
         part(fh, 'sphere', s * mz[0] * 0.24, my + mz[1] * 0.28, mzz + mz[2] * 0.40,
              nr, nr * 0.90, nr * 0.60, col('#3A3040'));
-    } else {
-      if (!(A.dotEyes && R.inkW > 0))
-        part(fh, 'sphere', 0, my + mz[1] * 0.40, mzz + mz[2] * 0.40,
-             nr, nr * 0.74, nr * 0.72, col(A.noseC || '#33291F'));
+    } else if (!FC) {
+      part(fh, 'sphere', 0, my + mz[1] * 0.40, mzz + mz[2] * 0.40,
+           nr, nr * 0.74, nr * 0.72, col(A.noseC || '#33291F'));
     }
-    if (A.whisk) for (const s of [-1, 1]) for (let i = 0; i < 3; i++)
+    if (!FC && A.whisk) for (const s of [-1, 1]) for (let i = 0; i < 3; i++)
       part(fh, 'box', s * (mz[0] * 0.60 + 0.13), my + 0.02 + (i - 1) * 0.05, mzz + 0.03,
            0.28, 0.017, 0.017, col('#6B5A48'), 0, s * ((i - 1) * 0.24 + 0.05));
   }
-  if (A.mouth) {                                // the frog's wide grin
+  if (A.mouth && !FC) {                         // the frog's wide grin
     for (const s of [-1, 1])
       part(fh, 'box', s * 0.17, hy - 0.16, hzF - 0.02, 0.36, 0.036, 0.07,
            shade(A.fur, 0.42), 0, s * -0.11);
   }
 
   // eyes, with the drawn brow line above them
-  if (A.smallMouth && R.inkW === 0) {           // a little mouth under the nose
+  if (A.smallMouth && !FC && R.inkW === 0) {    // a little mouth under the nose
     const mz = A.muz || [0.2, 0.13, 0.16];
     const my2 = hy + (A.muzY === undefined ? -0.09 : A.muzY) + mz[1] * 0.40 - 0.078;
     for (const s of [-1, 1])
       part(fh, 'box', s * 0.038, my2, hzF - 0.062, 0.074, 0.024, 0.05,
            col('#4A3438'), 0, s * 0.30);
   }
-  if (!A.noFaceEyes && A.dotEyes) {              // simple dots, as drawn
+  if (FC) { /* the eyes live in the face cell */ }
+  else if (!A.noFaceEyes && A.dotEyes) {         // simple dots, as drawn
     const ex = A.eyeX || 0.150, ew = A.eyeW || 0.078, eh = A.eyeH || 0.086;
     if (R.inkW === 0) for (const s of [-1, 1]) {
       part(fh, 'sphere', s * ex, hy + 0.085, hzF - 0.028, ew, eh, 0.070, col(EYE));

@@ -762,6 +762,11 @@ function applyOutcome(o) {
     logLine(`${bat.name}の${o.kind === 'walk' ? '押し出し' : (o.text.split('\n')[0])} — ${runs}点`, true);
   }
   G.inningRuns += runs;
+  // whoever got something out of the play wears it on their face until the
+  // next pitch. Runs, or the batter reaching, counts as the batting side's.
+  const forBat = runs > 0 || outsAdded === 0;
+  G.faceBat = forBat ? EXPR.happy : EXPR.down;
+  G.faceFld = forBat ? EXPR.down : EXPR.happy;
   G.lastText = o.text;
   banner(o.text, o.big);
   uiScore();
@@ -776,6 +781,7 @@ function applyOutcome(o) {
    ============================================================ */
 function afterPitch(kind) {
   const bat = curBatter();
+  G.faceBat = G.faceFld = EXPR.idle;   // finishAtBat overrides if the PA ends
   if (kind === 'hbp') {
     finishAtBat({ kind: 'hbp', text: 'デッドボール！' });
     return;

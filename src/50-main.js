@@ -796,6 +796,11 @@ function drawScene() {
 
   const bt = batTeam(), ft = fldTeam();
   const bob = Math.sin(clock * 2.2) * 0.03;
+  // moods only show while the play is being read out; before the pitch the
+  // batter and the pitcher are bearing down instead
+  const mood = G.phase === 'result' || G.phase === 'halfend' || G.phase === 'walkoff';
+  const faceBat = mood ? (G.faceBat || EXPR.idle) : EXPR.focus;
+  const faceFld = mood ? (G.faceFld || EXPR.idle) : EXPR.idle;
   if (G.traffic) for (const c of G.traffic) { if (c.walk) drawShopper(c); else drawCar(c); }
 
   // fielders
@@ -807,12 +812,13 @@ function drawScene() {
     const pose = {
       armL: running ? swing * 0.7 : 0.2 + bob, armR: running ? -swing * 0.7 : -0.2 - bob,
       legL: swing, legR: -swing, bob: running ? Math.abs(Math.sin(clock * 13)) * 0.06 : bob * 0.5,
+      face: f.st.k === 'P' && (G.phase === 'ready' || G.phase === 'pitch') ? EXPR.focus : faceFld,
     };
     if (f.down > 0) {                       // run over: flat on his back
       const settle = clamp(f.down * 2.2, 0, 1);
       drawAnimal(f.x, f.z, f.ry, pl.look, {
         fall: -1.45, spread: 0.18, legL: -0.5, legR: 0.4,
-        armL: -1.1, armR: 1.1, bob: -0.30,
+        armL: -1.1, armR: 1.1, bob: -0.30, face: EXPR.down,
       }, 0);
       for (let s2 = 0; s2 < 3; s2++) {
         const a2 = clock * 5 + s2 * 2.1;
@@ -883,7 +889,7 @@ function drawScene() {
     if (G.hbpT > 0) {                       // just wore one — no bat, on the deck
       drawAnimal(BAT_X + 0.25, BAT_Z - 0.2, -Math.PI / 2, b.look,
         { fall: -0.62, spread: 0.20, legL: -0.35, legR: 0.30,
-          armL: -1.7, armR: -1.6, bob: -0.12, helmet: 1 }, 0);
+          armL: -1.7, armR: -1.6, bob: -0.12, helmet: 1, face: EXPR.down }, 0);
       for (let s2 = 0; s2 < 3; s2++) {
         const a2 = clock * 5 + s2 * 2.1;
         R.b('sphere', BAT_X + 0.25 + Math.cos(a2) * 0.34, 1.05 + Math.sin(clock * 6 + s2) * 0.05,
@@ -895,7 +901,7 @@ function drawScene() {
       handL: rig.handTop, handR: rig.handBot, pole: rig.pole,
       legL: rig.lgL, legR: rig.lgR, spread: rig.spread,
       lean: rig.lean, headRy: rig.head,
-      helmet: 1, gloveC: bt.trim,
+      helmet: 1, gloveC: bt.trim, face: faceBat,
       bob: G.batSwingT < 0 ? bob * 0.5 : 0.015,
     }, 0);
     inked(b.look, () => {
@@ -914,7 +920,7 @@ function drawScene() {
     if (m.down > 0) {
       drawAnimal(r.x, r.z, r.ry, m.p.look,
         { fall: -1.45, spread: 0.18, legL: -0.5, legR: 0.4, armL: -1.1, armR: 1.1,
-          bob: -0.30, helmet: 1 }, 0);
+          bob: -0.30, helmet: 1, face: EXPR.down }, 0);
       for (let s2 = 0; s2 < 3; s2++) {
         const a2 = clock * 5 + s2 * 2.1;
         R.b('sphere', r.x + Math.cos(a2) * 0.34, 0.92 + Math.sin(clock * 6 + s2) * 0.05,
@@ -924,7 +930,7 @@ function drawScene() {
     }
     const sw = r.done ? 0 : Math.sin(clock * 15) * 0.9;
     drawAnimal(r.x, r.z, r.ry, m.p.look, {
-      armL: sw * 0.8, armR: -sw * 0.8, legL: sw, legR: -sw, helmet: 1,
+      armL: sw * 0.8, armR: -sw * 0.8, legL: sw, legR: -sw, helmet: 1, face: faceBat,
       bob: r.done ? 0 : Math.abs(Math.sin(clock * 15)) * 0.07, lean: 0.16,
     }, 0);
   }
@@ -943,7 +949,7 @@ function drawScene() {
     // he edges down the line but stays squared up to the pitcher
     drawAnimal(lx, lz, Math.atan2(MOUND_POS[0] - lx, MOUND_POS[1] - lz), p.look,
                { armL: 0.42, armR: 0.42, legL: 0.10, legR: -0.10, spread: 0.19,
-                 lean: 0.17, bob: bob * 0.6, helmet: 1 }, 0);
+                 lean: 0.17, bob: bob * 0.6, helmet: 1, face: faceBat }, 0);
   }
 
   // ball, with a shadow on the ground so its height and distance are readable
@@ -1030,6 +1036,7 @@ function boot() {
       'このブラウザではWebGLが使えないため、ゲームを表示できません。</div>';
     return;
   }
+  R.upload(buildFaceAtlas());
   buildMenus();
   bindInput();
   $('#btn-start').onclick = () => { Snd.boot(); G.mode = 'cpu'; show('#s-stadium'); };

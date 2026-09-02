@@ -358,12 +358,13 @@ function shade(hex, k) { // k<1 darker, k>1 lighter
 /* ============================================================
    Geometry — a handful of primitives packed into one buffer
    ============================================================ */
-const GEO = { pos: [], nor: [], idx: [], parts: {} };
+const GEO = { pos: [], nor: [], uv: [], idx: [], parts: {} };
 
 function geoPart(name, build) {
   const start = GEO.idx.length, base = GEO.pos.length / 3;
-  build((x, y, z, nx, ny, nz) => {
+  build((x, y, z, nx, ny, nz, u, w) => {
     GEO.pos.push(x, y, z); GEO.nor.push(nx, ny, nz);
+    GEO.uv.push(u || 0, w || 0);
     return GEO.pos.length / 3 - 1 - base;
   }, (a, b, c) => GEO.idx.push(base + a, base + b, base + c));
   GEO.parts[name] = { offset: start * 2, count: GEO.idx.length - start };
@@ -499,6 +500,50 @@ function geoPrism(name, pts) {
    uniform scale of 0.4318 gives the regulation size. */
 geoPrism('plate5', [[0, 0], [-0.5, 0.5], [-0.5, 1.0], [0.5, 1.0], [0.5, 0.5]]);
 
+/* A patch of the unit sphere with uv across it. Scaled with the same numbers
+   as the head it sits on, it lies exactly on that surface, so a face drawn
+   into a texture wraps instead of floating. u runs from the character's own
+   -x to +x, which is left-to-right as the reader sees the face. */
+const FACE_AZ = 60 * DEG, FACE_EL = 50 * DEG;
+geoPart('facep', (v, t) => {
+  const N = 16, M = 16;
+  for (let i = 0; i <= M; i++) {
+    const el = ((i / M) * 2 - 1) * FACE_EL, ce = Math.cos(el), se = Math.sin(el);
+    for (let j = 0; j <= N; j++) {
+      const az = ((j / N) * 2 - 1) * FACE_AZ;
+      const x = ce * Math.sin(az), y = se, z = ce * Math.cos(az);
+      v(x * .5, y * .5, z * .5, x, y, z, j / N, 1 - i / M);
+    }
+  }
+  for (let i = 0; i < M; i++) for (let j = 0; j < N; j++) {
+    const a = i * (N + 1) + j, b = a + N + 1;
+    t(a, a + 1, b); t(a + 1, b + 1, b);   // wound outward
+  }
+});
+
+/* the same patch on the |x|^4+|y|^4+|z|^4 = 1 head. A sphere patch scaled to
+   an rbox head sinks ~0.02m inside it away from the centre and the face gets
+   buried, so the surface has to be the one it is actually sitting on. */
+geoPart('facepr', (v, t) => {
+  const N = 16, M = 16;
+  for (let i = 0; i <= M; i++) {
+    const el = ((i / M) * 2 - 1) * FACE_EL, ce = Math.cos(el), se = Math.sin(el);
+    for (let j = 0; j <= N; j++) {
+      const az = ((j / N) * 2 - 1) * FACE_AZ;
+      const dx = ce * Math.sin(az), dy = se, dz = ce * Math.cos(az);
+      const k = 1 / Math.pow(dx * dx * dx * dx + dy * dy * dy * dy + dz * dz * dz * dz, 0.25);
+      const x = dx * k, y = dy * k, z = dz * k;
+      const nx = x * x * x, ny = y * y * y, nz = z * z * z;
+      const l = Math.hypot(nx, ny, nz) || 1;
+      v(x * .5, y * .5, z * .5, nx / l, ny / l, nz / l, j / N, 1 - i / M);
+    }
+  }
+  for (let i = 0; i < M; i++) for (let j = 0; j < N; j++) {
+    const a = i * (N + 1) + j, b = a + N + 1;
+    t(a, a + 1, b); t(a + 1, b + 1, b);   // wound outward
+  }
+});
+
 /* half sphere (dome) — caps, hats, hills */
 geoPart('dome', (v, t) => {
   const RN = 9, SN = 24;
@@ -520,12 +565,15 @@ geoPart('dome', (v, t) => {
    Renderer
    ============================================================ */
 const VS = `
-attribute vec3 aPos; attribute vec3 aNor;
+attribute vec3 aPos; attribute vec3 aNor; attribute vec2 aUV;
 uniform mat4 uVP, uM;
 uniform float uOutline;
 uniform vec3 uCam;
+uniform vec4 uUVRect;
 varying vec3 vN, vW;
+varying vec2 vUV;
 void main(){
+  vUV = aUV * uUVRect.xy + uUVRect.zw;
   vec4 w = uM * vec4(aPos,1.0);
   vec3 n = (uM * vec4(aNor,0.0)).xyz;
   float l = length(n);
@@ -546,10 +594,19 @@ void main(){
 const FS = `
 precision mediump float;
 varying vec3 vN, vW;
+varying vec2 vUV;
 uniform vec3 uColor, uLight, uSky, uGnd, uFog, uEye;
-uniform float uFogD, uUnlit, uAlpha;
+uniform float uFogD, uUnlit, uAlpha, uUseTex;
+uniform sampler2D uTex;
 void main(){
-  if (uUnlit > 0.5) { gl_FragColor = vec4(uColor, uAlpha); return; }
+  vec3 base = uColor;
+  float a = uAlpha;
+  if (uUseTex > 0.5) {
+    vec4 t = texture2D(uTex, vUV);
+    if (t.a < 0.02) discard;          // the blank part of a face cell
+    base = t.rgb; a = t.a * uAlpha;
+  }
+  if (uUnlit > 0.5) { gl_FragColor = vec4(base, a); return; }
   vec3 n = normalize(vN);
   float d = dot(n, uLight);
   // three soft cel bands keeps forms readable without looking flat
@@ -557,10 +614,10 @@ void main(){
           + smoothstep(0.10, 0.30, d) * 0.30
           + smoothstep(0.55, 0.75, d) * 0.22 + 0.52;
   vec3 hemi = mix(uGnd, uSky, n.y * 0.5 + 0.5);
-  vec3 c = uColor * s * (0.80 + 0.42 * hemi);
+  vec3 c = base * s * (0.80 + 0.42 * hemi);
   float f = clamp(length(vW - uEye) / uFogD, 0.0, 1.0);
   c = mix(c, uFog, f * f * 0.85);
-  gl_FragColor = vec4(c, uAlpha);
+  gl_FragColor = vec4(c, a);
 }`;
 
 const R = {
@@ -586,7 +643,7 @@ const R = {
     }
     gl.useProgram(p);
     this.prog = p;
-    for (const n of ['uVP', 'uM', 'uColor', 'uLight', 'uSky', 'uGnd', 'uFog', 'uEye', 'uFogD', 'uUnlit', 'uAlpha', 'uOutline', 'uCam'])
+    for (const n of ['uVP', 'uM', 'uColor', 'uLight', 'uSky', 'uGnd', 'uFog', 'uEye', 'uFogD', 'uUnlit', 'uAlpha', 'uOutline', 'uCam', 'uUseTex', 'uUVRect', 'uTex'])
       this.u[n] = gl.getUniformLocation(p, n);
 
     const vb = gl.createBuffer();
@@ -601,14 +658,63 @@ const R = {
     const an = gl.getAttribLocation(p, 'aNor');
     gl.enableVertexAttribArray(an); gl.vertexAttribPointer(an, 3, gl.FLOAT, false, 0, 0);
 
+    const ub = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, ub);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(GEO.uv), gl.STATIC_DRAW);
+    const au = gl.getAttribLocation(p, 'aUV');
+    gl.enableVertexAttribArray(au); gl.vertexAttribPointer(au, 2, gl.FLOAT, false, 0, 0);
+
     const ib = gl.createBuffer();
     gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ib);
     gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(GEO.idx), gl.STATIC_DRAW);
+
+    // unit 0 always holds a valid texture, so sampling is defined even on the
+    // draws that ignore it
+    this.tex = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D, this.tex);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE,
+                  new Uint8Array([0, 0, 0, 0]));
+    gl.activeTexture(gl.TEXTURE0);
+    gl.uniform1i(this.u.uTex, 0);
+    gl.uniform1f(this.u.uUseTex, 0);
+    gl.uniform4f(this.u.uUVRect, 1, 1, 0, 0);
 
     gl.enable(gl.DEPTH_TEST);
     gl.enable(gl.CULL_FACE);
     gl.clearColor(0.05, 0.08, 0.11, 1);
     return true;
+  },
+
+  /* upload the face atlas (a canvas). Power-of-two, so it can be mipmapped —
+     without mips a distant fielder's face crawls with aliasing. */
+  upload(canvas) {
+    const gl = this.gl;
+    this.atlas = true;
+    gl.bindTexture(gl.TEXTURE_2D, this.tex);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, canvas);
+    gl.generateMipmap(gl.TEXTURE_2D);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  },
+
+  /* a textured decal: blended, and it does not write depth because it sits a
+     hair in front of a surface that already did */
+  decal(rect) {
+    const gl = this.gl;
+    if (rect) {
+      gl.uniform1f(this.u.uUseTex, 1);
+      gl.uniform4f(this.u.uUVRect, rect[0], rect[1], rect[2], rect[3]);
+      gl.enable(gl.BLEND);
+      gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+      gl.depthMask(false);
+    } else {
+      gl.uniform1f(this.u.uUseTex, 0);
+      gl.uniform4f(this.u.uUVRect, 1, 1, 0, 0);
+      gl.disable(gl.BLEND);
+      gl.depthMask(true);
+    }
   },
 
   resize() {
@@ -1495,6 +1601,199 @@ const ANIMALS = {
 
 const EYE = '#22282F', SHINE = '#FFFFFF';
 
+/* ============================================================
+   Face atlas — the faces are drawn as art into a texture rather
+   than assembled out of spheres. 8 cells across x 8 down, 128px
+   each: row = species, cols 0-3 = the head (eyes, brows, cheeks),
+   cols 4-7 = the muzzle (nose, mouth), one column per expression.
+   ============================================================ */
+const FACE_N = 8, FACE_PX = 128;
+const FACE_ORDER = ['bear', 'rabbit', 'cat', 'frog', 'penguin', 'fox', 'panda', 'hippo'];
+const EXPR = { idle: 0, focus: 1, happy: 2, down: 3 };
+
+/* eye/nose/mouth art per species, in 0..1 of a cell, y measured from the top */
+const FACES = {
+  bear:    { eye: 'round',  eyeX: 0.190, eyeY: 0.340, eyeR: 0.086, brow: '#5B3E24',
+             nose: 'tri',   noseC: '#3A2A22', noseY: 0.300, noseR: 0.150, mouth: 'w' },
+  // the rabbit's muzzle is a flush bump, so its nose and mouth go on the head
+  rabbit:  { eye: 'dot',    eyeX: 0.200, eyeY: 0.355, eyeR: 0.062, onHead: 1,
+             nose: 'dot',   noseC: '#4A3438', noseY: 0.655, noseR: 0.050, mouth: 'w',
+             mouthC: '#4A3438', mouthY: 0.745, mouthW: 0.085 },
+  cat:     { eye: 'almond', eyeX: 0.205, eyeY: 0.355, eyeR: 0.092, tilt: 0.16, whisk: '#B0895A',
+             nose: 'tri',   noseC: '#C2705E', noseY: 0.295, noseR: 0.140, mouth: 'w' },
+  frog:    { eye: 'none',   headMouth: 'wide', mouthC: '#3E6B33' },
+  penguin: { eye: 'bead',   eyeX: 0.250, eyeY: 0.300, eyeR: 0.076, onPatch: 1 },
+  fox:     { eye: 'almond', eyeX: 0.205, eyeY: 0.350, eyeR: 0.084, tilt: 0.20,
+             nose: 'tri',   noseC: '#3C2A20', noseY: 0.300, noseR: 0.175, mouth: 'w',
+             mouthY: 0.560, mouthW: 0.200 },
+  panda:   { eye: 'round',  eyeX: 0.215, eyeY: 0.345, eyeR: 0.076,
+             nose: 'tri',   noseC: '#2C3138', noseY: 0.295, noseR: 0.140, mouth: 'w' },
+  hippo:   { eye: 'round',  eyeX: 0.245, eyeY: 0.360, eyeR: 0.062,
+             nose: 'nostril', noseC: '#6B5487', noseY: 0.300, noseR: 0.095, mouth: 'line' },
+};
+
+function fStroke(g, c, w) { g.strokeStyle = c; g.lineWidth = w; g.lineCap = 'round'; g.lineJoin = 'round'; }
+
+/* one eye, centred on (x,y). s is -1 for the reader's left eye, +1 the right */
+function drawEye(g, F, exp, x, y, s) {
+  const r = F.eyeR, tilt = (F.tilt || 0) * s;
+  if (exp === EXPR.happy) {                       // a closed upward arc
+    fStroke(g, EYE, r * 0.52);
+    g.beginPath();
+    g.arc(x, y + r * 0.42, r * 0.98, Math.PI * 1.12, Math.PI * 1.88);
+    g.stroke();
+    return;
+  }
+  const squash = exp === EXPR.focus ? 0.74 : exp === EXPR.down ? 0.58 : 1;
+  const drop = exp === EXPR.down ? r * 0.20 : 0;
+  g.save();
+  g.translate(x, y + drop);
+  g.rotate(tilt);
+  g.fillStyle = EYE;
+  g.beginPath();
+  g.ellipse(0, 0, r, r * (F.eye === 'almond' ? 1.06 : 1) * squash, 0, 0, Math.PI * 2);
+  g.fill();
+  if (exp !== EXPR.down) {                        // catchlight
+    const k = F.eye === 'dot' || F.eye === 'bead' ? 0.22 : 0.30;
+    g.fillStyle = SHINE;
+    g.beginPath();
+    g.ellipse(r * 0.28, -r * 0.32 * squash, r * k, r * k * squash, 0, 0, Math.PI * 2);
+    g.fill();
+  }
+  g.restore();
+}
+
+/* the brow stroke: level when idle, driven in when focused, up at the outer
+   end when dejected — it carries most of the expression */
+function drawBrow(g, F, exp, x, y, s, col) {
+  if (exp === EXPR.happy) return;
+  const r = F.eyeR, w = r * 1.55, lift = exp === EXPR.focus ? r * 0.62 : r * 1.05;
+  const inner = exp === EXPR.focus ? r * 0.46 : exp === EXPR.down ? -r * 0.34 : 0;
+  fStroke(g, col, r * 0.40);
+  g.beginPath();
+  g.moveTo(x - s * w * 0.5, y - lift - inner);
+  g.quadraticCurveTo(x, y - lift - inner * 0.45 - r * 0.18, x + s * w * 0.5, y - lift + inner * 0.30);
+  g.stroke();
+}
+
+function drawHeadCell(g, F, exp) {
+  if (F.eye !== 'none') {
+    for (const s of [-1, 1]) drawEye(g, F, exp, 0.5 + s * F.eyeX, F.eyeY, s);
+    if (F.brow) for (const s of [-1, 1]) drawBrow(g, F, exp, 0.5 + s * F.eyeX, F.eyeY, s, F.brow);
+  }
+  if (F.whisk) {
+    fStroke(g, F.whisk, 0.013);
+    for (const s of [-1, 1]) for (let i = 0; i < 3; i++) {
+      const y = 0.50 + (i - 1) * 0.055;
+      g.beginPath();
+      g.moveTo(0.5 + s * 0.20, y);
+      g.quadraticCurveTo(0.5 + s * 0.36, y - 0.02 + (i - 1) * 0.02,
+                         0.5 + s * 0.49, y - 0.05 + (i - 1) * 0.05);
+      g.stroke();
+    }
+  }
+  if (F.nose && F.onHead) drawSnout(g, F, exp);
+  if (F.headMouth === 'wide') {                   // the frog's grin spans the head
+    const y = 0.60;
+    fStroke(g, F.mouthC, 0.036);
+    g.beginPath();
+    if (exp === EXPR.down) { g.moveTo(0.16, y + 0.09); g.quadraticCurveTo(0.5, y - 0.05, 0.84, y + 0.09); }
+    else if (exp === EXPR.happy) { g.moveTo(0.14, y - 0.07); g.quadraticCurveTo(0.5, y + 0.16, 0.86, y - 0.07); }
+    else { g.moveTo(0.16, y - 0.02); g.quadraticCurveTo(0.5, y + 0.10, 0.84, y - 0.02); }
+    g.stroke();
+  }
+}
+
+function drawSnout(g, F, exp) {
+  const nx = 0.5, ny = F.noseY, nr = F.noseR;
+  g.fillStyle = F.noseC;
+  if (F.nose === 'tri') {                         // a rounded triangle, point down
+    const w = nr, h = nr * 0.80;
+    g.beginPath();
+    g.moveTo(nx - w, ny - h * 0.55);
+    g.quadraticCurveTo(nx, ny - h * 0.95, nx + w, ny - h * 0.55);
+    g.quadraticCurveTo(nx + w * 0.55, ny + h * 0.75, nx, ny + h);
+    g.quadraticCurveTo(nx - w * 0.55, ny + h * 0.75, nx - w, ny - h * 0.55);
+    g.fill();
+  } else if (F.nose === 'nostril') {
+    for (const s of [-1, 1]) {
+      g.beginPath();
+      g.ellipse(nx + s * nr * 1.5, ny, nr * 0.52, nr * 0.72, 0, 0, Math.PI * 2);
+      g.fill();
+    }
+  } else {
+    g.beginPath(); g.ellipse(nx, ny, nr, nr * 0.82, 0, 0, Math.PI * 2); g.fill();
+  }
+
+  const my = F.mouthY || 0.520, mw = F.mouthW || 0.180, mc = F.mouthC || F.noseC;
+  fStroke(g, mc, 0.028);
+  if (F.mouth === 'line') {
+    g.beginPath();
+    if (exp === EXPR.happy) { g.moveTo(nx - mw, my); g.quadraticCurveTo(nx, my + mw * 0.55, nx + mw, my); }
+    else if (exp === EXPR.down) { g.moveTo(nx - mw, my + mw * 0.40); g.quadraticCurveTo(nx, my - mw * 0.25, nx + mw, my + mw * 0.40); }
+    else { g.moveTo(nx - mw, my); g.lineTo(nx + mw, my); }
+    g.stroke();
+    return;
+  }
+  // the default: a stem down from the nose, splitting into two lobes
+  g.beginPath(); g.moveTo(nx, ny + nr * 0.72); g.lineTo(nx, my - mw * 0.30); g.stroke();
+  if (exp === EXPR.happy) {                       // open, filled
+    g.fillStyle = mc;
+    g.beginPath();
+    g.moveTo(nx - mw, my - mw * 0.22);
+    g.quadraticCurveTo(nx, my + mw * 1.15, nx + mw, my - mw * 0.22);
+    g.quadraticCurveTo(nx, my + mw * 0.10, nx - mw, my - mw * 0.22);
+    g.fill();
+    return;
+  }
+  for (const s of [-1, 1]) {
+    g.beginPath();
+    if (exp === EXPR.down) {
+      g.moveTo(nx, my + mw * 0.34);
+      g.quadraticCurveTo(nx + s * mw * 0.52, my + mw * 0.20, nx + s * mw, my - mw * 0.22);
+    } else if (exp === EXPR.focus) {
+      g.moveTo(nx, my - mw * 0.10);
+      g.lineTo(nx + s * mw * 0.86, my - mw * 0.10);
+    } else {
+      g.moveTo(nx, my - mw * 0.18);
+      g.quadraticCurveTo(nx + s * mw * 0.55, my + mw * 0.42, nx + s * mw, my - mw * 0.08);
+    }
+    g.stroke();
+  }
+}
+
+/* built once at boot; nothing here runs per frame */
+function drawMuzCell(g, F, exp) { if (F.nose && !F.onHead) drawSnout(g, F, exp); }
+
+function buildFaceAtlas() {
+  const S = FACE_PX, cv = document.createElement('canvas');
+  cv.width = cv.height = FACE_N * S;
+  const g = cv.getContext('2d');
+  FACE_ORDER.forEach((name, row) => {
+    const F = FACES[name];
+    if (!F) return;
+    for (let e = 0; e < 4; e++) {
+      for (const cell of [[e, drawHeadCell], [e + 4, drawMuzCell]]) {
+        g.save();
+        g.translate(cell[0] * S, row * S);
+        g.beginPath(); g.rect(0, 0, S, S); g.clip();
+        g.scale(S, S);
+        cell[1](g, F, e);
+        g.restore();
+      }
+    }
+  });
+  return cv;
+}
+
+/* uv rect for one cell: [scaleU, scaleV, offsetU, offsetV] */
+function faceRect(animal, exp, muz) {
+  const row = FACE_ORDER.indexOf(animal);
+  if (row < 0) return null;
+  const col = (exp || 0) + (muz ? 4 : 0), k = 1 / FACE_N;
+  return [k, k, col * k, row * k];
+}
+
 /* pose: { armL, armR, legL, legR, lean, bob, ry } — all radians */
 const IDLE = { armL: 0.12, armR: -0.12, legL: 0, legR: 0, lean: 0, bob: 0 };
 
@@ -1514,6 +1813,7 @@ function drawAnimal(x, z, ry, look, pose, y0) {
     R.ink(0);
   }
   const p = pose || IDLE;
+  const FC = FACES[look.animal] || null;
   const f = yawFrame(x, z, ry);
   const y = (y0 || 0) + (p.bob || 0);
   if (p.fall) { f.t = p.fall; f.ct = Math.cos(p.fall); f.st = Math.sin(p.fall); f.pivot = y + 0.34; }
@@ -1593,6 +1893,20 @@ function drawAnimal(x, z, ry, look, pose, y0) {
            A.cheekC ? col(A.cheekC) : fur2);
   }
 
+  if (FC && R.atlas && R.inkW === 0) {            // eyes and brows, as art
+    R.decal(faceRect(look.animal, p.face || 0, 0));
+    const k = 1.015;
+    if (FC.onPatch && A.facePatch) {
+      const fp = A.facePatch;                      // the patch stands proud of
+      part(fh, 'facep', 0, hy - 0.02, hzF - 0.10,  // the skull, so sit on that
+           fp[0] * k, fp[1] * k, fp[2] * k, fur);
+    } else {
+      part(fh, A.head === 'rbox' ? 'facepr' : 'facep', 0, hy, 0.02,
+           0.68 * big * HW * k, 0.66 * HH * k, 0.64 * big * HD * k, fur);
+    }
+    R.decal(null);
+  }
+
   if (A.beak) {
     part(fh, 'cone', 0, hy - 0.045, hzF - 0.03, 0.27, 0.32, 0.27, col(A.beak), -Math.PI / 2);
     part(fh, 'box', 0, hy - 0.045, hzF + 0.07, 0.19, 0.022, 0.16, shade(A.beak, 0.62));
@@ -1600,35 +1914,40 @@ function drawAnimal(x, z, ry, look, pose, y0) {
     const mz = A.muz, my = hy + (A.muzY === undefined ? -0.09 : A.muzY);
     const mzz = A.muzZ === undefined ? 0.26 : A.muzZ;
     part(fh, 'sphere', 0, my, mzz, mz[0], mz[1], mz[2], A.muzC ? col(A.muzC) : fur2);
+    if (FC && !FC.onHead && R.atlas && R.inkW === 0) {   // nose and mouth, as art
+      R.decal(faceRect(look.animal, p.face || 0, 1));
+      part(fh, 'facep', 0, my, mzz, mz[0] * 1.03, mz[1] * 1.03, mz[2] * 1.03, fur);
+      R.decal(null);
+    }
     const nr = A.noseR || 0.11;
-    if (A.nostril) {
+    if (!FC && A.nostril) {
       for (const s of [-1, 1])
         part(fh, 'sphere', s * mz[0] * 0.24, my + mz[1] * 0.28, mzz + mz[2] * 0.40,
              nr, nr * 0.90, nr * 0.60, col('#3A3040'));
-    } else {
-      if (!(A.dotEyes && R.inkW > 0))
-        part(fh, 'sphere', 0, my + mz[1] * 0.40, mzz + mz[2] * 0.40,
-             nr, nr * 0.74, nr * 0.72, col(A.noseC || '#33291F'));
+    } else if (!FC) {
+      part(fh, 'sphere', 0, my + mz[1] * 0.40, mzz + mz[2] * 0.40,
+           nr, nr * 0.74, nr * 0.72, col(A.noseC || '#33291F'));
     }
-    if (A.whisk) for (const s of [-1, 1]) for (let i = 0; i < 3; i++)
+    if (!FC && A.whisk) for (const s of [-1, 1]) for (let i = 0; i < 3; i++)
       part(fh, 'box', s * (mz[0] * 0.60 + 0.13), my + 0.02 + (i - 1) * 0.05, mzz + 0.03,
            0.28, 0.017, 0.017, col('#6B5A48'), 0, s * ((i - 1) * 0.24 + 0.05));
   }
-  if (A.mouth) {                                // the frog's wide grin
+  if (A.mouth && !FC) {                         // the frog's wide grin
     for (const s of [-1, 1])
       part(fh, 'box', s * 0.17, hy - 0.16, hzF - 0.02, 0.36, 0.036, 0.07,
            shade(A.fur, 0.42), 0, s * -0.11);
   }
 
   // eyes, with the drawn brow line above them
-  if (A.smallMouth && R.inkW === 0) {           // a little mouth under the nose
+  if (A.smallMouth && !FC && R.inkW === 0) {    // a little mouth under the nose
     const mz = A.muz || [0.2, 0.13, 0.16];
     const my2 = hy + (A.muzY === undefined ? -0.09 : A.muzY) + mz[1] * 0.40 - 0.078;
     for (const s of [-1, 1])
       part(fh, 'box', s * 0.038, my2, hzF - 0.062, 0.074, 0.024, 0.05,
            col('#4A3438'), 0, s * 0.30);
   }
-  if (!A.noFaceEyes && A.dotEyes) {              // simple dots, as drawn
+  if (FC) { /* the eyes live in the face cell */ }
+  else if (!A.noFaceEyes && A.dotEyes) {         // simple dots, as drawn
     const ex = A.eyeX || 0.150, ew = A.eyeW || 0.078, eh = A.eyeH || 0.086;
     if (R.inkW === 0) for (const s of [-1, 1]) {
       part(fh, 'sphere', s * ex, hy + 0.085, hzF - 0.028, ew, eh, 0.070, col(EYE));
@@ -2593,6 +2912,11 @@ function applyOutcome(o) {
     logLine(`${bat.name}の${o.kind === 'walk' ? '押し出し' : (o.text.split('\n')[0])} — ${runs}点`, true);
   }
   G.inningRuns += runs;
+  // whoever got something out of the play wears it on their face until the
+  // next pitch. Runs, or the batter reaching, counts as the batting side's.
+  const forBat = runs > 0 || outsAdded === 0;
+  G.faceBat = forBat ? EXPR.happy : EXPR.down;
+  G.faceFld = forBat ? EXPR.down : EXPR.happy;
   G.lastText = o.text;
   banner(o.text, o.big);
   uiScore();
@@ -2607,6 +2931,7 @@ function applyOutcome(o) {
    ============================================================ */
 function afterPitch(kind) {
   const bat = curBatter();
+  G.faceBat = G.faceFld = EXPR.idle;   // finishAtBat overrides if the PA ends
   if (kind === 'hbp') {
     finishAtBat({ kind: 'hbp', text: 'デッドボール！' });
     return;
@@ -3503,6 +3828,11 @@ function drawScene() {
 
   const bt = batTeam(), ft = fldTeam();
   const bob = Math.sin(clock * 2.2) * 0.03;
+  // moods only show while the play is being read out; before the pitch the
+  // batter and the pitcher are bearing down instead
+  const mood = G.phase === 'result' || G.phase === 'halfend' || G.phase === 'walkoff';
+  const faceBat = mood ? (G.faceBat || EXPR.idle) : EXPR.focus;
+  const faceFld = mood ? (G.faceFld || EXPR.idle) : EXPR.idle;
   if (G.traffic) for (const c of G.traffic) { if (c.walk) drawShopper(c); else drawCar(c); }
 
   // fielders
@@ -3514,12 +3844,13 @@ function drawScene() {
     const pose = {
       armL: running ? swing * 0.7 : 0.2 + bob, armR: running ? -swing * 0.7 : -0.2 - bob,
       legL: swing, legR: -swing, bob: running ? Math.abs(Math.sin(clock * 13)) * 0.06 : bob * 0.5,
+      face: f.st.k === 'P' && (G.phase === 'ready' || G.phase === 'pitch') ? EXPR.focus : faceFld,
     };
     if (f.down > 0) {                       // run over: flat on his back
       const settle = clamp(f.down * 2.2, 0, 1);
       drawAnimal(f.x, f.z, f.ry, pl.look, {
         fall: -1.45, spread: 0.18, legL: -0.5, legR: 0.4,
-        armL: -1.1, armR: 1.1, bob: -0.30,
+        armL: -1.1, armR: 1.1, bob: -0.30, face: EXPR.down,
       }, 0);
       for (let s2 = 0; s2 < 3; s2++) {
         const a2 = clock * 5 + s2 * 2.1;
@@ -3590,7 +3921,7 @@ function drawScene() {
     if (G.hbpT > 0) {                       // just wore one — no bat, on the deck
       drawAnimal(BAT_X + 0.25, BAT_Z - 0.2, -Math.PI / 2, b.look,
         { fall: -0.62, spread: 0.20, legL: -0.35, legR: 0.30,
-          armL: -1.7, armR: -1.6, bob: -0.12, helmet: 1 }, 0);
+          armL: -1.7, armR: -1.6, bob: -0.12, helmet: 1, face: EXPR.down }, 0);
       for (let s2 = 0; s2 < 3; s2++) {
         const a2 = clock * 5 + s2 * 2.1;
         R.b('sphere', BAT_X + 0.25 + Math.cos(a2) * 0.34, 1.05 + Math.sin(clock * 6 + s2) * 0.05,
@@ -3602,7 +3933,7 @@ function drawScene() {
       handL: rig.handTop, handR: rig.handBot, pole: rig.pole,
       legL: rig.lgL, legR: rig.lgR, spread: rig.spread,
       lean: rig.lean, headRy: rig.head,
-      helmet: 1, gloveC: bt.trim,
+      helmet: 1, gloveC: bt.trim, face: faceBat,
       bob: G.batSwingT < 0 ? bob * 0.5 : 0.015,
     }, 0);
     inked(b.look, () => {
@@ -3621,7 +3952,7 @@ function drawScene() {
     if (m.down > 0) {
       drawAnimal(r.x, r.z, r.ry, m.p.look,
         { fall: -1.45, spread: 0.18, legL: -0.5, legR: 0.4, armL: -1.1, armR: 1.1,
-          bob: -0.30, helmet: 1 }, 0);
+          bob: -0.30, helmet: 1, face: EXPR.down }, 0);
       for (let s2 = 0; s2 < 3; s2++) {
         const a2 = clock * 5 + s2 * 2.1;
         R.b('sphere', r.x + Math.cos(a2) * 0.34, 0.92 + Math.sin(clock * 6 + s2) * 0.05,
@@ -3631,7 +3962,7 @@ function drawScene() {
     }
     const sw = r.done ? 0 : Math.sin(clock * 15) * 0.9;
     drawAnimal(r.x, r.z, r.ry, m.p.look, {
-      armL: sw * 0.8, armR: -sw * 0.8, legL: sw, legR: -sw, helmet: 1,
+      armL: sw * 0.8, armR: -sw * 0.8, legL: sw, legR: -sw, helmet: 1, face: faceBat,
       bob: r.done ? 0 : Math.abs(Math.sin(clock * 15)) * 0.07, lean: 0.16,
     }, 0);
   }
@@ -3650,7 +3981,7 @@ function drawScene() {
     // he edges down the line but stays squared up to the pitcher
     drawAnimal(lx, lz, Math.atan2(MOUND_POS[0] - lx, MOUND_POS[1] - lz), p.look,
                { armL: 0.42, armR: 0.42, legL: 0.10, legR: -0.10, spread: 0.19,
-                 lean: 0.17, bob: bob * 0.6, helmet: 1 }, 0);
+                 lean: 0.17, bob: bob * 0.6, helmet: 1, face: faceBat }, 0);
   }
 
   // ball, with a shadow on the ground so its height and distance are readable
@@ -3737,6 +4068,7 @@ function boot() {
       'このブラウザではWebGLが使えないため、ゲームを表示できません。</div>';
     return;
   }
+  R.upload(buildFaceAtlas());
   buildMenus();
   bindInput();
   $('#btn-start').onclick = () => { Snd.boot(); G.mode = 'cpu'; show('#s-stadium'); };
