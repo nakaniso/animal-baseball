@@ -500,6 +500,7 @@ function update(dt) {
       break;
 
     case 'play': {
+      if (G.pending && (G.flight ? G.flightT : G.pt) >= G.pending.at) flushResult();
       if (G.flight) {
         G.flightT += dt;
         const fl = G.flight, pl = G.playScript, path = fl.path;
@@ -768,16 +769,33 @@ function runnerAt(m) {
   const e = u * u * (3 - 2 * u);
   let d = e * m.total;
   const n = m.segs.length;
+  let r = { x: m.pts[0][0], z: m.pts[0][1], done: u >= 1, u, ry: 0 };
   for (let i = 0; i < n; i++) {
     if (d <= m.segs[i] || i === n - 1) {
       const k = m.segs[i] > 1e-6 ? clamp(d / m.segs[i], 0, 1) : 1;
       const a = m.pts[i], b = m.pts[i + 1];
-      return { x: lerp(a[0], b[0], k), z: lerp(a[1], b[1], k), done: u >= 1, u,
-               ry: Math.atan2(b[0] - a[0], b[1] - a[1]) };
+      r = { x: lerp(a[0], b[0], k), z: lerp(a[1], b[1], k), done: u >= 1, u,
+            ry: Math.atan2(b[0] - a[0], b[1] - a[1]) };
+      break;
     }
     d -= m.segs[i];
   }
-  return { x: m.pts[0][0], z: m.pts[0][1], done: u >= 1, u, ry: 0 };
+  // he does not stop dead on the bag
+  if (m.over && u >= 1) {
+    const o = m.over, s = m.t - m.dur, bx = r.x, bz = r.z;
+    if (s < o.dur) {                              // carrying past it, slowing
+      const q = s / o.dur, k = 1 - (1 - q) * (1 - q);
+      r.x = lerp(bx, o.x, k); r.z = lerp(bz, o.z, k);
+      r.ry = Math.atan2(o.x - bx, o.z - bz);
+      r.done = false;
+    } else if (o.ret && s < o.dur * 2.6) {        // and walking back to it
+      const k = clamp((s - o.dur) / (o.dur * 1.6), 0, 1);
+      r.x = lerp(o.x, bx, k); r.z = lerp(o.z, bz, k);
+      r.ry = Math.atan2(bx - o.x, bz - o.z);
+      r.done = false;
+    } else if (!o.ret) { r.x = o.x; r.z = o.z; }
+  }
+  return r;
 }
 
 /* a hand target, pulled back so it stays within `max` of the shoulder */
@@ -926,6 +944,14 @@ function drawScene() {
         R.b('sphere', r.x + Math.cos(a2) * 0.34, 0.92 + Math.sin(clock * 6 + s2) * 0.05,
             r.z + Math.sin(a2) * 0.34, 0.13, 0.13, 0.13, col('#FFE04A'));
       }
+      continue;
+    }
+    if (m.slide && r.u > 0.80) {          // a throw is coming: get down
+      const k = clamp((r.u - 0.80) / 0.13, 0, 1);
+      drawAnimal(r.x, r.z, r.ry, m.p.look, {
+        fall: -1.18 * k, spread: 0.26, legL: -1.05, legR: -0.45,
+        armL: -1.55, armR: -1.15, bob: -0.44 * k, helmet: 1, face: EXPR.focus,
+      }, 0);
       continue;
     }
     const sw = r.done ? 0 : Math.sin(clock * 15) * 0.9;

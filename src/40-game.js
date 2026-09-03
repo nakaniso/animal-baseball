@@ -84,7 +84,10 @@ function startGame(stadiumId, awayTeamId, homeTeamId) {
   nextBatter();
 }
 
-function setPhase(p, len) { G.phase = p; G.pt = 0; G.phaseLen = len || 0; }
+function setPhase(p, len) {
+  if (G.phase === 'play' && p !== 'play') flushResult();
+  G.phase = p; G.pt = 0; G.phaseLen = len || 0;
+}
 
 function nextBatter() {
   G.balls = 0; G.strikes = 0;
@@ -445,13 +448,15 @@ function fieldBall(fl) {
     const q = fl.path[fl.path.length - 1];
     return { kind: 'hit', bases: 3, hit: true, text: '誰も追いつけない！\nスリーベース',
              play: { fidx: 0, cutIdx: fl.path.length - 1, cutT: q.t,
-                     pt: { x: q.x, y: q.y, z: q.z }, air: false, coverIdx: -1 } };
+                     pt: { x: q.x, y: q.y, z: q.z }, air: false, infield: false,
+                     coverIdx: -1 } };
   }
   const P = best.it.p;
   const errP = clamp((1 - best.pl.defense) * 0.05
     + (st.id === 'market' ? 0.03 : 0) + (st.id === 'road' ? 0.025 : 0), 0, 0.13);
   const play = { fidx: best.i, cutIdx: best.it.i, cutT: best.it.t,
-                 pt: { x: P.x, y: P.y, z: P.z }, air: best.it.air, moves: [] };
+                 pt: { x: P.x, y: P.y, z: P.z }, air: best.it.air,
+                 infield: !!best.s.infield, moves: [] };
   /* someone has to be standing on the bag when the throw gets there */
   const sendTo = (bx, bz, fromPt, arm, after) => {
     const dur = throwTime(fromPt, bx, bz, arm);
@@ -613,11 +618,13 @@ function moveRunner(p, from, to, delay, retired) {
   const rest = 27.43 / (7.6 + p.speed * 2.2);
   let dur = first * (legs === 1 ? 1 : 0.72) + (legs - 1) * rest * 0.48;
   if (legs >= 4) dur = Math.min(dur, 6.0);
-  G.movers.push({
+  const mv = {
     p, from, to, pts, segs, total, t: -(delay || 0), dur,
     scored: to >= 3, retired: !!retired,
     rbiOwner: to >= 3 ? curBatter() : null,
-  });
+  };
+  G.movers.push(mv);
+  return mv;
 }
 
 function scoreRun(p, batter) {
@@ -658,6 +665,38 @@ function advanceOnWalk(batter) {
   return runs;
 }
 
+/* How the runners finish. The batter-runner never stops on first: on a play
+   in the infield he runs straight through the bag, and on a ball through to
+   the outfield he takes his turn toward second and pulls up. Anyone arriving
+   at a bag the ball is also arriving at goes in sliding. */
+function styleBaseRunning(o) {
+  const pl = o.play;
+  const targets = [];
+  if (pl && pl.throwTo) targets.push(pl.throwTo);
+  if (pl && pl.via) targets.push(pl.via);
+  for (const mv of G.movers) {
+    // on a caught fly he peels off rather than running it out
+    if (mv.from === -1 && mv.to === 0 && o.kind !== 'flyout') {
+      const b = basePt(0);
+      if (!mv.retired && pl && !pl.infield) {  // rounding, looking at second
+        const n = basePt(1);
+        const ux = n[0] - b[0], uz = n[1] - b[1], ul = Math.hypot(ux, uz) || 1;
+        mv.over = { x: b[0] + (ux / ul) * 3.6, z: b[1] + (uz / ul) * 3.6,
+                    dur: 0.62, ret: false };
+      } else {                                 // straight through, then back
+        const ul = Math.hypot(b[0], b[1]) || 1;      // home plate is the origin
+        mv.over = { x: b[0] + (b[0] / ul) * 5.4, z: b[1] + (b[1] / ul) * 5.4,
+                    dur: 0.55, ret: true };
+      }
+    }
+    if (mv.to >= 1 && mv.to <= 3) {
+      const b = basePt(mv.to);
+      for (const t of targets)
+        if (Math.hypot(t[0] - b[0], t[1] - b[1]) < 5.0) { mv.slide = 1; break; }
+    }
+  }
+}
+
 /* everyone still on base moves up one, lead runner first */
 function advanceOneAll(batter, allowScore) {
   let runs = 0;
@@ -685,17 +724,17 @@ function applyOutcome(o) {
     case 'hr': case 'ihr':
       bat.ab++; bat.h++; bat.hr++; G.hits[G.half]++;
       runs = advanceOnHit(4, bat);
-      Snd.cheer();
+      o.snd = 'cheer';
       break;
     case 'hit': case 'ground_rule':
       bat.ab++; bat.h++; G.hits[G.half]++;
       runs = advanceOnHit(o.bases, bat);
-      Snd.good();
+      o.snd = 'good';
       break;
     case 'error':
       bat.ab++;
       runs = advanceOnHit(o.bases, bat);
-      Snd.bad();
+      o.snd = 'bad';
       break;
     case 'flyout': {
       bat.ab++; outsAdded = 1; moveRunner(bat, -1, 0, 0, true);
@@ -706,22 +745,27 @@ function applyOutcome(o) {
         o.text = '犠牲フライ！\n1点';
       } else if (G.outs < 2 && G.bases[1] && o.canSac && chance(0.62)) {
         G.bases[2] = G.bases[1]; moveRunner(G.bases[1], 1, 2, held); G.bases[1] = null;
+      } else if (G.outs >= 2) {
+        // two out — he is running on contact, and the catch ends the inning
+        // anyway, so show him going rather than standing on the bag
+        for (let i = 2; i >= 0; i--)
+          if (G.bases[i]) moveRunner(G.bases[i], i, i + 1, 0, true);
       }
-      Snd.mitt();
+      o.snd = 'mitt';
       break;
     }
     case 'groundout':
       bat.ab++; outsAdded = 1; moveRunner(bat, -1, 0, 0, true);
       // with the play going to first, everyone else moves up
       if (chance(0.86)) runs += advanceOneAll(bat, G.outs < 2 && chance(0.85));
-      Snd.mitt();
+      o.snd = 'mitt';
       break;
     case 'fc':
       bat.ab++; outsAdded = 1;
       if (G.bases[2]) { runs++; scoreRun(G.bases[2], bat); moveRunner(G.bases[2], 2, 3); G.bases[2] = null; }
       if (G.bases[1]) { G.bases[2] = G.bases[1]; moveRunner(G.bases[1], 1, 2); G.bases[1] = null; }
       G.bases[0] = bat; moveRunner(bat, -1, 0);
-      Snd.mitt();
+      o.snd = 'mitt';
       break;
     case 'dp': {
       bat.ab++; outsAdded = Math.min(2, 3 - G.outs);
@@ -731,12 +775,12 @@ function applyOutcome(o) {
       if (forced) moveRunner(forced, 0, 1, 0, true);
       runs += advanceOneAll(bat, G.outs < 2);
       if (G.bases[1]) { G.bases[2] = G.bases[1]; moveRunner(G.bases[1], 1, 2); G.bases[1] = null; }
-      Snd.mitt();
+      o.snd = 'mitt';
       break;
     }
     case 'strikeout':
       bat.ab++; bat.k++; outsAdded = 1;
-      Snd.miss();
+      o.snd = 'miss';
       break;
     case 'walk':
       bat.bb++;
@@ -748,7 +792,7 @@ function applyOutcome(o) {
       // he takes a moment to shake it off before trotting down
       for (const mv of G.movers) mv.t = -0.65;
       G.hbpT = 1.05;
-      Snd.crash();
+      o.snd = 'crash';
       logLine(`${bat.name}にデッドボール！`, true);
       break;
     case 'bunt_out':
@@ -757,6 +801,7 @@ function applyOutcome(o) {
       break;
   }
 
+  styleBaseRunning(o);
   G.outs += outsAdded;
   if (runs > 0) {
     logLine(`${bat.name}の${o.kind === 'walk' ? '押し出し' : (o.text.split('\n')[0])} — ${runs}点`, true);
@@ -768,7 +813,6 @@ function applyOutcome(o) {
   G.faceBat = forBat ? EXPR.happy : EXPR.down;
   G.faceFld = forBat ? EXPR.down : EXPR.happy;
   G.lastText = o.text;
-  banner(o.text, o.big);
   uiScore();
 
   // hand the ball back to the fielders
@@ -806,12 +850,37 @@ function afterPitch(kind) {
   }
 }
 
+/* When the words should land: as the ball is booted, as it hits the mitt, as
+   the throw beats him to the bag. Measured on the same clock the play script
+   runs on (`G.flightT`), so it stays glued to what is on screen. */
+function resultDelay(o) {
+  const pl = o.play;
+  if (!pl) return G.flight ? Math.min(G.flight.total * 0.72, 2.4) : 0;
+  const caught = pl.cutT;
+  if (o.err) return caught + (pl.air ? 0.16 : 0.26);
+  if (o.kind === 'flyout') return caught + 0.10;
+  if (o.kind === 'groundout' || o.kind === 'dp' || o.kind === 'fc' || o.kind === 'bunt_out')
+    return caught + (pl.viaDur || 0) + (pl.throwDur || 0) + 0.06;
+  return caught + 0.14;                       // a base hit, as it is played
+}
+
+function flushResult() {
+  const q = G.pending;
+  if (!q) return;
+  G.pending = null;
+  banner(q.text, q.big);
+  if (q.snd && Snd[q.snd]) Snd[q.snd]();
+}
+
 function finishAtBat(o) {
   applyOutcome(o);
   logLine(`${G.inning}回${G.half === 0 ? '表' : '裏'} ${curBatter().name}：${o.text.replace('\n', ' ')}`);
   G.order[G.half] = (G.order[G.half] + 1) % 9;
   if (!G.flight) G.ball.vis = false;   // a batted ball stays on screen
-  setPhase('play', Math.max(1.5, playLength()));
+  const len = Math.max(1.5, playLength());
+  G.pending = { text: o.text, big: o.big, snd: o.snd,
+                at: Math.min(resultDelay(o), len - 0.25) };
+  setPhase('play', len);
 }
 
 function playLength() {
