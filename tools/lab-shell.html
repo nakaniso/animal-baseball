@@ -1,0 +1,129 @@
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>顔ラボ — 線画をアトラスに焼く</title>
+<style>
+:root{
+  --ink:#0E141C; --panel:#182330; --panel2:#20303F; --line:#31465A;
+  --cream:#F6EFE1; --dim:#9FB2C4; --amber:#FFC44D;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--ink);color:var(--cream);font:13px/1.6 system-ui,sans-serif;
+  -webkit-font-smoothing:antialiased}
+#app{display:grid;grid-template-columns:300px 1fr;height:100vh}
+#side{background:var(--panel);border-right:2px solid var(--line);padding:16px;
+  overflow-y:auto;display:flex;flex-direction:column;gap:14px}
+#stage{display:grid;grid-template-rows:1fr auto;min-width:0}
+#view{position:relative;min-height:0;background:#111820}
+#gl{width:100%;height:100%;display:block}
+#strip{border-top:2px solid var(--line);background:var(--panel);padding:12px 16px;
+  display:flex;gap:16px;align-items:flex-start}
+h1{font-size:15px;font-weight:700;letter-spacing:.02em}
+h2{font-size:11px;letter-spacing:.16em;color:var(--amber);text-transform:uppercase;
+  margin-top:4px}
+label{display:block;font-size:12px;color:var(--dim);margin-bottom:3px}
+.row{display:flex;gap:8px}
+.row>*{flex:1;min-width:0}
+select,input[type=file],input[type=color],button,textarea{
+  font:inherit;color:var(--cream);background:var(--panel2);
+  border:1px solid var(--line);border-radius:7px;padding:6px 8px;width:100%}
+input[type=range]{width:100%;accent-color:var(--amber)}
+button{cursor:pointer;font-weight:700}
+button:hover{border-color:var(--amber);color:var(--amber)}
+button.go{background:var(--amber);color:#241703;border-color:var(--amber)}
+button.go:hover{color:#241703;filter:brightness(1.08)}
+.val{float:right;color:var(--cream);font-variant-numeric:tabular-nums}
+.cells{display:flex;gap:10px;align-items:center}
+.cell{width:104px;height:104px;border:1px solid var(--line);border-radius:8px;
+  image-rendering:pixelated;background:
+    conic-gradient(#2A3948 25%,#22303D 0 50%,#2A3948 0 75%,#22303D 0) 0 0/16px 16px}
+.cap{font-size:11px;color:var(--dim);text-align:center;margin-top:4px}
+.hint{font-size:11px;color:var(--dim);line-height:1.7}
+textarea{height:88px;resize:vertical;font-family:ui-monospace,monospace;font-size:11px}
+#drop{border:2px dashed var(--line);border-radius:10px;padding:14px;text-align:center;
+  color:var(--dim);font-size:12px}
+#drop.hot{border-color:var(--amber);color:var(--amber)}
+</style>
+
+<div id="app">
+  <div id="side">
+    <h1>顔ラボ</h1>
+    <p class="hint">スキャンした線画を顔のセルに焼いて、そのまま3Dで確認します。
+      納得できたら「コードを出力」を押して、出てきた1行をゲームに貼ります。</p>
+
+    <h2>1. 画像</h2>
+    <div id="drop">ここに画像をドロップ<br>（またはファイルを選択）</div>
+    <input type="file" id="file" accept="image/*">
+
+    <h2>2. 貼る場所</h2>
+    <div class="row">
+      <div><label>動物</label><select id="animal"></select></div>
+      <div><label>面</label><select id="part">
+        <option value="0">頭（目・眉）</option><option value="4">マズル（鼻・口）</option>
+      </select></div>
+    </div>
+    <div><label>表情</label><select id="expr">
+      <option value="0">ふつう</option><option value="1">気合い</option>
+      <option value="2">喜び</option><option value="3">しょんぼり</option>
+    </select></div>
+
+    <h2>3. 紙を抜く</h2>
+    <div><label>しきい値<span class="val" id="v-thr"></span></label>
+      <input type="range" id="thr" min="0.10" max="1.00" step="0.01" value="0.72"></div>
+    <div><label>やわらかさ<span class="val" id="v-soft"></span></label>
+      <input type="range" id="soft" min="0.01" max="0.60" step="0.01" value="0.22"></div>
+    <div class="row">
+      <div><label>線の色</label><input type="color" id="ink" value="#22282F"></div>
+      <div><label>元の色を使う</label><select id="keep">
+        <option value="0">いいえ（線の色で塗る）</option><option value="1">はい</option>
+      </select></div>
+    </div>
+
+    <h2>4. 位置合わせ</h2>
+    <div><label>大きさ<span class="val" id="v-scale"></span></label>
+      <input type="range" id="scale" min="0.15" max="3.00" step="0.01" value="1.00"></div>
+    <div><label>よこ<span class="val" id="v-x"></span></label>
+      <input type="range" id="x" min="-0.60" max="0.60" step="0.005" value="0"></div>
+    <div><label>たて<span class="val" id="v-y"></span></label>
+      <input type="range" id="y" min="-0.60" max="0.60" step="0.005" value="0"></div>
+    <div><label>回転<span class="val" id="v-rot"></span></label>
+      <input type="range" id="rot" min="-0.60" max="0.60" step="0.005" value="0"></div>
+
+    <h2>5. 出力</h2>
+    <button class="go" id="emit">コードを出力</button>
+    <textarea id="out" readonly placeholder="ここに貼り付け用の1行が出ます"></textarea>
+    <button id="copy">クリップボードにコピー</button>
+  </div>
+
+  <div id="stage">
+    <div id="view"><canvas id="gl"></canvas></div>
+    <div id="strip">
+      <div class="cells">
+        <div><canvas class="cell" id="src" width="128" height="128"></canvas>
+          <div class="cap">読み込んだ絵</div></div>
+        <div><canvas class="cell" id="baked" width="128" height="128"></canvas>
+          <div class="cap">焼いたセル</div></div>
+        <div><canvas class="cell" id="proc" width="128" height="128"></canvas>
+          <div class="cap">いまの顔（比較用）</div></div>
+      </div>
+      <div style="flex:1">
+        <div class="row" style="max-width:420px">
+          <div><label>見え方</label><select id="mode">
+            <option value="scan">焼いた線画</option>
+            <option value="proc">いまの顔</option>
+          </select></div>
+          <div><label>向き</label><select id="spin">
+            <option value="1">回す</option><option value="0">正面で止める</option>
+          </select></div>
+          <div><label>距離</label><select id="dist">
+            <option value="6">近く（確認用）</option>
+            <option value="11">打席カメラくらい</option>
+            <option value="28">投手くらい</option>
+          </select></div>
+        </div>
+        <p class="hint" style="margin-top:8px">
+          画面はドラッグで回せます。「距離」を実際のカメラに合わせると、
+          解像度が足りているかが判断できます。
+        </p>
+      </div>
+    </div>
+  </div>
+</div>

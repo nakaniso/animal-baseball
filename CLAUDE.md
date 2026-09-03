@@ -24,6 +24,7 @@ git checkout --ours animal-baseball.html && sh build.sh && git add animal-baseba
 | `src/50-main.js` | 画面遷移、入力、カメラ、毎フレームの更新と描画 |
 
 `patches/` は開発履歴。ビルドには不要。
+`tools/` は顔ラボ（線画を焼く開発ツール）。ゲームのビルドには不要。
 
 ---
 
@@ -90,6 +91,10 @@ git checkout --ours animal-baseball.html && sh build.sh && git add animal-baseba
   輪郭は要らないし、描くと真っ黒な板になる。
 - 表情は `pose.face`。`G.faceBat` / `G.faceFld` を `finishAtBat` で決め、
   **`result` フェーズの間だけ**顔に出す。それ以外のとき打者と投手は `focus`。
+- 手描きの線画を焼きたいときは `tools/face-lab.html`（`sh tools/build-lab.sh` で生成）。
+  スキャンを読ませて紙を抜き、位置を合わせ、3Dで確認してから貼り付け用の1行を出す。
+  その1行を `FACE_SCANS` に入れると、そのセルだけコードで描いた顔と差し替わる。
+  ツールはゲームと同じ `10-core.js` / `30-actors.js` を使うので見た目が一致する。
 
 ### 判定と表示は同一のソースから
 

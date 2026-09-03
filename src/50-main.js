@@ -1036,7 +1036,9 @@ function boot() {
       'このブラウザではWebGLが使えないため、ゲームを表示できません。</div>';
     return;
   }
-  R.upload(buildFaceAtlas());
+  const faceAtlas = buildFaceAtlas();
+  R.upload(faceAtlas);
+  applyFaceScans(faceAtlas, () => R.upload(faceAtlas));
   buildMenus();
   bindInput();
   $('#btn-start').onclick = () => { Snd.boot(); G.mode = 'cpu'; show('#s-stadium'); };
