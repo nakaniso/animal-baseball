@@ -112,6 +112,19 @@ const ANIMALS = {
              earR: 0.275, earX: 0.255, earY: 0.38, earT: 0.22, earTip: '#3C2A20',
              eyeX: 0.156, eyeW: 0.140, eyeH: 0.098, eyeTilt: 0.20 },
 
+  // Drawn as the real animal rather than a round cartoon of one, and given no
+  // face cell, so they never change expression.
+  salmon:  { ink: 0.013, body: 'fish', ear: 'none', tail: 'none', capY: -0.28, capS: 0.30,
+             noGlove: 1, noBat: 1,
+             fur: '#B4C2CB', fur2: '#EFF2F0', back: '#3C5E71', blush: '#B0524C',
+             fin: '#7F909B', spot: '#22323C', jaw: '#9DAAB2',
+             head: 'sphere', hw: 0.60, hh: 0.78, hd: 1.30 },
+
+  beetle:  { ink: 0.013, body: 'beetle', ear: 'none', tail: 'none', capY: -0.40, capS: 0.52,
+             noGlove: 1, noBat: 1,
+             fur: '#3E2717', fur2: '#5C3C22', horn: '#20130A', leg: '#281A0E',
+             head: 'rbox', hw: 0.66, hh: 0.50, hd: 0.66 },
+
   panda:   { ink: 0.022, ear: 'round', fur: '#F0EDE6', fur2: '#2C3138', tail: 'nub', patch: 1,
              head: 'rbox', hw: 1.12, hh: 1.04, hd: 0.98,
              muz: [0.44, 0.28, 0.28], muzY: -0.13, muzZ: 0.24, noseR: 0.10,
@@ -350,6 +363,95 @@ function faceRect(animal, exp, muz) {
   return [k, k, col * k, row * k];
 }
 
+/* ============================================================
+   The odd ones out.
+
+   Every mammal here is a round cartoon of an animal. These two are the animal:
+   their shells come from tools/mesh2js.py, which lofts a salmon through real
+   elliptical sections and sweeps a Trypoxylus horn along a curve that forks
+   twice. Stacked spheres cannot make either shape.
+
+   Neither has arms, and neither stands still.
+     * The salmon has no limbs at all. It flops — in the box, in the field, on
+       the base paths — and it hits with its body.
+     * The beetle has six legs and hits with its horn. No bat, no glove.
+
+   They keep the shared rig's anchors (torso y+0.74, head y+1.34) so the
+   camera, the shadow, knockdowns and slides all still work on them.
+   ============================================================ */
+
+/* the flop. A fish out of water never holds still, so this drives everything:
+   how high he is off the ground and how far he has rocked over. */
+function fishHop(seed) {
+  const t = clock * 4.3 + seed;
+  return { up: Math.abs(Math.sin(t)) * 0.20, roll: Math.cos(t * 0.97) * 0.30 };
+}
+
+/* ---------- 鮭 ---------- */
+function drawSalmon(f, A, look, p, y, big) {
+  const flank = col(A.fur), back = col(A.back), belly = col(A.fur2);
+  const finC = col(A.fin), jaw = col(A.jaw);
+  const uni = col(look.uni), trim = col(look.trim);
+  const h = p.fall ? { up: 0, roll: 0 } : fishHop(f.ry * 3.1);
+  const by = y + h.up;
+  const rx = (p.lean || 0) + h.roll;
+
+  part(f, 'sal_body', 0, by, 0, 1, 1, 1, flank, rx);
+  part(f, 'sal_back', 0, by, 0, 1, 1, 1, back, rx);
+  part(f, 'sal_belly', 0, by, 0, 1, 1, 1, belly, rx);
+  part(f, 'sal_fins', 0, by, 0, 1, 1, 1, finC, rx);
+  part(f, 'sal_jaw', 0, by, 0, 1, 1, 1, jaw, rx);
+
+  // the flush he gets on the run upriver, and the eyes — both solved against
+  // the body profile in the baker, so they stay on the surface at any angle
+  part(f, 'sal_blush', 0, by, 0, 1, 1, 1, col(A.blush), rx);
+  part(f, 'sal_eye', 0, by, 0, 1, 1, 1, col('#D6C489'), rx);
+  part(f, 'sal_pupil', 0, by, 0, 1, 1, 1, col('#0E0B09'), rx);
+
+  // a band of team colour, worn like a sash. Any more and the fish is gone.
+  part(f, 'sphere', 0, by + 0.70, 0.025, 0.186, 0.15, 0.44, uni, rx);
+  part(f, 'sphere', 0, by + 0.79, 0.025, 0.170, 0.045, 0.40, trim, rx);
+}
+
+/* ---------- カブトムシ ---------- */
+function drawBeetle(f, A, look, p, y, big) {
+  const shell = col(A.fur), legC = col(A.leg), horn = col(A.horn);
+  const uni = col(look.uni), trim = col(look.trim);
+  const ln = p.lean || 0;
+  const gloss = shade(A.fur, 1.5);
+
+  // six legs. The front pair does the work, the middle pair does nothing, and
+  // the back pair carries him — all three swing off the running cycle.
+  const sw = p.legL || 0, sw2 = p.legR || 0, sp2 = p.spread || 0;
+  const rows = [[0.20, 0.22, 1.00, 0.30], [0.23, 0.00, 0.55, 0.10], [0.22, -0.20, 0.20, -0.24]];
+  for (const [lx, lz, k, fan] of rows) for (const s of [-1, 1]) {
+    const sg = s < 0 ? sw : sw2;
+    // femur out and down, then the tibia turns back under him — a beetle's
+    // leg is a bent wire, not a peg
+    const e = limb(f, s * (lx + sp2), y + 0.60, lz, sg * k * 0.5 - 0.55, s * (0.95 + fan),
+                   0.26, 0.036, legC, null, 0);
+    limb(f, e[0], e[1], e[2], sg * k + 0.70, s * 0.30, 0.30, 0.028, legC, legC, 0.06);
+  }
+
+  part(f, 'bee_elytra', 0, y, 0, 1, 1, 1, shell, ln);
+  part(f, 'bee_prono', 0, y, 0, 1, 1, 1, shell, ln);
+  part(f, 'bee_head', 0, y, 0, 1, 1, 1, shade(A.fur, 0.76), ln);
+  part(f, 'bee_horn', 0, y, 0, 1, 1, 1, horn, ln);
+
+  // the seam down the wing cases, and the sheen along the top of each
+  part(f, 'box', 0, y + 0.66, -0.20, 0.020, 0.62, 0.30, shade(A.fur, 0.52), ln);
+  for (const s of [-1, 1])
+    part(f, 'sphere', s * 0.145, y + 0.90, -0.16, 0.11, 0.07, 0.16, gloss, ln);
+
+  // compound eyes, flat and black and entirely unreadable
+  part(f, 'bee_eye', 0, y, 0, 1, 1, 1, col('#120A05'), ln);
+  part(f, 'bee_glint', 0, y, 0, 1, 1, 1, col('#75604A'), ln);
+
+  // a band of team colour across the shield
+  part(f, 'sphere', 0, y + 1.07, -0.02, 0.30, 0.10, 0.28, uni, ln);
+  part(f, 'sphere', 0, y + 1.13, -0.02, 0.26, 0.045, 0.24, trim, ln);
+}
+
 /* pose: { armL, armR, legL, legR, lean, bob, ry } — all radians */
 const IDLE = { armL: 0.12, armR: -0.12, legL: 0, legR: 0, lean: 0, bob: 0 };
 
@@ -383,10 +485,15 @@ function drawAnimal(x, z, ry, look, pose, y0) {
   // legs (local -x is the character's right side, +x their left)
   const sp = p.spread || 0;
   const pant = shade(look.uni, 0.93), shoe = shade(look.cap, 0.66);
-  limb(f, -(0.155 * big + sp), y + 0.44, 0, p.legL || 0, -0.04, 0.36, 0.12, pant, shoe, 0.30, 1);
-  limb(f, 0.155 * big + sp, y + 0.44, 0, p.legR || 0, 0.04, 0.36, 0.12, pant, shoe, 0.30, 1);
+  if (!A.body) {                    // the fish has none and the beetle has six
+    limb(f, -(0.155 * big + sp), y + 0.44, 0, p.legL || 0, -0.04, 0.36, 0.12, pant, shoe, 0.30, 1);
+    limb(f, 0.155 * big + sp, y + 0.44, 0, p.legR || 0, 0.04, 0.36, 0.12, pant, shoe, 0.30, 1);
+  }
 
   // torso
+  if (A.body === 'fish') drawSalmon(f, A, look, p, y, big);
+  else if (A.body === 'beetle') drawBeetle(f, A, look, p, y, big);
+  else {
   part(f, 'sphere', 0, y + 0.74, 0, 0.66 * big, 0.70, 0.56 * big, uni, p.lean || 0);
   part(f, 'sphere', 0, y + 0.97, 0.01, 0.50, 0.14, 0.45, trim);   // jersey collar
   part(f, 'box', 0, y + 0.72, 0.185, 0.075, 0.42, 0.05, trim);  // button placket
@@ -400,11 +507,13 @@ function drawAnimal(x, z, ry, look, pose, y0) {
     part(f, 'box', px, y + 0.74, 0.28 * big * Math.sqrt(k) - 0.01, 0.026, 0.34, 0.035, stripe);
   }
   part(f, 'sphere', 0, y + 0.515, 0.02, 0.60 * big, 0.10, 0.50 * big, shade(look.cap, 0.85));
+  }
 
   // arms — either swung by rotation, or aimed at a world-space grip
   const shY = y + 0.94;
   let hl, hr;
-  if (p.handL || p.handR) {
+  if (A.body) { hl = [x, y + 0.9, z]; hr = [x, y + 0.9, z]; }
+  else if (p.handL || p.handR) {
     // reaching arms hang off narrower shoulders and get a longer bone pair, so
     // the front arm can cross the chest to the knob without rubber-banding
     const SH = 0.17 * big, BONE = 0.32;
@@ -433,7 +542,8 @@ function drawAnimal(x, z, ry, look, pose, y0) {
   const hy = y + 1.34;
   const HW = A.hw || 1, HH = A.hh || 1, HD = A.hd || 1;
   const hzF = 0.32 * HD + 0.02;                 // where the front of the face is
-  part(fh, A.head || 'sphere', 0, hy, 0.02, 0.68 * big * HW, 0.66 * HH, 0.64 * big * HD, fur);
+  if (!A.body)
+    part(fh, A.head || 'sphere', 0, hy, 0.02, 0.68 * big * HW, 0.66 * HH, 0.64 * big * HD, fur);
 
   if (A.patch) {                                // panda mask
     for (const s of [-1, 1])
@@ -502,7 +612,8 @@ function drawAnimal(x, z, ry, look, pose, y0) {
       part(fh, 'box', s * 0.038, my2, hzF - 0.062, 0.074, 0.024, 0.05,
            col('#4A3438'), 0, s * 0.30);
   }
-  if (FC) { /* the eyes live in the face cell */ }
+  // a species with its own body draws its own eyes, in the mesh
+  if (FC || A.body) { /* the eyes live in the face cell, or in the mesh */ }
   else if (!A.noFaceEyes && A.dotEyes) {         // simple dots, as drawn
     const ex = A.eyeX || 0.150, ew = A.eyeW || 0.078, eh = A.eyeH || 0.086;
     if (R.inkW === 0) for (const s of [-1, 1]) {
@@ -573,18 +684,18 @@ function drawAnimal(x, z, ry, look, pose, y0) {
   // headwear: a batting helmet at the plate and on the bases, otherwise a cap
   if (p.noHat) { /* a shopper, not a ballplayer */ }
   else if (p.helmet) {
-    const cy = A.capY || 0;
-    part(fh, 'dome', 0, hy + 0.27 + cy, 0.01, 0.80 * big, 0.44, 0.78 * big, cap);
-    part(fh, 'sphere', 0, hy + 0.285 + cy, 0.01, 0.80 * big, 0.22, 0.78 * big, cap);
-    part(fh, 'box', 0, hy + 0.265 + cy, 0.34, 0.50, 0.075, 0.26, cap);
+    const cy = A.capY || 0, cs = A.capS || 1;
+    part(fh, 'dome', 0, hy + 0.27 * cs + cy, 0.01, 0.80 * big * cs, 0.44 * cs, 0.78 * big * cs, cap);
+    part(fh, 'sphere', 0, hy + 0.285 * cs + cy, 0.01, 0.80 * big * cs, 0.22 * cs, 0.78 * big * cs, cap);
+    part(fh, 'box', 0, hy + 0.265 * cs + cy, 0.34 * cs, 0.50 * cs, 0.075 * cs, 0.26 * cs, cap);
     // the flap covers the ear turned toward the pitcher (local +x)
     part(fh, 'sphere', 0.335 * big, hy + 0.12 + cy, 0.02, 0.14, 0.32, 0.40, cap);
     part(fh, 'box', 0, hy + 0.40 + cy, 0.10, 0.09, 0.06, 0.60, trim);
   } else {
-    const cy = A.capY || 0;
-    part(fh, 'dome', 0, hy + 0.29 + cy, 0.01, 0.74 * big, 0.38, 0.70 * big, cap);
-    part(fh, 'box', 0, hy + 0.283 + cy, 0.31, 0.46, 0.07, 0.30, cap);
-    part(fh, 'sphere', 0, hy + 0.46 + cy, 0.01, 0.09, 0.09, 0.09, trim);
+    const cy = A.capY || 0, cs = A.capS || 1;
+    part(fh, 'dome', 0, hy + 0.29 * cs + cy, 0.01 * cs, 0.74 * big * cs, 0.38 * cs, 0.70 * big * cs, cap);
+    part(fh, 'box', 0, hy + 0.283 * cs + cy, 0.31 * cs, 0.46 * cs, 0.07 * cs, 0.30 * cs, cap);
+    part(fh, 'sphere', 0, hy + 0.46 * cs + cy, 0.01, 0.09 * cs, 0.09 * cs, 0.09 * cs, trim);
   }
 
   return { f, hl, hr, hy, y };
@@ -662,6 +773,8 @@ const NAME_POOL = {
   cat:     ['タマ', 'ミケ', 'ニャン太', 'トラキチ', 'クロベエ', 'シッポ', 'モモ', 'ヒゲオ', 'コタツ'],
   frog:    ['ケロ', 'ゲコタ', 'アマガエル', 'ピョンジ', 'ヌマオ', 'ハスオ', 'グエコ', 'ミズキ', 'カジカ'],
   penguin: ['ペンタ', 'コオリ', 'フブキ', 'ヨチヨチ', 'シラス', 'アデリー', 'ヒレタ', 'ナンキョク', 'ツララ'],
+  salmon:  ['サケオ', 'シャケ', 'ベニ', 'ソジロウ', 'アキアジ', 'トキシラズ', 'ハラス', 'イクラ', 'メジカ'],
+  beetle:  ['カブト', 'ツノオ', 'クヌギ', 'ゲンジ', 'ムシタロウ', 'コクワ', 'ジュエキ', 'ヨナガ', 'カブオ'],
   fox:     ['コン', 'キツネビ', 'アカネ', 'シッポリ', 'イナリ', 'ゴンタ', 'ヒノ', 'ミミナガ', 'ユウ'],
   panda:   ['パンダ丸', 'シャンシャン', 'ササオ', 'モウソウ', 'クロシロ', 'マルオ', 'ゴロゴロ', 'タケゾウ', 'リンリン'],
   hippo:   ['カバオ', 'ドロン', 'ヌマヅ', 'オオクチ', 'ブクブク', 'ミズベ', 'ズッシリ', 'アグリ', 'ハナ'],
@@ -672,13 +785,13 @@ const TEAMS = [
     tag: 'POWER',   desc: 'とにかく長打。当たれば飛ぶが、確実性は低め。', pow: 5, con: 2, spd: 2, def: 3 },
   { id: 'rabbits',  name: 'はらっぱラビッツ', animal: 'rabbit',  uni: '#E8EDF2', trim: '#E86A8A', cap: '#D9527A',
     tag: 'SPEED',   desc: '足が速い。内野安打も盗塁もお手のもの。', pow: 2, con: 4, spd: 5, def: 4 },
-  { id: 'cats',     name: 'ねこじゃらしキャッツ', animal: 'cat', uni: '#F2C14E', trim: '#3A3630', cap: '#2E2A24',
+  { id: 'salmons',  name: 'そじょうサーモンズ', animal: 'salmon', uni: '#D8DEE2', trim: '#B0524C', cap: '#3C5E71',
     tag: 'CONTACT', desc: 'バットに当てるのがうまい。四球も選ぶ。', pow: 3, con: 5, spd: 3, def: 3 },
   { id: 'frogs',    name: 'ぬまたフロッグス', animal: 'frog',    uni: '#4E8A4E', trim: '#E8F0C8', cap: '#2E5E34',
     tag: 'BALANCE', desc: 'すべてが平均的。クセがなく扱いやすい。', pow: 3, con: 3, spd: 3, def: 3 },
   { id: 'penguins', name: 'こおりやまペンギンズ', animal: 'penguin', uni: '#28405E', trim: '#F4F1E6', cap: '#1B2C42',
     tag: 'DEFENSE', desc: '守備が堅い。相手の打球をよく捕る。', pow: 3, con: 3, spd: 2, def: 5 },
-  { id: 'foxes',    name: 'あかやまフォクシーズ', animal: 'fox',  uni: '#C4502E', trim: '#F6EFE2', cap: '#8E3A20',
+  { id: 'beetles',  name: 'くぬぎカブトズ', animal: 'beetle', uni: '#6E5A3C', trim: '#D8C08A', cap: '#3E2717',
     tag: 'PITCHING',desc: '投手陣が強力。変化球のキレがちがう。', pow: 3, con: 3, spd: 3, def: 4, arm: 5 },
 ];
 

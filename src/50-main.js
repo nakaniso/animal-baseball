@@ -923,7 +923,7 @@ function drawScene() {
     }
     const y0 = isC ? -0.22 : 0;
     const a = drawAnimal(f.x, f.z, ry, pl.look, pose, y0);
-    if (!f.fumbling) {
+    if (!f.fumbling && !ANIMALS[pl.look.animal].noGlove) {
       const gp = L2W(a.f, a.hr[0], a.hr[2]);
       inked(pl.look, () => drawGlove(pose.handR
         ? [pose.handR[0], pose.handR[1], pose.handR[2]]
@@ -958,7 +958,7 @@ function drawScene() {
       helmet: 1, gloveC: bt.trim, face: faceBat,
       bob: G.batSwingT < 0 ? bob * 0.5 : 0.015,
     }, 0);
-    inked(b.look, () => {
+    if (!ANIMALS[b.look.animal].noBat) inked(b.look, () => {
       drawBatRig(rig.grip, rig.dir, BAT_LEN, '#C99A5E', '#6B4A2A');
       drawGrip(rig.grip, rig.dir, rig.botAt, bt.trim);
       drawGrip(rig.grip, rig.dir, rig.topAt, bt.trim);

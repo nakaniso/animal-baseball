@@ -98,6 +98,28 @@ function geoPart(name, build) {
   GEO.parts[name] = { offset: start * 2, count: GEO.idx.length - start };
 }
 
+/* A mesh baked by tools/mesh2js.py. It lands in the same buffer as the
+   hand-written primitives, so `R.d('sal_body', ...)` draws it exactly like a
+   sphere — scale 1 gives the mesh at the size it was authored. */
+function geoMesh(name, sc, off, p64, n64, i64) {
+  const bin = (s) => {
+    const raw = atob(s), u = new Uint8Array(raw.length);
+    for (let i = 0; i < raw.length; i++) u[i] = raw.charCodeAt(i);
+    return u;
+  };
+  const P = new Int16Array(bin(p64).buffer);
+  const N = new Int8Array(bin(n64).buffer);
+  const I = new Uint16Array(bin(i64).buffer);
+  const start = GEO.idx.length, base = GEO.pos.length / 3;
+  for (let i = 0; i < P.length; i += 3) {
+    GEO.pos.push(P[i] * sc[0] + off[0], P[i + 1] * sc[1] + off[1], P[i + 2] * sc[2] + off[2]);
+    GEO.nor.push(N[i] / 127, N[i + 1] / 127, N[i + 2] / 127);
+    GEO.uv.push(0, 0);
+  }
+  for (let i = 0; i < I.length; i++) GEO.idx.push(base + I[i]);
+  GEO.parts[name] = { offset: start * 2, count: GEO.idx.length - start };
+}
+
 geoPart('box', (v, t) => {
   const F = [
     [[ .5, -.5, .5], [ .5, .5, .5], [-.5, .5, .5], [-.5, -.5, .5], [0, 0, 1]],
