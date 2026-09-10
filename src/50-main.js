@@ -421,8 +421,9 @@ function doContact() {
   const o = fieldBall(G.flight);
   G.flightT = 0;
   G.playScript = o.play || null;
-  G.camMode = o.kind === 'foul' ? 'foul' : 'fly';
-  G.ballBoost = o.kind === 'foul' ? 1.7 : 1;
+  const nearPlate = o.kind === 'foul' || o.foulFly;
+  G.camMode = nearPlate ? 'foul' : 'fly';
+  G.ballBoost = nearPlate ? 1.7 : 1;
 
   if (o.kind === 'foul') {
     // freeze it a beat after it first lands, so it does not roll into the next
@@ -592,6 +593,10 @@ function update(dt) {
       break;
     }
 
+    case 'change':
+      if (G.pt >= G.phaseLen) endHalfInning();
+      break;
+
     case 'halfend':
       if (G.pt >= G.phaseLen) nextBatter();
       break;
@@ -626,15 +631,18 @@ function update(dt) {
     }
   }
   if (stalled && G.phase === 'play' && G.carStall < 2.6) { G.phaseLen += dt; G.carStall += dt; }
-  // fielders drift back / converge
+  // fielders drift back / converge, or head for the bench on the third out
+  const off3 = G.phase === 'change';
   for (const f of G.fielders) {
-    if (!f.scripted) {
-      const k = Math.min(1, dt * 3.4);         // get back to your position
-      f.x += (f.tx - f.x) * k; f.z += (f.tz - f.z) * k;
-      f.run = Math.hypot(f.tx - f.x, f.tz - f.z);
+    const tx = off3 ? DUGOUT[0] : f.tx, tz = off3 ? DUGOUT[1] : f.tz;
+    if (!f.scripted || off3) {
+      const k = Math.min(1, dt * (off3 ? 1.5 : 3.4));
+      f.x += (tx - f.x) * k; f.z += (tz - f.z) * k;
+      f.run = Math.hypot(tx - f.x, tz - f.z);
     }
     // a fielder making a play watches the ball; otherwise he faces the plate
-    if (f.scripted && G.ball.vis) f.ry = Math.atan2(G.ball.x - f.x, G.ball.z - f.z);
+    if (off3) f.ry = Math.atan2(tx - f.x, tz - f.z);
+    else if (f.scripted && G.ball.vis) f.ry = Math.atan2(G.ball.x - f.x, G.ball.z - f.z);
     else f.ry = Math.atan2(-f.x, -f.z);
   }
   updateCamera(dt);
@@ -652,7 +660,14 @@ function endPlay() {
   G.trail.length = 0;
   if (G.pendingCount) { const c = G.pendingCount; G.pendingCount = null; afterPitch(c); return; }
   if (checkWalkoff()) return;
-  if (G.outs >= 3) { endHalfInning(); return; }
+  if (G.outs >= 3) {
+    // the half-inning does not just cut away: it gets called, and they run in
+    G.camMode = 'field';
+    banner('スリーアウト\nチェンジ', true);
+    Snd.good();
+    setPhase('change', 1.9);
+    return;
+  }
   nextBatter();
 }
 
@@ -764,6 +779,25 @@ function batterRig(t, clk) {
 }
 
 /* runners follow the base-path polyline, touching every bag */
+/* How far down the line a man who is not running stands. Before the pitch it
+   is his lead. Once the ball is up he goes as far as he dares — halfway to the
+   next bag on a high fly, not a step on a liner — and comes back the moment it
+   is caught. */
+function leadOff(i) {
+  if (G.phase !== 'play') return LEAD_OFF + Math.sin(clock * 1.7 + i * 2) * 0.34;
+  const pl = G.playScript;
+  if (!pl || !pl.air) return 0.6;               // on the ground: back on the bag
+  const hang = Math.max(0.4, pl.cutT);
+  // hang time is what buys him the room to go and still get back
+  const far = LEAD_OFF + clamp((hang - 1.6) / 1.5, 0, 1) * (i === 0 ? 11.0 : 7.5);
+  if (G.flightT < hang) {
+    const u = clamp(G.flightT / hang, 0, 1);
+    return lerp(LEAD_OFF, far, u * u * (3 - 2 * u));
+  }
+  const k = clamp((G.flightT - hang) / 0.85, 0, 1);
+  return lerp(far, 0.4, k * k * (3 - 2 * k));
+}
+
 function runnerAt(m) {
   const u = clamp(m.t / m.dur, 0, 1);
   const e = u * u * (3 - 2 * u);
@@ -816,7 +850,8 @@ function drawScene() {
   const bob = Math.sin(clock * 2.2) * 0.03;
   // moods only show while the play is being read out; before the pitch the
   // batter and the pitcher are bearing down instead
-  const mood = G.phase === 'result' || G.phase === 'halfend' || G.phase === 'walkoff';
+  const mood = G.phase === 'result' || G.phase === 'halfend'
+            || G.phase === 'walkoff' || G.phase === 'change';
   const faceBat = mood ? (G.faceBat || EXPR.idle) : EXPR.focus;
   const faceFld = mood ? (G.faceFld || EXPR.idle) : EXPR.idle;
   if (G.traffic) for (const c of G.traffic) { if (c.walk) drawShopper(c); else drawCar(c); }
@@ -901,8 +936,9 @@ function drawScene() {
     { armL: 0.5, armR: -0.5, bob: bob * 0.4 }, -0.30);
 
   // batter (unless already running)
+  // on the third out he walks off with everybody else
   const batterRunning = G.movers.some((m) => m.from === -1 && m.t >= 0);
-  if (!batterRunning) {
+  if (!batterRunning && G.phase !== 'change') {
     const b = curBatter();
     if (G.hbpT > 0) {                       // just wore one — no bat, on the deck
       drawAnimal(BAT_X + 0.25, BAT_Z - 0.2, -Math.PI / 2, b.look,
@@ -969,11 +1005,12 @@ function drawScene() {
     const ux = n2[0] - b[0], uz = n2[1] - b[1], ul = Math.hypot(ux, uz) || 1;
     // he only takes his lead before the pitch — once the ball is hit he is
     // back on the bag, watching the fly
-    const off = G.phase === 'play' ? 0.25
-      : LEAD_OFF + Math.sin(clock * 1.7 + i * 2) * 0.34;
+    const off = leadOff(i);
     const lx = b[0] + (ux / ul) * off, lz = b[1] + (uz / ul) * off;
-    // he edges down the line but stays squared up to the pitcher
-    drawAnimal(lx, lz, Math.atan2(MOUND_POS[0] - lx, MOUND_POS[1] - lz), p.look,
+    // he watches the ball while it is up, and the pitcher the rest of the time
+    const up = G.phase === 'play' && G.ball.vis;
+    const wx = up ? G.ball.x : MOUND_POS[0], wz = up ? G.ball.z : MOUND_POS[1];
+    drawAnimal(lx, lz, Math.atan2(wx - lx, wz - lz), p.look,
                { armL: 0.42, armR: 0.42, legL: 0.10, legR: -0.10, spread: 0.19,
                  lean: 0.17, bob: bob * 0.6, helmet: 1, face: faceBat }, 0);
   }
