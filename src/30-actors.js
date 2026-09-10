@@ -114,13 +114,13 @@ const ANIMALS = {
 
   // Drawn as the real animal rather than a round cartoon of one, and given no
   // face cell, so they never change expression.
-  salmon:  { ink: 0.013, body: 'fish', ear: 'none', tail: 'none', capY: -0.28, capS: 0.30,
+  salmon:  { ink: 0.013, body: 'fish', ear: 'none', tail: 'none', capY: -0.10, capS: 0.34,
              noGlove: 1, noBat: 1,
              fur: '#B4C2CB', fur2: '#EFF2F0', back: '#3C5E71', blush: '#B0524C',
              fin: '#7F909B', spot: '#22323C', jaw: '#9DAAB2',
              head: 'sphere', hw: 0.60, hh: 0.78, hd: 1.30 },
 
-  beetle:  { ink: 0.013, body: 'beetle', ear: 'none', tail: 'none', capY: -0.40, capS: 0.52,
+  beetle:  { ink: 0.013, body: 'beetle', ear: 'none', tail: 'none', capY: -0.13, capS: 0.46,
              noGlove: 1, noBat: 1,
              fur: '#3E2717', fur2: '#5C3C22', horn: '#20130A', leg: '#281A0E',
              head: 'rbox', hw: 0.66, hh: 0.50, hd: 0.66 },
@@ -408,9 +408,11 @@ function drawSalmon(f, A, look, p, y, big) {
   part(f, 'sal_eye', 0, by, 0, 1, 1, 1, col('#D6C489'), rx);
   part(f, 'sal_pupil', 0, by, 0, 1, 1, 1, col('#0E0B09'), rx);
 
-  // a band of team colour, worn like a sash. Any more and the fish is gone.
-  part(f, 'sphere', 0, by + 0.70, 0.025, 0.186, 0.15, 0.44, uni, rx);
-  part(f, 'sphere', 0, by + 0.79, 0.025, 0.170, 0.045, 0.40, trim, rx);
+  // team colour, hugging the body: a sphere laid over a fish this narrow just
+  // bulges out of it as a ball
+  part(f, 'sal_band', 0, by, 0, 1, 1, 1, uni, rx);
+  part(f, 'sal_collar', 0, by, 0, 1, 1, 1, trim, rx);
+  part(f, 'sal_belt', 0, by, 0, 1, 1, 1, trim, rx);
 }
 
 /* ---------- カブトムシ ---------- */
@@ -423,33 +425,35 @@ function drawBeetle(f, A, look, p, y, big) {
   // six legs. The front pair does the work, the middle pair does nothing, and
   // the back pair carries him — all three swing off the running cycle.
   const sw = p.legL || 0, sw2 = p.legR || 0, sp2 = p.spread || 0;
-  const rows = [[0.20, 0.22, 1.00, 0.30], [0.23, 0.00, 0.55, 0.10], [0.22, -0.20, 0.20, -0.24]];
-  for (const [lx, lz, k, fan] of rows) for (const s of [-1, 1]) {
-    const sg = s < 0 ? sw : sw2;
-    // femur out and down, then the tibia turns back under him — a beetle's
-    // leg is a bent wire, not a peg
-    const e = limb(f, s * (lx + sp2), y + 0.60, lz, sg * k * 0.5 - 0.55, s * (0.95 + fan),
-                   0.26, 0.036, legC, null, 0);
-    limb(f, e[0], e[1], e[2], sg * k + 0.70, s * 0.30, 0.30, 0.028, legC, legC, 0.06);
+  // [x, z, how much of the running swing it takes, how far forward it reaches]
+  const rows = [[0.105, 0.27, 1.00, -0.42], [0.135, 0.01, 0.55, 0.00],
+                [0.120, -0.25, 0.22, 0.38]];
+  for (const [lx, lz, k, rake] of rows) for (const s of [-1, 1]) {
+    const sg = (s < 0 ? sw : sw2) * k;
+    // femur out and a shade up; tibia straight down under the foot
+    const e = limb(f, s * (lx + sp2), y + 0.58, lz, rake + sg * 0.30, s * 0.96,
+                   0.30, 0.033, legC, null, 0);
+    limb(f, e[0], e[1], e[2], sg * 0.85 + 0.10, -s * 0.26, 0.36, 0.024, legC, legC, 0.050);
   }
 
-  part(f, 'bee_elytra', 0, y, 0, 1, 1, 1, shell, ln);
-  part(f, 'bee_prono', 0, y, 0, 1, 1, 1, shell, ln);
-  part(f, 'bee_head', 0, y, 0, 1, 1, 1, shade(A.fur, 0.76), ln);
+  part(f, 'bee_elytra', 0, y, 0, 1, 1, 1, shade(A.fur, 1.55), ln);
+  part(f, 'bee_prono', 0, y, 0, 1, 1, 1, shade(A.fur, 1.20), ln);
+  part(f, 'bee_head', 0, y, 0, 1, 1, 1, shade(A.fur, 0.55), ln);
   part(f, 'bee_horn', 0, y, 0, 1, 1, 1, horn, ln);
 
   // the seam down the wing cases, and the sheen along the top of each
-  part(f, 'box', 0, y + 0.66, -0.20, 0.020, 0.62, 0.30, shade(A.fur, 0.52), ln);
+  part(f, 'box', 0, y + 0.66, -0.18, 0.018, 0.66, 0.28, shade(A.fur, 0.52), ln);
   for (const s of [-1, 1])
-    part(f, 'sphere', s * 0.145, y + 0.90, -0.16, 0.11, 0.07, 0.16, gloss, ln);
+    part(f, 'sphere', s * 0.108, y + 0.94, -0.15, 0.085, 0.06, 0.15, gloss, ln);
 
   // compound eyes, flat and black and entirely unreadable
   part(f, 'bee_eye', 0, y, 0, 1, 1, 1, col('#120A05'), ln);
   part(f, 'bee_glint', 0, y, 0, 1, 1, 1, col('#75604A'), ln);
 
-  // a band of team colour across the shield
-  part(f, 'sphere', 0, y + 1.07, -0.02, 0.30, 0.10, 0.28, uni, ln);
-  part(f, 'sphere', 0, y + 1.13, -0.02, 0.26, 0.045, 0.24, trim, ln);
+  // team colour: a saddle across the wing cases and a band on the shield
+  part(f, 'bee_band', 0, y, 0, 1, 1, 1, uni, ln);
+  part(f, 'bee_trim', 0, y, 0, 1, 1, 1, trim, ln);
+  part(f, 'sphere', 0, y + 1.13, -0.02, 0.300, 0.075, 0.310, uni, ln);
 }
 
 /* pose: { armL, armR, legL, legR, lean, bob, ry } — all radians */
@@ -689,8 +693,9 @@ function drawAnimal(x, z, ry, look, pose, y0) {
     part(fh, 'sphere', 0, hy + 0.285 * cs + cy, 0.01, 0.80 * big * cs, 0.22 * cs, 0.78 * big * cs, cap);
     part(fh, 'box', 0, hy + 0.265 * cs + cy, 0.34 * cs, 0.50 * cs, 0.075 * cs, 0.26 * cs, cap);
     // the flap covers the ear turned toward the pitcher (local +x)
-    part(fh, 'sphere', 0.335 * big, hy + 0.12 + cy, 0.02, 0.14, 0.32, 0.40, cap);
-    part(fh, 'box', 0, hy + 0.40 + cy, 0.10, 0.09, 0.06, 0.60, trim);
+    part(fh, 'sphere', 0.335 * big * cs, hy + 0.12 * cs + cy, 0.02,
+         0.14 * cs, 0.32 * cs, 0.40 * cs, cap);
+    part(fh, 'box', 0, hy + 0.40 * cs + cy, 0.10 * cs, 0.09 * cs, 0.06 * cs, 0.60 * cs, trim);
   } else {
     const cy = A.capY || 0, cs = A.capS || 1;
     part(fh, 'dome', 0, hy + 0.29 * cs + cy, 0.01 * cs, 0.74 * big * cs, 0.38 * cs, 0.70 * big * cs, cap);
@@ -785,13 +790,13 @@ const TEAMS = [
     tag: 'POWER',   desc: 'とにかく長打。当たれば飛ぶが、確実性は低め。', pow: 5, con: 2, spd: 2, def: 3 },
   { id: 'rabbits',  name: 'はらっぱラビッツ', animal: 'rabbit',  uni: '#E8EDF2', trim: '#E86A8A', cap: '#D9527A',
     tag: 'SPEED',   desc: '足が速い。内野安打も盗塁もお手のもの。', pow: 2, con: 4, spd: 5, def: 4 },
-  { id: 'salmons',  name: 'そじょうサーモンズ', animal: 'salmon', uni: '#D8DEE2', trim: '#B0524C', cap: '#3C5E71',
+  { id: 'salmons',  name: 'そじょうサーモンズ', animal: 'salmon', uni: '#2F5C7A', trim: '#F0B9A8', cap: '#22455C',
     tag: 'CONTACT', desc: 'バットに当てるのがうまい。四球も選ぶ。', pow: 3, con: 5, spd: 3, def: 3 },
   { id: 'frogs',    name: 'ぬまたフロッグス', animal: 'frog',    uni: '#4E8A4E', trim: '#E8F0C8', cap: '#2E5E34',
     tag: 'BALANCE', desc: 'すべてが平均的。クセがなく扱いやすい。', pow: 3, con: 3, spd: 3, def: 3 },
   { id: 'penguins', name: 'こおりやまペンギンズ', animal: 'penguin', uni: '#28405E', trim: '#F4F1E6', cap: '#1B2C42',
     tag: 'DEFENSE', desc: '守備が堅い。相手の打球をよく捕る。', pow: 3, con: 3, spd: 2, def: 5 },
-  { id: 'beetles',  name: 'くぬぎカブトズ', animal: 'beetle', uni: '#6E5A3C', trim: '#D8C08A', cap: '#3E2717',
+  { id: 'beetles',  name: 'くぬぎカブトズ', animal: 'beetle', uni: '#D6A63E', trim: '#F6E7BC', cap: '#241408',
     tag: 'PITCHING',desc: '投手陣が強力。変化球のキレがちがう。', pow: 3, con: 3, spd: 3, def: 4, arm: 5 },
 ];
 

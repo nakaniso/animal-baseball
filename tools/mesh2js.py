@@ -305,23 +305,44 @@ def build_salmon():
 
     # the flush a fish gets on the run upriver, a band along the flank only
     band = Mesh()
-    rs = salmon_rings(swell=1.025)
-    for r in rs:
-        pass
-    lo, hi = 1, 5
-    sub = [r[lo:hi + 1] for r in salmon_rings(swell=1.025)[8:30]]
-    idx = [[band.vert(*q) for q in r] for r in sub]
-    for k in range(len(sub) - 1):
-        a, b = idx[k], idx[k + 1]
-        for i in range(len(a) - 1):
-            band.quad(a[i], a[i + 1], b[i + 1], b[i])
-    sub2 = [list(reversed(r[13:17])) for r in salmon_rings(swell=1.025)[8:30]]
-    idx2 = [[band.vert(*q) for q in r] for r in sub2]
-    for k in range(len(sub2) - 1):
-        a, b = idx2[k], idx2[k + 1]
-        for i in range(len(a) - 1):
-            band.quad(a[i], a[i + 1], b[i + 1], b[i])
+    N, SEC = 46, 18
+    for side, centre in ((-1, 4), (1, 14)):
+        rows = []
+        for i in range(N):
+            t = 0.13 + (i / float(N - 1)) * 0.66
+            # a lens: wraps furthest round the flank at the middle of the run
+            spread = 2.6 * math.sin(math.pi * (i / float(N - 1))) ** 0.75
+            y = 1.30 - t * 1.30
+            d = lerp_profile(t, SAL_DEPTH) * 1.022
+            w = lerp_profile(t, SAL_WIDTH) * 1.022
+            cz = lerp_profile(t, SAL_SHIFT)
+            ring = section(0.0, y, cz, w, d, SEC, e=2.35, back_flat=0.86)
+            k0 = int(round(centre - spread))
+            k1 = int(round(centre + spread))
+            rows.append([ring[j % SEC] for j in range(k0, k1 + 1)])
+        width = min(len(r) for r in rows)
+        rows = [r[:width] for r in rows]
+        idx = [[band.vert(*q) for q in r] for r in rows]
+        for k in range(len(rows) - 1):
+            a, b = idx[k], idx[k + 1]
+            for i in range(width - 1):
+                band.quad(a[i], a[i + 1], b[i + 1], b[i])
     out['sal_blush'] = band
+
+    # the kit, hugging the body for the same reason the beetle's does
+    for name, lo, hi, sw in (('sal_band', 0.40, 0.66, 1.022),
+                             ('sal_collar', 0.34, 0.40, 1.028),
+                             ('sal_belt', 0.66, 0.71, 1.028)):
+        m = Mesh()
+        rows = []
+        for i in range(16):
+            t = lo + (hi - lo) * i / 15.0
+            rows.append(section(0.0, 1.30 - t * 1.30, lerp_profile(t, SAL_SHIFT),
+                                lerp_profile(t, SAL_WIDTH) * sw,
+                                lerp_profile(t, SAL_DEPTH) * sw,
+                                18, e=2.35, back_flat=0.86))
+        m.merge(loft(rows, cap_start=False, cap_end=False))
+        out[name] = m
 
     # the kype: a spawning male's hooked lower jaw. Nothing else about the fish
     # says "not cute" as loudly.
@@ -345,21 +366,45 @@ def build_beetle():
         n = 20
         for i in range(n):
             t = i / float(n - 1)
-            y = 0.98 - t * 0.66
-            w = 0.185 * math.sin(math.pi * (0.12 + 0.80 * t)) ** 0.55
-            d = 0.31 * math.sin(math.pi * (0.10 + 0.82 * t)) ** 0.45
-            rings.append(section(s * 0.145, y, -0.03, w, d, 14, e=2.6, back_flat=1.0))
+            y = 1.03 - t * 0.75
+            w = 0.140 * math.sin(math.pi * (0.12 + 0.80 * t)) ** 0.55
+            d = 0.285 * math.sin(math.pi * (0.10 + 0.82 * t)) ** 0.45
+            rings.append(section(s * 0.108 * (1.0 - 0.58 * t), y, -0.03, w, d,
+                                 14, e=2.6, back_flat=1.0))
         ely.merge(loft(rings))
     out['bee_elytra'] = ely
+
+    # The team colour has to hug the wing cases. A sphere laid over them only
+    # pokes through where it happens to be bigger, which reads as a blob.
+    def ely_rings(swell, lo, hi, n=14):
+        rs = []
+        for i in range(n):
+            t = lo + (hi - lo) * i / float(n - 1)
+            y = 1.03 - t * 0.75
+            w = 0.140 * math.sin(math.pi * (0.12 + 0.80 * t)) ** 0.55 * swell
+            d = 0.285 * math.sin(math.pi * (0.10 + 0.82 * t)) ** 0.45 * swell
+            rs.append((y, w, d))
+        return rs
+
+    for name, lo, hi, sw in (('bee_band', 0.13, 0.32, 1.03),
+                             ('bee_trim', 0.32, 0.39, 1.035)):
+        m = Mesh()
+        for s2 in (-1.0, 1.0):
+            rows = []
+            for j, (y, w, d) in enumerate(ely_rings(sw, lo, hi)):
+                t = lo + (hi - lo) * j / 13.0
+                rows.append(section(s2 * 0.108 * (1.0 - 0.58 * t), y, -0.03, w, d, 14, e=2.6))
+            m.merge(loft(rows, cap_start=False, cap_end=False))
+        out[name] = m
 
     # pronotum: the shield, wider than head or cases
     rings = []
     n = 12
     for i in range(n):
         t = i / float(n - 1)
-        y = 1.20 - t * 0.26
-        w = 0.34 * math.sin(math.pi * (0.20 + 0.66 * t)) ** 0.40
-        d = 0.30 * math.sin(math.pi * (0.22 + 0.62 * t)) ** 0.40
+        y = 1.24 - t * 0.28
+        w = 0.265 * math.sin(math.pi * (0.20 + 0.66 * t)) ** 0.40
+        d = 0.275 * math.sin(math.pi * (0.22 + 0.62 * t)) ** 0.40
         rings.append(section(0.0, y, -0.02, w, d, 16, e=2.8, back_flat=1.0))
     out['bee_prono'] = loft(rings)
 
@@ -396,8 +441,8 @@ def build_beetle():
 
     eyes, glint = Mesh(), Mesh()
     for s in (-1.0, 1.0):
-        eyes.merge(ball(s * 0.150, 0.905, 0.175, 0.052, 10))
-        glint.merge(ball(s * 0.166, 0.930, 0.205, 0.020, 8))
+        eyes.merge(ball(s * 0.130, 0.905, 0.175, 0.048, 10))
+        glint.merge(ball(s * 0.146, 0.928, 0.202, 0.019, 8))
     out['bee_eye'] = eyes
     out['bee_glint'] = glint
     return out
