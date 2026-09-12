@@ -26,6 +26,9 @@ import struct
 
 os.chdir(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))
 
+# plain javascript the builders want shipped beside their meshes
+DATA = []
+
 # ----------------------------------------------------------------- mesh core
 
 
@@ -186,8 +189,17 @@ def sweep(path, radii, n=10):
             dz = path[i + 1][2] - path[i - 1][2]
         L = math.sqrt(dx * dx + dy * dy + dz * dz) or 1.0
         dx, dy, dz = dx / L, dy / L, dz / L
-        # a stable frame: x stays across the body, the other axis follows
+        # A stable frame, square to the path. Taking x across the body and
+        # leaving it at that skews the tube wherever the path runs sideways —
+        # which is exactly what the horn's forks do, and a thick horn shows it.
         ux, uy, uz = 1.0, 0.0, 0.0
+        d_u = dx * ux + dy * uy + dz * uz
+        if abs(d_u) > 0.94:                       # path nearly along x: turn 90
+            ux, uy, uz = 0.0, 1.0, 0.0
+            d_u = dy
+        ux, uy, uz = ux - dx * d_u, uy - dy * d_u, uz - dz * d_u
+        Lu = math.sqrt(ux * ux + uy * uy + uz * uz) or 1.0
+        ux, uy, uz = ux / Lu, uy / Lu, uz / Lu
         vx = dy * uz - dz * uy
         vy = dz * ux - dx * uz
         vz = dx * uy - dy * ux
@@ -716,98 +728,236 @@ def build_bear():
 
 
 # ------------------------------------------------------------------- beetle
-# Canonical pose: standing, elytra to the back (-Z), head and horn forward
-# (+Z). The six legs stay as animated primitives; only the shell is baked.
+# Canonical pose: standing, wing cases to the back (-Z), head and horn forward
+# (+Z), Y up with 0 on the ground. The legs stay animated primitives; the
+# shell, the horns and the toothed foreleg shin are baked.
+#
+# The proportions are the real animal's rather than the mammals': the wing
+# cases are the widest part of him, the shield is narrower and trapezoid, and
+# the head horn is long enough to read as a horn from the outfield. That horn
+# is the whole identity of the species — at sixty metres it is the only part of
+# him anyone can name — so it gets the length and the thickness it deserves.
+
+BEE_Z = -0.05                       # the cases sit a little behind the axis
+BEE_TOP, BEE_BOT = 1.00, 0.26
+BEE_E = 2.6                         # superellipse exponent of the sections
+
+# Half width of ONE wing case, how far its centre sits off the midline, and
+# half the depth. The widest point is up at the shoulders, as it is on him.
+BEE_W = [(0.00, 0.088), (0.08, 0.122), (0.20, 0.152), (0.35, 0.162),
+         (0.55, 0.156), (0.75, 0.128), (0.90, 0.082), (1.00, 0.030)]
+BEE_CX = [(0.00, 0.072), (0.35, 0.090), (0.70, 0.070), (1.00, 0.028)]
+BEE_D = [(0.00, 0.150), (0.10, 0.230), (0.30, 0.290), (0.55, 0.300),
+         (0.78, 0.262), (0.92, 0.180), (1.00, 0.070)]
+
+# the shield, as its own trapezoid profile
+BEE_PTOP, BEE_PBOT, BEE_PZ = 1.26, 0.94, 0.005
+BEE_PW = [(0.00, 0.118), (0.55, 0.176), (1.00, 0.200)]
+BEE_PD = [(0.00, 0.195), (0.55, 0.245), (1.00, 0.266)]
+BEE_PE = 2.8
+
+# the head is its own little loft, out in front of the shield
+BEE_HZ = 0.235
+BEE_HW = [(0.00, 0.150), (0.45, 0.186), (1.00, 0.120)]
+BEE_HD = [(0.00, 0.120), (0.45, 0.158), (1.00, 0.100)]
+BEE_HE = 2.5
+
+
+def bee_y(t):
+    return BEE_TOP - (BEE_TOP - BEE_BOT) * t
+
+
+def bee_prof(t):
+    return (lerp_profile(t, BEE_W), lerp_profile(t, BEE_CX), lerp_profile(t, BEE_D))
+
+
+def bee_shell_x(t, z, s=1.0):
+    """Where the wing case's surface is, at this height and this depth.
+
+    Hanging a leg off a number that looked about right is what put all six of
+    them inside the silhouette. Solve it from the same profile the shell is
+    lofted from — the lesson the salmon's eyes taught — and the leg starts on
+    the shell no matter how the shell is retuned.
+    """
+    w, cx, d = bee_prof(t)
+    k = min(1.0, abs(z - BEE_Z) / d)
+    return s * (cx + w * (1.0 - k ** (BEE_E / 2.0)) ** (2.0 / BEE_E))
+
+
+def bee_head_z(y, x):
+    """The same solve on the head, for sitting the compound eyes on it."""
+    t = max(0.0, min(1.0, (1.00 - y) / 0.21))
+    w, d = lerp_profile(t, BEE_HW), lerp_profile(t, BEE_HD)
+    k = min(1.0, abs(x) / w)
+    return BEE_HZ + d * (1.0 - k ** (BEE_HE / 2.0)) ** (2.0 / BEE_HE)
+
+
+# [height, depth, share of the running swing, how far forward it rakes].
+# Front pair does the work, middle pair does nothing much, back pair carries.
+BEE_ROWS = [(0.68, 0.17, 1.00, -0.40),
+            (0.56, -0.04, 0.55, 0.02),
+            (0.47, -0.24, 0.24, 0.40)]
+
 
 def build_beetle():
     out = {}
 
-    # elytra: two hard cases, domed along the back and meeting at a seam
+    # wing cases: two hard domes meeting at a seam down the back
     ely = Mesh()
     for s in (-1.0, 1.0):
         rings = []
-        n = 20
+        n = 22
         for i in range(n):
             t = i / float(n - 1)
-            y = 1.03 - t * 0.75
-            w = 0.140 * math.sin(math.pi * (0.12 + 0.80 * t)) ** 0.55
-            d = 0.285 * math.sin(math.pi * (0.10 + 0.82 * t)) ** 0.45
-            rings.append(section(s * 0.108 * (1.0 - 0.58 * t), y, -0.03, w, d,
-                                 14, e=2.6, back_flat=1.0))
+            w, cx, d = bee_prof(t)
+            rings.append(section(s * cx, bee_y(t), BEE_Z, w, d, 16, e=BEE_E))
         ely.merge(loft(rings))
     out['bee_elytra'] = ely
 
     # The team colour has to hug the wing cases. A sphere laid over them only
     # pokes through where it happens to be bigger, which reads as a blob.
-    def ely_rings(swell, lo, hi, n=14):
-        rs = []
-        for i in range(n):
-            t = lo + (hi - lo) * i / float(n - 1)
-            y = 1.03 - t * 0.75
-            w = 0.140 * math.sin(math.pi * (0.12 + 0.80 * t)) ** 0.55 * swell
-            d = 0.285 * math.sin(math.pi * (0.10 + 0.82 * t)) ** 0.45 * swell
-            rs.append((y, w, d))
-        return rs
-
-    for name, lo, hi, sw in (('bee_band', 0.13, 0.32, 1.03),
-                             ('bee_trim', 0.32, 0.39, 1.035)):
+    # a short strip does not need many rings across it; the profile it follows
+    # barely bends over a tenth of the body
+    for name, lo, hi, swell, rings in (('bee_band', 0.16, 0.36, 1.03, 5),
+                                       ('bee_trim', 0.36, 0.43, 1.035, 3)):
         m = Mesh()
-        for s2 in (-1.0, 1.0):
+        for s in (-1.0, 1.0):
             rows = []
-            for j, (y, w, d) in enumerate(ely_rings(sw, lo, hi)):
-                t = lo + (hi - lo) * j / 13.0
-                rows.append(section(s2 * 0.108 * (1.0 - 0.58 * t), y, -0.03, w, d, 14, e=2.6))
+            for i in range(rings):
+                t = lo + (hi - lo) * i / float(rings - 1)
+                w, cx, d = bee_prof(t)
+                rows.append(section(s * cx, bee_y(t), BEE_Z,
+                                    w * swell, d * swell, 16, e=BEE_E))
             m.merge(loft(rows, cap_start=False, cap_end=False))
         out[name] = m
 
-    # pronotum: the shield, wider than head or cases
+    # The seam. Where the two cases meet is the one line that says "beetle"
+    # about a brown oval, so it is a cord laid in the groove rather than a
+    # painted stripe: it catches the light down one side and stays visible
+    # when the body turns.
+    path, radii = [], []
+    for i in range(16):
+        t = 0.015 + 0.955 * i / 15.0
+        w, cx, d = bee_prof(t)
+        k = (1.0 - min(1.0, cx / w) ** (BEE_E / 2.0)) ** (2.0 / BEE_E)
+        path.append((0.0, bee_y(t), BEE_Z - d * k + 0.010))
+        radii.append(0.020 * (1.0 - 0.5 * t))
+    out['bee_seam'] = sweep(path, radii, 8)
+
+    # the scutellum: the little triangle dropped in at the top of the seam
+    scut = Mesh()
+    w0, cx0, d0 = bee_prof(0.055)
+    zs = BEE_Z - d0 * 0.92 + 0.012
+    a = scut.vert(-0.062, bee_y(0.03), zs)
+    b = scut.vert(0.062, bee_y(0.03), zs)
+    c = scut.vert(0.0, bee_y(0.135), zs)
+    e2 = scut.vert(0.0, bee_y(0.08), zs - 0.030)
+    scut.tri(a, b, c)
+    scut.tri(b, a, e2)
+    scut.tri(c, b, e2)
+    scut.tri(a, c, e2)
+    out['bee_scut'] = scut
+
+    # The shield. Trapezoid, glossier than the cases, and — unlike the version
+    # this replaces — narrower than them, which is what lets the three parts of
+    # him read as three parts instead of one brown lump.
+    def prono_rings(lo, hi, n, swell=1.0):
+        rs = []
+        for i in range(n):
+            t = lo + (hi - lo) * i / float(n - 1)
+            rs.append(section(0.0, BEE_PTOP - (BEE_PTOP - BEE_PBOT) * t, BEE_PZ,
+                              lerp_profile(t, BEE_PW) * swell,
+                              lerp_profile(t, BEE_PD) * swell, 16, e=BEE_PE))
+        return rs
+
+    out['bee_prono'] = loft(prono_rings(0.0, 1.0, 14))
+    # the team's colour on the shield, hugging it the way the saddle hugs the
+    # cases — a disc laid over a trapezoid cuts its corners off
+    out['bee_cband'] = loft(prono_rings(0.74, 0.86, 6, 1.035),
+                            cap_start=False, cap_end=False)
+
+    # the head, pushed out in front of the shield so that there is a face there
     rings = []
     n = 12
     for i in range(n):
         t = i / float(n - 1)
-        y = 1.24 - t * 0.28
-        w = 0.265 * math.sin(math.pi * (0.20 + 0.66 * t)) ** 0.40
-        d = 0.275 * math.sin(math.pi * (0.22 + 0.62 * t)) ** 0.40
-        rings.append(section(0.0, y, -0.02, w, d, 16, e=2.8, back_flat=1.0))
-    out['bee_prono'] = loft(rings)
-
-    # the head, small and low and tucked under the horn
-    rings = []
-    n = 10
-    for i in range(n):
-        t = i / float(n - 1)
-        rings.append(section(0.0, 1.02 - t * 0.20, 0.16,
-                             0.20 * math.sin(math.pi * (0.22 + 0.60 * t)) ** 0.4,
-                             0.17 * math.sin(math.pi * (0.24 + 0.58 * t)) ** 0.4,
-                             14, e=2.6))
+        rings.append(section(0.0, 1.00 - t * 0.21, BEE_HZ,
+                             lerp_profile(t, BEE_HW), lerp_profile(t, BEE_HD),
+                             14, e=BEE_HE))
     out['bee_head'] = loft(rings)
 
-    # the horn: up, forward, forked — and each fork forks again. That double
-    # fork is what makes it a Trypoxylus and not any old beetle.
+    # The head horn: up off the front of the head, forward over the shield,
+    # then up — and forked, and each fork forked again. Four tips.
     horn = Mesh()
-    main = bez((0.0, 0.94, 0.20), (0.0, 1.18, 0.34), (0.0, 1.24, 0.48), 11)
-    horn.merge(sweep(main, [0.075 - 0.040 * (i / 10.0) for i in range(11)], 10))
-    tip = main[-1]
+    shaft = bez((0.0, 0.97, 0.26), (0.0, 1.33, 0.40), (0.0, 1.38, 0.63), 13)
+    horn.merge(sweep(shaft, [0.086 - 0.038 * (i / 12.0) for i in range(13)], 12))
+    tip = shaft[-1]
     for s in (-1.0, 1.0):
-        br = bez(tip, (s * 0.050, 1.30, 0.54), (s * 0.092, 1.31, 0.62), 8)
-        horn.merge(sweep(br, [0.036 - 0.014 * (i / 7.0) for i in range(8)], 8))
+        br = bez(tip, (s * 0.072, 1.47, 0.70), (s * 0.150, 1.45, 0.81), 10)
+        horn.merge(sweep(br, [0.046 - 0.020 * (i / 9.0) for i in range(10)], 10))
         t2 = br[-1]
-        for dx, dy, dz in ((0.024, 0.058, 0.042), (0.058, 0.016, 0.038)):
+        # one prong up and in, one out and forward
+        for dx, dy, dz in ((0.026, 0.086, 0.030), (0.076, 0.028, 0.052)):
             e = (t2[0] + s * dx, t2[1] + dy, t2[2] + dz)
-            mid = ((t2[0] + e[0]) / 2, (t2[1] + e[1]) / 2 + 0.012, (t2[2] + e[2]) / 2)
-            horn.merge(sweep(bez(t2, mid, e, 5),
-                             [0.021, 0.017, 0.013, 0.009, 0.005], 7))
-    # the smaller thoracic horn that comes off the shield
-    horn.merge(sweep(bez((0.0, 1.10, 0.10), (0.0, 1.22, 0.24), (0.0, 1.18, 0.34), 7),
-                     [0.058, 0.050, 0.042, 0.034, 0.026, 0.018, 0.010], 8))
+            mid = ((t2[0] + e[0]) / 2, (t2[1] + e[1]) / 2 + 0.018, (t2[2] + e[2]) / 2)
+            horn.merge(sweep(bez(t2, mid, e, 6),
+                             [0.026, 0.022, 0.018, 0.013, 0.009, 0.005], 8))
+    # the shorter thoracic horn off the shield, bifid like the real one. It
+    # rides under the head horn and closes the gap between horn and body.
+    th = bez((0.0, 1.09, 0.12), (0.0, 1.24, 0.28), (0.0, 1.22, 0.45), 9)
+    horn.merge(sweep(th, [0.072 - 0.042 * (i / 8.0) for i in range(9)], 10))
+    t3 = th[-1]
+    for s in (-1.0, 1.0):
+        e = (t3[0] + s * 0.050, t3[1] + 0.046, t3[2] + 0.056)
+        mid = ((t3[0] + e[0]) / 2, (t3[1] + e[1]) / 2 + 0.010, (t3[2] + e[2]) / 2)
+        horn.merge(sweep(bez(t3, mid, e, 6),
+                         [0.030, 0.026, 0.021, 0.015, 0.010, 0.006], 8))
     out['bee_horn'] = horn
 
+    # compound eyes, flat and black and entirely unreadable — solved onto the
+    # head's surface so they sit in it rather than float off it
     eyes, glint = Mesh(), Mesh()
     for s in (-1.0, 1.0):
-        eyes.merge(ball(s * 0.130, 0.905, 0.175, 0.048, 10))
-        glint.merge(ball(s * 0.146, 0.928, 0.202, 0.019, 8))
+        ex, ey = s * 0.150, 0.900
+        ez = bee_head_z(ey, ex)
+        eyes.merge(ball(ex, ey, ez - 0.014, 0.068, 10))
+        glint.merge(ball(ex + s * 0.016, ey + 0.028, ez + 0.030, 0.026, 8))
     out['bee_eye'] = eyes
     out['bee_glint'] = glint
+
+    # The foreleg's shin. He digs with these, and the teeth down the outer edge
+    # are why his front legs look nothing like his back ones. Authored from the
+    # knee straight down -Y so it drops into the place limb() would otherwise
+    # have put a plain cylinder: same joint, same angles, same length.
+    for name, s in (('bee_tibL', 1.0), ('bee_tibR', -1.0)):
+        tib = Mesh()
+        rings = []
+        n = 10
+        for i in range(n):
+            t = i / float(n - 1)
+            r = 0.036 - 0.013 * t
+            rings.append(section(0.0, -0.30 * t, 0.0, r, r * 0.82, 10, e=2.2))
+        tib.merge(loft(rings))
+        for j, ty in enumerate((0.11, 0.185, 0.255)):
+            g = 1.0 - j * 0.16
+            base = (s * 0.014, -ty, 0.0)
+            end = (s * 0.078 * g, -ty - 0.030, 0.0)
+            mid = ((base[0] + end[0]) / 2, (base[1] + end[1]) / 2, 0.004)
+            tib.merge(sweep(bez(base, mid, end, 5),
+                            [0.024 * g, 0.019 * g, 0.014 * g, 0.009 * g, 0.004], 7))
+        out[name] = tib
+
+    # Where the six legs hang. Solved against the shell here rather than typed
+    # into the drawing code, so retuning the profile moves the legs with it.
+    rows = []
+    for y, z, k, rake in BEE_ROWS:
+        t = (BEE_TOP - y) / (BEE_TOP - BEE_BOT)
+        rows.append((bee_shell_x(t, z) - 0.014, y, z, k, rake))
+    DATA.append('/* beetle leg anchors, solved against the wing-case profile:')
+    DATA.append('   [x, y, z, share of the running swing, rake forward] */')
+    DATA.append('const BEE_LEG = [%s];' % ', '.join(
+        '[%.4g, %.4g, %.4g, %.3g, %.3g]' % r for r in rows))
+    DATA.append('')
     return out
 
 
@@ -905,6 +1055,7 @@ def main():
         out.append('')
         print('  %-12s %5d verts %5d tris' % (name, d['nv'], d['nf']))
 
+    out.extend(DATA)
     io.open('src/15-meshes.js', 'w', encoding='utf-8').write('\n'.join(out))
     kb = os.path.getsize('src/15-meshes.js') / 1024.0
     print('src/15-meshes.js  %d verts, %d tris, %.0f KB' % (total_v, total_f, kb))
