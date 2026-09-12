@@ -1708,7 +1708,7 @@ const ANIMALS = {
 
   // Drawn as the real animal rather than a round cartoon of one, and given no
   // face cell, so they never change expression.
-  salmon:  { ink: 0.013, body: 'fish', ear: 'none', tail: 'none', capY: -0.10, capS: 0.34,
+  salmon:  { ink: 0.013, body: 'fish', ear: 'none', tail: 'none', noHat: 1, shadow: 1.5,
              noGlove: 1, noBat: 1,
              fur: '#B4C2CB', fur2: '#EFF2F0', back: '#3C5E71', blush: '#B0524C',
              fin: '#7F909B', spot: '#22323C', jaw: '#9DAAB2',
@@ -1974,39 +1974,77 @@ function faceRect(animal, exp, muz) {
    camera, the shadow, knockdowns and slides all still work on them.
    ============================================================ */
 
-/* the flop. A fish out of water never holds still, so this drives everything:
-   how high he is off the ground and how far he has rocked over. */
-function fishHop(seed) {
-  const t = clock * 4.3 + seed;
-  return { up: Math.abs(Math.sin(t)) * 0.20, roll: Math.cos(t * 0.97) * 0.30 };
+/* The flop. A salmon out of water does not stand up — it lies over on its side
+   and thrashes, slapping itself clear of the ground every other beat.
+
+   `pitch` is how far it has gone over from upright (about 68 degrees at rest),
+   and the body turns about a point partway up rather than about its tail, so
+   the nose does not swing a metre across the infield every time it twitches. */
+const SAL_PIVOT = 0.60;
+
+function fishFlop(seed) {
+  const t = clock * 5.4 + seed;
+  const s = Math.sin(t);
+  return {
+    pitch: 1.19 + s * 0.27,                          // over on its side, whipping
+    roll: Math.sin(t * 1.63 + 1.1) * 0.40,           // the sideways snap
+    up: Math.max(0, s) * Math.max(0, s) * 0.30,      // and it gets air
+    fwd: 0,
+  };
 }
+
+/* The swing. He has no bat and no arms, so he throws the whole fish at the
+   ball: coils up off the dirt, launches, and cartwheels away after contact. */
+function fishSwing(st) {
+  const u = clamp(st / SWING_LAG, 0, 1);
+  const rear = Math.max(0, 1 - u * 2.3);          // the brief coil off the dirt
+  const fire = Math.sin(u * Math.PI * 0.5);       // and then all of it at once
+  const v = clamp((st - SWING_LAG) / 0.66, 0, 1), w = v * v;
+  // Every channel comes back to where the flop rests, and the pitch winds a
+  // whole extra turn, so the cartwheel lands in the resting orientation
+  // instead of popping. G.batSwingT keeps counting for seconds after the
+  // swing, so this has to settle on its own.
+  return {
+    pitch: 1.19 - rear * 0.44 + fire * 0.50 * (1 - w) + w * Math.PI * 2,
+    roll: Math.sin(w * Math.PI) * 2.4 - rear * 0.18,
+    up: 0.06 + fire * 0.66 * (1 - w),
+    fwd: -rear * 0.32 + fire * 0.92 * (1 - w),
+  };
+}
+
 
 /* ---------- 鮭 ---------- */
 function drawSalmon(f, A, look, p, y, big) {
   const flank = col(A.fur), back = col(A.back), belly = col(A.fur2);
   const finC = col(A.fin), jaw = col(A.jaw);
   const uni = col(look.uni), trim = col(look.trim);
-  const h = p.fall ? { up: 0, roll: 0 } : fishHop(f.ry * 3.1);
-  const by = y + h.up;
-  const rx = (p.lean || 0) + h.roll;
+  const sw = p.swingT;
+  const fl = p.fall ? { pitch: 1.50, roll: 0.55, up: 0, fwd: 0 }
+    : (sw >= 0 && sw <= SWING_LAG + 0.66 ? fishSwing(sw) : fishFlop(f.ry * 3.1));
+  // keep the pivot point on the spot; the rest of the fish swings around it
+  const cp = Math.cos(fl.pitch), sp = Math.sin(fl.pitch);
+  const by = y + 0.30 + fl.up - SAL_PIVOT * cp;
+  const bz = fl.fwd - SAL_PIVOT * sp;
+  const rx = fl.pitch + (p.lean || 0), rz = fl.roll;
+  const put = (prim, c) => part(f, prim, 0, by, bz, 1, 1, 1, c, rx, rz);
 
-  part(f, 'sal_body', 0, by, 0, 1, 1, 1, flank, rx);
-  part(f, 'sal_back', 0, by, 0, 1, 1, 1, back, rx);
-  part(f, 'sal_belly', 0, by, 0, 1, 1, 1, belly, rx);
-  part(f, 'sal_fins', 0, by, 0, 1, 1, 1, finC, rx);
-  part(f, 'sal_jaw', 0, by, 0, 1, 1, 1, jaw, rx);
+  put('sal_body', flank);
+  put('sal_back', back);
+  put('sal_belly', belly);
+  put('sal_fins', finC);
+  put('sal_jaw', jaw);
 
   // the flush he gets on the run upriver, and the eyes — both solved against
   // the body profile in the baker, so they stay on the surface at any angle
-  part(f, 'sal_blush', 0, by, 0, 1, 1, 1, col(A.blush), rx);
-  part(f, 'sal_eye', 0, by, 0, 1, 1, 1, col('#D6C489'), rx);
-  part(f, 'sal_pupil', 0, by, 0, 1, 1, 1, col('#0E0B09'), rx);
+  put('sal_blush', col(A.blush));
+  put('sal_eye', col('#D6C489'));
+  put('sal_pupil', col('#0E0B09'));
 
   // team colour, hugging the body: a sphere laid over a fish this narrow just
   // bulges out of it as a ball
-  part(f, 'sal_band', 0, by, 0, 1, 1, 1, uni, rx);
-  part(f, 'sal_collar', 0, by, 0, 1, 1, 1, trim, rx);
-  part(f, 'sal_belt', 0, by, 0, 1, 1, 1, trim, rx);
+  put('sal_band', uni);
+  put('sal_collar', trim);
+  put('sal_belt', trim);
 }
 
 /* ---------- カブトムシ ---------- */
@@ -2078,7 +2116,7 @@ function drawAnimal(x, z, ry, look, pose, y0) {
   const uni = col(look.uni), trim = col(look.trim), cap = col(look.cap);
   const trim2 = shade(look.trim, 0.72);
 
-  shadow(x, z, (p.fall ? 0.72 : 0.44) * big, 0.34);
+  shadow(x, z, (p.fall ? 0.72 : 0.44) * big * (A.shadow || 1), 0.34);
 
   // legs (local -x is the character's right side, +x their left)
   const sp = p.spread || 0;
@@ -2280,7 +2318,7 @@ function drawAnimal(x, z, ry, look, pose, y0) {
     part(f, 'sphere', 0, y + 0.94, -0.50, 0.20, 0.20, 0.20, fur2);
   }
   // headwear: a batting helmet at the plate and on the bases, otherwise a cap
-  if (p.noHat) { /* a shopper, not a ballplayer */ }
+  if (p.noHat || A.noHat) { /* a shopper, or a fish — nothing to hang a cap on */ }
   else if (p.helmet) {
     const cy = A.capY || 0, cs = A.capS || 1;
     part(fh, 'dome', 0, hy + 0.27 * cs + cy, 0.01, 0.80 * big * cs, 0.44 * cs, 0.78 * big * cs, cap);
@@ -4383,7 +4421,7 @@ function drawScene() {
       handL: rig.handTop, handR: rig.handBot, pole: rig.pole,
       legL: rig.lgL, legR: rig.lgR, spread: rig.spread,
       lean: rig.lean, headRy: rig.head,
-      helmet: 1, gloveC: bt.trim, face: faceBat,
+      helmet: 1, gloveC: bt.trim, face: faceBat, swingT: G.batSwingT,
       bob: G.batSwingT < 0 ? bob * 0.5 : 0.015,
     }, 0);
     if (!ANIMALS[b.look.animal].noBat) inked(b.look, () => {

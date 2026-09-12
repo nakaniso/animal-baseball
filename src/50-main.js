@@ -955,7 +955,7 @@ function drawScene() {
       handL: rig.handTop, handR: rig.handBot, pole: rig.pole,
       legL: rig.lgL, legR: rig.lgR, spread: rig.spread,
       lean: rig.lean, headRy: rig.head,
-      helmet: 1, gloveC: bt.trim, face: faceBat,
+      helmet: 1, gloveC: bt.trim, face: faceBat, swingT: G.batSwingT,
       bob: G.batSwingT < 0 ? bob * 0.5 : 0.015,
     }, 0);
     if (!ANIMALS[b.look.animal].noBat) inked(b.look, () => {
