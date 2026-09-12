@@ -74,11 +74,13 @@ function armIK(sx, sy, sz, hx, hy, hz, L1, L2, pole, rad, c, handC) {
 /* hw/hh/hd scale the head; muz is the size of the muzzle; brow adds the drawn
    eyebrow strokes; earR/earX/earY place the ears. */
 const ANIMALS = {
-  bear:    { ink: 0.022, ear: 'round', fur: '#96683F', fur2: '#DFC49B', tail: 'nub',
-             head: 'rbox', hw: 1.16, hh: 1.08, hd: 1.00,
-             muz: [0.56, 0.365, 0.33], muzY: -0.135, muzZ: 0.230, noseR: 0.105,
-             brow: 1, earR: 0.245, earX: 0.325, earY: 0.315, earD: 0.60,
-             eyeX: 0.152, eyeW: 0.132, eyeH: 0.104 },
+  // Stage 3. `mesh` swaps the head, the muzzle, the ears and the torso for
+  // shells baked by tools/mesh2js.py, so the skull and the snout are one
+  // surface and the jersey has shoulders. Everything else — arms, legs, cap,
+  // the four expressions — still comes from the shared rig. The head numbers
+  // the other mammals carry (hw/muz/earR/eyeX) are the mesh's business now.
+  bear:    { ink: 0.022, mesh: 'bear', tail: 'nub', tailZ: -0.235,
+             fur: '#96683F', fur2: '#DFC49B' },
 
   // drawn from the reference sketch: tall straight ears, round head, dot eyes
   rabbit:  { ink: 0.022, ear: 'long', fur: '#F4F0E8', fur2: '#F6D7DA', tail: 'puff',
@@ -535,7 +537,16 @@ function drawAnimal(x, z, ry, look, pose, y0) {
   // torso
   if (A.body === 'fish') drawSalmon(f, A, look, p, y, big);
   else if (A.body === 'beetle') drawBeetle(f, A, look, p, y, big);
-  else {
+  else if (A.mesh) {
+    // the kit is baked as slices of the same profile as the body: laying a
+    // sphere over a shaped torso makes it bulge out rather than cover
+    const M = A.mesh + '_', ln = p.lean || 0;
+    part(f, M + 'body', 0, y + 0.74, 0, 1, 1, 1, uni, ln);
+    part(f, M + 'stripe', 0, y + 0.74, 0, 1, 1, 1, shade(look.uni, 0.80), ln);
+    part(f, M + 'placket', 0, y + 0.74, 0, 1, 1, 1, trim, ln);
+    part(f, M + 'collar', 0, y + 0.74, 0, 1, 1, 1, trim, ln);
+    part(f, M + 'belt', 0, y + 0.74, 0, 1, 1, 1, shade(look.cap, 0.85), ln);
+  } else {
   part(f, 'sphere', 0, y + 0.74, 0, 0.66 * big, 0.70, 0.56 * big, uni, p.lean || 0);
   part(f, 'sphere', 0, y + 0.97, 0.01, 0.50, 0.14, 0.45, trim);   // jersey collar
   part(f, 'box', 0, y + 0.72, 0.185, 0.075, 0.42, 0.05, trim);  // button placket
@@ -584,7 +595,8 @@ function drawAnimal(x, z, ry, look, pose, y0) {
   const hy = y + 1.34;
   const HW = A.hw || 1, HH = A.hh || 1, HD = A.hd || 1;
   const hzF = 0.32 * HD + 0.02;                 // where the front of the face is
-  if (!A.body)
+  if (A.mesh) part(fh, A.mesh + '_head', 0, hy, 0, 1, 1, 1, fur);   // ears included
+  else if (!A.body)
     part(fh, A.head || 'sphere', 0, hy, 0.02, 0.68 * big * HW, 0.66 * HH, 0.64 * big * HD, fur);
 
   if (A.patch) {                                // panda mask
@@ -604,7 +616,11 @@ function drawAnimal(x, z, ry, look, pose, y0) {
   if (FC && R.atlas && R.inkW === 0) {            // eyes and brows, as art
     R.decal(faceRect(look.animal, p.face || 0, 0));
     const k = 1.015;
-    if (FC.onPatch && A.facePatch) {
+    if (A.mesh) {
+      // the patch was baked out of the same (azimuth, elevation) map as the
+      // skull, so it lies on the surface rather than being fitted to it
+      part(fh, A.mesh + '_face', 0, hy, 0, 1, 1, 1, fur);
+    } else if (FC.onPatch && A.facePatch) {
       const fp = A.facePatch;                      // the patch stands proud of
       part(fh, 'facep', 0, hy - 0.02, hzF - 0.10,  // the skull, so sit on that
            fp[0] * k, fp[1] * k, fp[2] * k, fur);
@@ -615,7 +631,15 @@ function drawAnimal(x, z, ry, look, pose, y0) {
     R.decal(null);
   }
 
-  if (A.beak) {
+  if (A.mesh) {
+    part(fh, A.mesh + '_muz', 0, hy, 0, 1, 1, 1, fur2);     // the pale mask
+    part(fh, A.mesh + '_earin', 0, hy, 0, 1, 1, 1, fur2);
+    if (FC && !FC.onHead && R.atlas && R.inkW === 0) {
+      R.decal(faceRect(look.animal, p.face || 0, 1));
+      part(fh, A.mesh + '_snout', 0, hy, 0, 1, 1, 1, fur);
+      R.decal(null);
+    }
+  } else if (A.beak) {
     part(fh, 'cone', 0, hy - 0.045, hzF - 0.03, 0.27, 0.32, 0.27, col(A.beak), -Math.PI / 2);
     part(fh, 'box', 0, hy - 0.045, hzF + 0.07, 0.19, 0.022, 0.16, shade(A.beak, 0.62));
   } else if (A.muz) {
@@ -717,7 +741,9 @@ function drawAnimal(x, z, ry, look, pose, y0) {
   }
   // tail
   if (A.tail === 'puff') part(f, 'sphere', 0, y + 0.66, -0.30, 0.24, 0.24, 0.24, fur2);
-  if (A.tail === 'nub') part(f, 'sphere', 0, y + 0.60, -0.30, 0.16, 0.16, 0.16, fur);
+  // the baked torso has a shallower back than the sphere one, so the nub has
+  // to be seated further in or it floats off the jersey
+  if (A.tail === 'nub') part(f, 'sphere', 0, y + 0.60, A.tailZ || -0.30, 0.16, 0.16, 0.16, fur);
   if (A.tail === 'long') part(f, 'sphere', 0, y + 0.78, -0.36, 0.14, 0.44, 0.14, fur, 0.5);
   if (A.tail === 'bushy') {
     part(f, 'sphere', 0, y + 0.72, -0.38, 0.26, 0.46, 0.26, fur, 0.6);

@@ -101,7 +101,7 @@ function geoPart(name, build) {
 /* A mesh baked by tools/mesh2js.py. It lands in the same buffer as the
    hand-written primitives, so `R.d('sal_body', ...)` draws it exactly like a
    sphere — scale 1 gives the mesh at the size it was authored. */
-function geoMesh(name, sc, off, p64, n64, i64) {
+function geoMesh(name, sc, off, p64, n64, i64, t64) {
   const bin = (s) => {
     const raw = atob(s), u = new Uint8Array(raw.length);
     for (let i = 0; i < raw.length; i++) u[i] = raw.charCodeAt(i);
@@ -110,11 +110,14 @@ function geoMesh(name, sc, off, p64, n64, i64) {
   const P = new Int16Array(bin(p64).buffer);
   const N = new Int8Array(bin(n64).buffer);
   const I = new Uint16Array(bin(i64).buffer);
+  // only face patches carry UVs; everything else is flat-shaded geometry
+  const T = t64 ? new Uint16Array(bin(t64).buffer) : null;
   const start = GEO.idx.length, base = GEO.pos.length / 3;
-  for (let i = 0; i < P.length; i += 3) {
+  for (let i = 0, k = 0; i < P.length; i += 3, k += 2) {
     GEO.pos.push(P[i] * sc[0] + off[0], P[i + 1] * sc[1] + off[1], P[i + 2] * sc[2] + off[2]);
     GEO.nor.push(N[i] / 127, N[i + 1] / 127, N[i + 2] / 127);
-    GEO.uv.push(0, 0);
+    if (T) GEO.uv.push(T[k] / 65535, T[k + 1] / 65535);
+    else GEO.uv.push(0, 0);
   }
   for (let i = 0; i < I.length; i++) GEO.idx.push(base + I[i]);
   GEO.parts[name] = { offset: start * 2, count: GEO.idx.length - start };

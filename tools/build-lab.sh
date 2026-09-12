@@ -3,6 +3,6 @@
 out=tools/face-lab.html
 cat tools/lab-shell.html > $out
 echo '<script>' >> $out
-cat src/10-core.js src/30-actors.js tools/lab-main.js >> $out
+cat src/10-core.js src/15-meshes.js src/30-actors.js tools/lab-main.js >> $out
 echo '</script>' >> $out
 echo "built $out"

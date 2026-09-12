@@ -33,10 +33,15 @@ class Mesh(object):
     def __init__(self):
         self.v = []      # [x, y, z]
         self.f = []      # [i, j, k]
+        self.t = []      # [u, v] or None — only face patches carry these
 
-    def vert(self, x, y, z):
+    def vert(self, x, y, z, u=None, w=None):
         self.v.append((x, y, z))
+        self.t.append(None if u is None else (u, w))
         return len(self.v) - 1
+
+    def has_uv(self):
+        return any(t is not None for t in self.t)
 
     def tri(self, a, b, c):
         self.f.append((a, b, c))
@@ -48,6 +53,7 @@ class Mesh(object):
     def merge(self, other):
         n = len(self.v)
         self.v.extend(other.v)
+        self.t.extend(other.t)
         self.f.extend([(a + n, b + n, c + n) for a, b, c in other.f])
         return self
 
@@ -105,6 +111,15 @@ def loft(rings, cap_start=True, cap_end=True, flip=False):
             else:
                 m.tri(c, ring[i], ring[j])
     return m
+
+
+def section_pt(cx, cy, cz, half_w, half_d, a, e=2.2, back_flat=1.0):
+    ca, sa = math.cos(a), math.sin(a)
+    px = math.copysign(abs(ca) ** (2.0 / e), ca) * half_w
+    pz = math.copysign(abs(sa) ** (2.0 / e), sa) * half_d
+    if pz < 0:
+        pz *= back_flat
+    return (cx + px, cy, cz + pz)
 
 
 def section(cx, cy, cz, half_w, half_d, n=16, e=2.2, back_flat=1.0):
@@ -305,27 +320,26 @@ def build_salmon():
 
     # the flush a fish gets on the run upriver, a band along the flank only
     band = Mesh()
-    N, SEC = 46, 18
-    for side, centre in ((-1, 4), (1, 14)):
+    N, COLS = 46, 9
+    for a_c in (0.0, math.pi):
         rows = []
         for i in range(N):
-            t = 0.13 + (i / float(N - 1)) * 0.66
-            # a lens: wraps furthest round the flank at the middle of the run
-            spread = 2.6 * math.sin(math.pi * (i / float(N - 1))) ** 0.75
+            u = i / float(N - 1)
+            t = 0.20 + u * 0.52
+            # a lens along the lateral line, not a coat of paint: at full width
+            # it wrapped most of the flank and the fish read as skinned
+            spread = 0.34 * math.sin(math.pi * u) ** 0.75
             y = 1.30 - t * 1.30
             d = lerp_profile(t, SAL_DEPTH) * 1.022
             w = lerp_profile(t, SAL_WIDTH) * 1.022
             cz = lerp_profile(t, SAL_SHIFT)
-            ring = section(0.0, y, cz, w, d, SEC, e=2.35, back_flat=0.86)
-            k0 = int(round(centre - spread))
-            k1 = int(round(centre + spread))
-            rows.append([ring[j % SEC] for j in range(k0, k1 + 1)])
-        width = min(len(r) for r in rows)
-        rows = [r[:width] for r in rows]
-        idx = [[band.vert(*q) for q in r] for r in rows]
-        for k in range(len(rows) - 1):
-            a, b = idx[k], idx[k + 1]
-            for i in range(width - 1):
+            rows.append([band.vert(*section_pt(0.0, y, cz, w, d,
+                                               a_c + ((j / float(COLS - 1)) * 2 - 1) * spread,
+                                               e=2.35, back_flat=0.86))
+                         for j in range(COLS)])
+        for k in range(N - 1):
+            a, b = rows[k], rows[k + 1]
+            for i in range(COLS - 1):
                 band.quad(a[i], a[i + 1], b[i + 1], b[i])
     out['sal_blush'] = band
 
@@ -349,6 +363,355 @@ def build_salmon():
     jaw = sweep(bez((0.0, 1.16, 0.055), (0.0, 1.10, 0.16), (0.0, 1.21, 0.215), 9),
                 [0.052, 0.050, 0.046, 0.041, 0.036, 0.031, 0.026, 0.021, 0.016], 9)
     out['sal_jaw'] = jaw
+    return out
+
+
+# --------------------------------------------------------------------- bear
+# The first mammal with a baked shell. Unlike the salmon and the beetle it
+# keeps the whole shared rig — arms, legs, cap, four expressions — so the mesh
+# has to drop into the existing anchors: the head is authored about the head
+# anchor (y+1.34 in the game) and the body about the torso anchor (y+0.74).
+#
+# The head is one surface, not a skull with a muzzle stuck on the front, and
+# that is the whole point. It works because the surface is a map from
+# (azimuth, elevation) to a point: the face decal patches are then just
+# rectangles of that same domain, so they sit on the surface by construction
+# instead of being fitted to it by hand. Any mammal can be baked this way.
+
+# the envelope the cap and the ears were sized against; keep it
+HEAD_X, HEAD_Y, HEAD_Z = 0.393, 0.352, 0.318
+HEAD_FWD = 0.02                 # the head primitive sat this far forward
+SNOUT_EL = -0.325               # a bear's muzzle points down as well as out
+
+
+def bump(q, amp):
+    """A smooth blob over an elliptical footprint, zero outside it.
+
+    The obvious `max(0, 1 - q) ** p` looks the same but its curvature blows up
+    at the rim, which digs a crease the surface cannot be offset out of: the
+    pale muzzle patch sat 6mm proud and the skull still bit a chunk out of it.
+    Smoothstep is flat at both ends, so the rim is a valley with a radius.
+    """
+    u = max(0.0, min(1.0, 1.0 - q))
+    return amp * u * u * (3 - 2 * u)
+
+
+def bear_head_pt(az, el, out=0.0):
+    """A point on the bear's skull. Star-shaped in (az, el) by construction."""
+    dx = math.cos(el) * math.sin(az)
+    dy = math.sin(el)
+    dz = math.cos(el) * math.cos(az)
+    n = 3.1                     # a rounded box, softer than the rbox it replaces
+    k = (abs(dx) ** n + abs(dy) ** n + abs(dz) ** n) ** (-1.0 / n)
+    x, y, z = dx * k * HEAD_X, dy * k * HEAD_Y, dz * k * HEAD_Z
+
+    # the muzzle: broad, shallow, and part of the same surface. Wider than it
+    # is tall is what stops it reading as a ball glued to the front.
+    d = bump((az / 0.64) ** 2 + ((el - SNOUT_EL) / 0.42) ** 2, 0.152)
+
+    # the brow ridge. More than anything else this is what separates a bear
+    # from a teddy, and it is exactly what a stack of spheres cannot do.
+    d += bump((az / 0.95) ** 2 + ((el - 0.17) / 0.22) ** 2, 0.024)
+
+    # jowls, low and wide, carrying the line from the muzzle back to the ears
+    d += bump(((abs(az) - 1.00) / 0.58) ** 2 + ((el + 0.20) / 0.44) ** 2, 0.030)
+
+    # and the flat of the crown, so the cap has something to sit on
+    d -= 0.020 * max(0.0, (el - 0.95) / 0.62) ** 2
+
+    L = math.sqrt(x * x + y * y + z * z) or 1.0
+    return (x + x / L * d, y + y / L * d, z + z / L * d + HEAD_FWD)
+
+
+def lifted(fn, az, el, out):
+    """A point `out` clear of the surface, along its own normal."""
+    p = fn(az, el)
+    if not out:
+        return p
+    h = 2e-3
+    pa, pb = fn(az + h, el), fn(az - h, el)
+    pc, pd = fn(az, el + h), fn(az, el - h)
+    u = [pa[i] - pb[i] for i in range(3)]
+    v = [pc[i] - pd[i] for i in range(3)]
+    n = [u[1] * v[2] - u[2] * v[1],
+         u[2] * v[0] - u[0] * v[2],
+         u[0] * v[1] - u[1] * v[0]]
+    L = math.sqrt(sum(q * q for q in n))
+    if L < 1e-9:                      # a pole: fall back to the radial
+        L = math.sqrt(sum(q * q for q in p)) or 1.0
+        n = list(p)
+    if n[0] * p[0] + n[1] * p[1] + n[2] * p[2] < 0:
+        n = [-q for q in n]           # always outward
+    return tuple(p[i] + n[i] / L * out for i in range(3))
+
+
+def surface_of(fn, naz=28, nel=18):
+    """Close a (az, el) surface map into a solid, poles and all."""
+    m = Mesh()
+    rows = []
+    for i in range(nel + 1):
+        el = -math.pi / 2 + math.pi * i / nel
+        if i == 0 or i == nel:
+            rows.append([m.vert(*fn(0.0, el))] * naz)
+        else:
+            rows.append([m.vert(*fn(-math.pi + math.tau * j / naz, el))
+                         for j in range(naz)])
+    for i in range(nel):
+        a, b = rows[i], rows[i + 1]
+        for j in range(naz):
+            k = (j + 1) % naz
+            if i == 0:
+                m.tri(a[j], b[k], b[j])
+            elif i == nel - 1:
+                m.tri(a[j], a[k], b[j])
+            else:
+                m.quad(a[j], a[k], b[k], b[j])
+    return m
+
+
+def uv_patch(fn, az_c, az_r, el_c, el_r, out, n=12, mm=12):
+    """A rectangle of the same surface, carrying the face cell's UVs.
+
+    The mapping copies the `facep` primitive exactly — u across azimuth, v down
+    elevation — so a cell drawn for the sphere patch lands the same way here.
+    """
+    m = Mesh()
+    rows = []
+    for i in range(mm + 1):
+        el = el_c + ((i / float(mm)) * 2 - 1) * el_r
+        row = []
+        for j in range(n + 1):
+            az = az_c + ((j / float(n)) * 2 - 1) * az_r
+            x, y, z = lifted(fn, az, el, out)
+            row.append(m.vert(x, y, z, j / float(n), 1 - i / float(mm)))
+        rows.append(row)
+    for i in range(mm):
+        a, b = rows[i], rows[i + 1]
+        for j in range(n):
+            m.tri(a[j], a[j + 1], b[j])
+            m.tri(a[j + 1], b[j + 1], b[j])
+    return m
+
+
+def oval_patch(fn, az_c, el_c, az_r, el_r, out, nr=6, nt=22):
+    """An oval of the surface — the pale mask over the muzzle."""
+    m = Mesh()
+    rings = [[m.vert(*lifted(fn, az_c, el_c, out))] * nt]
+    for r in range(1, nr + 1):
+        rho = r / float(nr)
+        rings.append([m.vert(*lifted(fn, az_c + rho * math.cos(th) * az_r,
+                                     el_c + rho * math.sin(th) * el_r, out))
+                      for th in [math.tau * j / nt for j in range(nt)]])
+    for r in range(nr):
+        a, b = rings[r], rings[r + 1]
+        for j in range(nt):
+            k = (j + 1) % nt
+            if r == 0:
+                m.tri(a[0], b[j], b[k])
+            else:
+                m.quad(a[j], b[j], b[k], a[k])
+    return m
+
+
+def _ear_frame(side):
+    c = (side * 0.320, 0.268, -0.018 + HEAD_FWD)   # out past the cap, not over it
+    ax = (side * 0.42, 0.06, 0.905)                # forward, splayed outward
+    L = math.sqrt(sum(q * q for q in ax))
+    ax = tuple(q / L for q in ax)
+    u = (ax[2], 0.0, -ax[0])
+    Lu = math.sqrt(u[0] ** 2 + u[2] ** 2) or 1.0
+    u = (u[0] / Lu, 0.0, u[2] / Lu)
+    v = (ax[1] * u[2] - ax[2] * u[1],
+         ax[2] * u[0] - ax[0] * u[2],
+         ax[0] * u[1] - ax[1] * u[0])
+    return c, ax, u, v
+
+
+def bear_ear(side):
+    """A round flap with a rounded rim.
+
+    A lens whose two faces meet at a sharp rim looks right head-on and turns
+    into a fin in profile, which is what the first cut did. `sqrt(1 - rho^2)`
+    brings both faces into the rim with a vertical tangent, so the edge is
+    round from every angle. The fold goes in bear_ear_inner, not here.
+    """
+    c, ax, u, v = _ear_frame(side)
+    R_ = 0.130
+
+    def pt(rho, th, off):
+        a = R_ * rho * math.cos(th)
+        b = R_ * rho * math.sin(th) * 1.06
+        return tuple(c[i] + u[i] * a + v[i] * b + ax[i] * off for i in range(3))
+
+    m = Mesh()
+    NT, NR = 18, 5
+    for depth, sgn in ((0.055, 1), (-0.078, -1)):
+        rings = []
+        for r in range(NR + 1):
+            rho = r / float(NR)
+            # the rim (rho = 1) is shared; the faces part company inside it
+            rings.append([pt(rho, math.tau * j / NT, depth * math.sqrt(max(0.0, 1 - rho * rho)))
+                          for j in range(NT)])
+        idx = [[m.vert(*q) for q in ring] for ring in rings]
+        for r in range(NR):
+            a, b = idx[r], idx[r + 1]
+            for j in range(NT):
+                k = (j + 1) % NT
+                if r == 0:
+                    m.tri(a[0], b[j], b[k]) if sgn > 0 else m.tri(a[0], b[k], b[j])
+                elif sgn > 0:
+                    m.quad(a[j], b[j], b[k], a[k])
+                else:
+                    m.quad(a[k], b[k], b[j], a[j])
+    return m
+
+
+def bear_ear_inner(side):
+    c, ax, u, v = _ear_frame(side)
+    R_ = 0.130 * 0.58
+    m = Mesh()
+    NT, NR = 16, 4
+    rings = []
+    for r in range(NR + 1):
+        rho = r / float(NR)
+        off = 0.055 * math.sqrt(max(0.0, 1 - (rho * 0.58) ** 2)) - 0.016
+        ring = []
+        for j in range(NT):
+            th = math.tau * j / NT
+            a = R_ * rho * math.cos(th)
+            b = R_ * rho * math.sin(th) * 1.06
+            ring.append(tuple(c[i] + u[i] * a + v[i] * b + ax[i] * off for i in range(3)))
+        rings.append(ring)
+    idx = [[m.vert(*q) for q in ring] for ring in rings]
+    for r in range(NR):
+        a, b = idx[r], idx[r + 1]
+        for j in range(NT):
+            k = (j + 1) % NT
+            if r == 0:
+                m.tri(a[0], b[j], b[k])
+            else:
+                m.quad(a[j], b[j], b[k], a[k])
+    return m
+
+
+# ---- the body. A barrel with shoulders, which the sphere never had. --------
+BODY_W = [(0.00, 0.228), (0.05, 0.284), (0.15, 0.305), (0.30, 0.322),
+          (0.45, 0.338), (0.60, 0.352), (0.72, 0.356), (0.84, 0.330),
+          (0.92, 0.262), (1.00, 0.165)]
+BODY_D = [(0.00, 0.192), (0.05, 0.236), (0.15, 0.252), (0.30, 0.268),
+          (0.45, 0.282), (0.60, 0.292), (0.72, 0.286), (0.84, 0.252),
+          (0.92, 0.198), (1.00, 0.134)]
+BODY_Z = [(0.00, 0.004), (0.25, 0.018), (0.50, 0.006), (0.72, -0.026),
+          (1.00, -0.042)]
+
+
+def bear_body_pt(a, t, out=0.0):
+    """A point on the torso. `a` runs from the centre of the chest (0) round
+    toward the character's left; `t` from the hem (0) to the collar (1)."""
+    y = -0.300 + t * 0.625
+    hw = lerp_profile(t, BODY_W) + out
+    hd = lerp_profile(t, BODY_D) + out
+    cz = lerp_profile(t, BODY_Z)
+    sa, ca = math.sin(a), math.cos(a)
+    e = 2.05                            # barely off round; 2.45 was a packing case
+    x = math.copysign(abs(sa) ** (2.0 / e), sa) * hw
+    z = math.copysign(abs(ca) ** (2.0 / e), ca) * hd
+
+    # shoulder caps, so the sleeves come out of the jersey instead of floating
+    # alongside it. The arms hang from x = +/-0.33 at this height.
+    q = ((abs(x) - 0.300) / 0.185) ** 2 + ((y - 0.155) / 0.150) ** 2
+    if q < 1.0:
+        x += math.copysign(0.022 * (1.0 - q) ** 1.1, x)
+
+    # the shoulder hump. Bears carry a mass of muscle over the shoulder blades,
+    # and under a jersey it is the one line that says bear from fifty metres.
+    back = max(0.0, -z / hd)
+    up = max(0.0, min(1.0, (t - 0.40) / 0.26)) * max(0.0, min(1.0, (0.94 - t) / 0.16))
+    y += 0.062 * (back ** 1.7) * (up * up * (3 - 2 * up))
+    return (x, y, z + cz)
+
+
+def bear_strip(a_c, a_r, t0, t1, out, na=7, nt=10):
+    """A ribbon lying on the torso — a placket, a stripe."""
+    m = Mesh()
+    rows = []
+    for i in range(nt + 1):
+        t = t0 + (t1 - t0) * i / float(nt)
+        rows.append([m.vert(*bear_body_pt(a_c + ((j / float(na)) * 2 - 1) * a_r, t, out))
+                     for j in range(na + 1)])
+    for i in range(nt):
+        a, b = rows[i], rows[i + 1]
+        for j in range(na):
+            m.quad(a[j], a[j + 1], b[j + 1], b[j])
+    return m
+
+
+def bear_band(t0, t1, out, na=28, nt=4):
+    """A full ring of the torso — the collar and the belt."""
+    m = Mesh()
+    rows = []
+    for i in range(nt + 1):
+        t = t0 + (t1 - t0) * i / float(nt)
+        rows.append([m.vert(*bear_body_pt(math.tau * j / na, t, out)) for j in range(na)])
+    for i in range(nt):
+        a, b = rows[i], rows[i + 1]
+        for j in range(na):
+            k = (j + 1) % na
+            m.quad(a[j], a[k], b[k], b[j])
+    return m
+
+
+def build_bear():
+    out = {}
+
+    head = surface_of(bear_head_pt)
+    for side in (-1.0, 1.0):
+        head.merge(bear_ear(side))
+    out['bear_head'] = head
+
+    inner = Mesh()
+    for side in (-1.0, 1.0):
+        inner.merge(bear_ear_inner(side))
+    out['bear_earin'] = inner
+
+    # the pale mask over the muzzle, and the two decal patches
+    out['bear_muz'] = oval_patch(bear_head_pt, 0.0, SNOUT_EL - 0.008, 0.53, 0.31, 0.008)
+    out['bear_face'] = uv_patch(bear_head_pt, 0.0, 60 * math.pi / 180,
+                                0.0, 50 * math.pi / 180, 0.009)
+    out['bear_snout'] = uv_patch(bear_head_pt, 0.0, 34 * math.pi / 180,
+                                 SNOUT_EL - 0.015, 20 * math.pi / 180, 0.011)
+
+    body = Mesh()
+    NA, NT = 28, 22
+    idx = []
+    for i in range(NT + 1):
+        idx.append([body.vert(*bear_body_pt(math.tau * j / NA, i / float(NT)))
+                    for j in range(NA)])
+    for i in range(NT):
+        a, b = idx[i], idx[i + 1]
+        for j in range(NA):
+            k = (j + 1) % NA
+            body.quad(a[j], a[k], b[k], b[j])
+    for ring, rev in ((idx[0], True), (idx[-1], False)):
+        cx = sum(body.v[q][0] for q in ring) / NA
+        cy = sum(body.v[q][1] for q in ring) / NA
+        cz = sum(body.v[q][2] for q in ring) / NA
+        c = body.vert(cx, cy, cz)
+        for j in range(NA):
+            k = (j + 1) % NA
+            if rev:
+                body.tri(c, ring[k], ring[j])
+            else:
+                body.tri(c, ring[j], ring[k])
+    out['bear_body'] = body
+
+    out['bear_collar'] = bear_band(0.93, 1.00, 0.008)
+    out['bear_belt'] = bear_band(0.055, 0.135, 0.008)
+    out['bear_placket'] = bear_strip(0.0, 0.072, 0.14, 0.93, 0.007)
+    stripes = Mesh()
+    for a_c in (-0.80, -0.42, 0.42, 0.80):
+        stripes.merge(bear_strip(a_c, 0.030, 0.18, 0.88, 0.006, na=3))
+    out['bear_stripe'] = stripes
     return out
 
 
@@ -483,18 +846,29 @@ def pack(m):
     for a, b, c in m.f:
         ib += struct.pack('<HHH', a, b, c)
     off = [lo[i] + 16000 * sc[i] for i in range(3)]
-    return {
+    d = {
         'sc': sc, 'off': off,
         'p': base64.b64encode(bytes(pb)).decode(),
         'n': base64.b64encode(bytes(nb)).decode(),
         'i': base64.b64encode(bytes(ib)).decode(),
         'nv': len(m.v), 'nf': len(m.f),
     }
+    # UVs ride along only on the patches that carry a face decal; Uint16 over
+    # 0..1 is far finer than a 128px cell needs
+    if m.has_uv():
+        tb = bytearray()
+        for t in m.t:
+            u, w = t or (0.0, 0.0)
+            tb += struct.pack('<HH', int(round(max(0.0, min(1.0, u)) * 65535)),
+                              int(round(max(0.0, min(1.0, w)) * 65535)))
+        d['t'] = base64.b64encode(bytes(tb)).decode()
+    return d
 
 
 def main():
     meshes = {}
     meshes.update(build_salmon())
+    meshes.update(build_bear())
     meshes.update(build_beetle())
 
     # anything hand-made wins over the procedural version of the same name
@@ -523,7 +897,11 @@ def main():
             ','.join('%.6g' % x for x in d['off'])))
         out.append("  '%s'," % d['p'])
         out.append("  '%s'," % d['n'])
-        out.append("  '%s');   // %d verts, %d tris" % (d['i'], d['nv'], d['nf']))
+        if 't' in d:
+            out.append("  '%s'," % d['i'])
+            out.append("  '%s');   // %d verts, %d tris, uv" % (d['t'], d['nv'], d['nf']))
+        else:
+            out.append("  '%s');   // %d verts, %d tris" % (d['i'], d['nv'], d['nf']))
         out.append('')
         print('  %-12s %5d verts %5d tris' % (name, d['nv'], d['nf']))
 

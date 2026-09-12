@@ -1,3 +1,633 @@
+<meta charset="utf-8"><title>造形ラボ</title>
+<style>body{margin:0;background:#F2F4F6;font:13px system-ui}
+#gl{width:600px;height:600px;position:fixed;left:-9999px;top:0}
+#sheet{display:block;width:800px;max-width:100%}
+#info{padding:6px 10px;color:#33414E;font-variant-numeric:tabular-nums}</style>
+<canvas id="gl"></canvas><canvas id="sheet"></canvas><div id="info">…</div>
+<script>
+/* ============================================================
+   10-core.js — math, tiny WebGL cel-shaded renderer, audio
+   No external libraries: everything below is hand-rolled.
+   ============================================================ */
+'use strict';
+
+const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
+const lerp = (a, b, t) => a + (b - a) * t;
+const rnd = (a, b) => a + Math.random() * (b - a);
+const rint = (a, b) => Math.floor(a + Math.random() * (b - a + 1));
+const pick = (a) => a[Math.floor(Math.random() * a.length)];
+const chance = (p) => Math.random() < p;
+const DEG = Math.PI / 180;
+const dist2 = (ax, az, bx, bz) => Math.hypot(ax - bx, az - bz);
+
+/* ---------- 4x4 matrices (column-major, WebGL order) ---------- */
+function m4() { return new Float32Array(16); }
+
+function mMul(o, a, b) {
+  for (let c = 0; c < 4; c++) {
+    const b0 = b[c * 4], b1 = b[c * 4 + 1], b2 = b[c * 4 + 2], b3 = b[c * 4 + 3];
+    o[c * 4]     = a[0] * b0 + a[4] * b1 + a[8]  * b2 + a[12] * b3;
+    o[c * 4 + 1] = a[1] * b0 + a[5] * b1 + a[9]  * b2 + a[13] * b3;
+    o[c * 4 + 2] = a[2] * b0 + a[6] * b1 + a[10] * b2 + a[14] * b3;
+    o[c * 4 + 3] = a[3] * b0 + a[7] * b1 + a[11] * b2 + a[15] * b3;
+  }
+  return o;
+}
+
+function mPerspective(o, fovy, aspect, near, far) {
+  const f = 1 / Math.tan(fovy / 2), nf = 1 / (near - far);
+  o.fill(0);
+  o[0] = f / aspect; o[5] = f; o[10] = (far + near) * nf;
+  o[11] = -1; o[14] = 2 * far * near * nf;
+  return o;
+}
+
+function mLookAt(o, ex, ey, ez, cx, cy, cz) {
+  let zx = ex - cx, zy = ey - cy, zz = ez - cz;
+  let l = Math.hypot(zx, zy, zz) || 1; zx /= l; zy /= l; zz /= l;
+  // x = normalize(cross(up, z)) with up = (0,1,0)
+  let xx = zz, xy = 0, xz = -zx;
+  l = Math.hypot(xx, xy, xz);
+  if (l < 1e-5) { xx = 1; xy = 0; xz = 0; } else { xx /= l; xy /= l; xz /= l; }
+  const yx = zy * xz - zz * xy, yy = zz * xx - zx * xz, yz = zx * xy - zy * xx;
+  o[0] = xx; o[1] = yx; o[2] = zx; o[3] = 0;
+  o[4] = xy; o[5] = yy; o[6] = zy; o[7] = 0;
+  o[8] = xz; o[9] = yz; o[10] = zz; o[11] = 0;
+  o[12] = -(xx * ex + xy * ey + xz * ez);
+  o[13] = -(yx * ex + yy * ey + yz * ez);
+  o[14] = -(zx * ex + zy * ey + zz * ez);
+  o[15] = 1;
+  return o;
+}
+
+/* model matrix from translate / euler(Y*X*Z) / scale */
+function mTRS(o, px, py, pz, rx, ry, rz, sx, sy, sz) {
+  const cx = Math.cos(rx), snx = Math.sin(rx);
+  const cy = Math.cos(ry), sny = Math.sin(ry);
+  const cz = Math.cos(rz), snz = Math.sin(rz);
+  const r00 = cy * cz + sny * snx * snz, r01 = -cy * snz + sny * snx * cz, r02 = sny * cx;
+  const r10 = cx * snz,                  r11 = cx * cz,                    r12 = -snx;
+  const r20 = -sny * cz + cy * snx * snz, r21 = sny * snz + cy * snx * cz, r22 = cy * cx;
+  o[0] = r00 * sx; o[1] = r10 * sx; o[2] = r20 * sx; o[3] = 0;
+  o[4] = r01 * sy; o[5] = r11 * sy; o[6] = r21 * sy; o[7] = 0;
+  o[8] = r02 * sz; o[9] = r12 * sz; o[10] = r22 * sz; o[11] = 0;
+  o[12] = px; o[13] = py; o[14] = pz; o[15] = 1;
+  return o;
+}
+
+/* ---------- colors ---------- */
+const _colCache = new Map();
+function col(hex) {
+  let c = _colCache.get(hex);
+  if (c) return c;
+  const n = parseInt(hex.slice(1), 16);
+  c = [((n >> 16) & 255) / 255, ((n >> 8) & 255) / 255, (n & 255) / 255];
+  _colCache.set(hex, c);
+  return c;
+}
+function shade(hex, k) { // k<1 darker, k>1 lighter
+  const c = col(hex);
+  return [clamp(c[0] * k, 0, 1), clamp(c[1] * k, 0, 1), clamp(c[2] * k, 0, 1)];
+}
+
+/* ============================================================
+   Geometry — a handful of primitives packed into one buffer
+   ============================================================ */
+const GEO = { pos: [], nor: [], uv: [], idx: [], parts: {} };
+
+function geoPart(name, build) {
+  const start = GEO.idx.length, base = GEO.pos.length / 3;
+  build((x, y, z, nx, ny, nz, u, w) => {
+    GEO.pos.push(x, y, z); GEO.nor.push(nx, ny, nz);
+    GEO.uv.push(u || 0, w || 0);
+    return GEO.pos.length / 3 - 1 - base;
+  }, (a, b, c) => GEO.idx.push(base + a, base + b, base + c));
+  GEO.parts[name] = { offset: start * 2, count: GEO.idx.length - start };
+}
+
+/* A mesh baked by tools/mesh2js.py. It lands in the same buffer as the
+   hand-written primitives, so `R.d('sal_body', ...)` draws it exactly like a
+   sphere — scale 1 gives the mesh at the size it was authored. */
+function geoMesh(name, sc, off, p64, n64, i64, t64) {
+  const bin = (s) => {
+    const raw = atob(s), u = new Uint8Array(raw.length);
+    for (let i = 0; i < raw.length; i++) u[i] = raw.charCodeAt(i);
+    return u;
+  };
+  const P = new Int16Array(bin(p64).buffer);
+  const N = new Int8Array(bin(n64).buffer);
+  const I = new Uint16Array(bin(i64).buffer);
+  // only face patches carry UVs; everything else is flat-shaded geometry
+  const T = t64 ? new Uint16Array(bin(t64).buffer) : null;
+  const start = GEO.idx.length, base = GEO.pos.length / 3;
+  for (let i = 0, k = 0; i < P.length; i += 3, k += 2) {
+    GEO.pos.push(P[i] * sc[0] + off[0], P[i + 1] * sc[1] + off[1], P[i + 2] * sc[2] + off[2]);
+    GEO.nor.push(N[i] / 127, N[i + 1] / 127, N[i + 2] / 127);
+    if (T) GEO.uv.push(T[k] / 65535, T[k + 1] / 65535);
+    else GEO.uv.push(0, 0);
+  }
+  for (let i = 0; i < I.length; i++) GEO.idx.push(base + I[i]);
+  GEO.parts[name] = { offset: start * 2, count: GEO.idx.length - start };
+}
+
+geoPart('box', (v, t) => {
+  const F = [
+    [[ .5, -.5, .5], [ .5, .5, .5], [-.5, .5, .5], [-.5, -.5, .5], [0, 0, 1]],
+    [[-.5, -.5, -.5], [-.5, .5, -.5], [ .5, .5, -.5], [ .5, -.5, -.5], [0, 0, -1]],
+    [[ .5, -.5, -.5], [ .5, .5, -.5], [ .5, .5, .5], [ .5, -.5, .5], [1, 0, 0]],
+    [[-.5, -.5, .5], [-.5, .5, .5], [-.5, .5, -.5], [-.5, -.5, -.5], [-1, 0, 0]],
+    [[-.5, .5, .5], [ .5, .5, .5], [ .5, .5, -.5], [-.5, .5, -.5], [0, 1, 0]],
+    [[-.5, -.5, -.5], [ .5, -.5, -.5], [ .5, -.5, .5], [-.5, -.5, .5], [0, -1, 0]],
+  ];
+  let i = 0;
+  for (const f of F) {
+    const n = f[4];
+    for (let k = 0; k < 4; k++) v(f[k][0], f[k][1], f[k][2], n[0], n[1], n[2]);
+    t(i, i + 1, i + 2); t(i, i + 2, i + 3); i += 4;
+  }
+});
+
+geoPart('sphere', (v, t) => {
+  const RN = 16, SN = 24;
+  for (let r = 0; r <= RN; r++) {
+    const phi = (r / RN) * Math.PI, sp = Math.sin(phi), cp = Math.cos(phi);
+    for (let s = 0; s <= SN; s++) {
+      const th = (s / SN) * Math.PI * 2;
+      const x = sp * Math.cos(th), y = cp, z = sp * Math.sin(th);
+      v(x * .5, y * .5, z * .5, x, y, z);
+    }
+  }
+  for (let r = 0; r < RN; r++) for (let s = 0; s < SN; s++) {
+    const a = r * (SN + 1) + s, b = a + SN + 1;
+    t(a, a + 1, b); t(a + 1, b + 1, b);   // wound outward
+  }
+});
+
+function tube(v, t, rTop, rBot, capped) {
+  const N = 24;
+  let i = 0;
+  for (let s = 0; s <= N; s++) {
+    const th = (s / N) * Math.PI * 2, cx = Math.cos(th), sz = Math.sin(th);
+    v(cx * rTop, .5, sz * rTop, cx, .35, sz);
+    v(cx * rBot, -.5, sz * rBot, cx, .35, sz);
+  }
+  for (let s = 0; s < N; s++) { const a = s * 2; t(a, a + 2, a + 1); t(a + 1, a + 2, a + 3); }
+  i = (N + 1) * 2;
+  if (capped) {
+    for (const [y, r, ny] of [[.5, rTop, 1], [-.5, rBot, -1]]) {
+      if (r <= 0) continue;
+      const c = i; v(0, y, 0, 0, ny, 0); i++;
+      for (let s = 0; s <= N; s++) {
+        const th = (s / N) * Math.PI * 2;
+        v(Math.cos(th) * r, y, Math.sin(th) * r, 0, ny, 0); i++;
+      }
+      for (let s = 0; s < N; s++) {
+        if (ny > 0) t(c, c + 2 + s, c + 1 + s); else t(c, c + 1 + s, c + 2 + s);
+      }
+    }
+  }
+}
+geoPart('cyl',  (v, t) => tube(v, t, .5, .5, true));
+geoPart('cone', (v, t) => tube(v, t, .001, .5, true));
+geoPart('taper',(v, t) => tube(v, t, .26, .5, true));
+
+geoPart('disc', (v, t) => {
+  const N = 32;
+  v(0, 0, 0, 0, 1, 0);
+  for (let s = 0; s <= N; s++) {
+    const th = (s / N) * Math.PI * 2;
+    v(Math.cos(th) * .5, 0, Math.sin(th) * .5, 0, 1, 0);
+  }
+  // wound so the face points +y — otherwise every disc is back-face culled
+  for (let s = 0; s < N; s++) t(0, s + 2, s + 1);
+});
+
+geoPart('quad', (v, t) => {
+  v(-.5, 0, -.5, 0, 1, 0); v(.5, 0, -.5, 0, 1, 0);
+  v(.5, 0, .5, 0, 1, 0); v(-.5, 0, .5, 0, 1, 0);
+  t(0, 2, 1); t(0, 3, 2);
+});
+
+/* Rounded box — a superellipsoid with |x|^4+|y|^4+|z|^4 = 1. Heads drawn as a
+   soft square read far more like a drawn character than a plain sphere does. */
+geoPart('rbox', (v, t) => {
+  const RN = 16, SN = 24, e = 0.5;
+  const pw = (a, k) => (a < 0 ? -Math.pow(-a, k) : Math.pow(a, k));
+  for (let r = 0; r <= RN; r++) {
+    const phi = (r / RN) * Math.PI, sp = Math.sin(phi), cp = Math.cos(phi);
+    for (let s = 0; s <= SN; s++) {
+      const th = (s / SN) * Math.PI * 2;
+      const x = pw(sp, e) * pw(Math.cos(th), e);
+      const y = pw(cp, e);
+      const z = pw(sp, e) * pw(Math.sin(th), e);
+      const nx = x * x * x, ny = y * y * y, nz = z * z * z;
+      const l = Math.hypot(nx, ny, nz) || 1;
+      v(x * 0.5, y * 0.5, z * 0.5, nx / l, ny / l, nz / l);
+    }
+  }
+  for (let r = 0; r < RN; r++) for (let s = 0; s < SN; s++) {
+    const a = r * (SN + 1) + s, b = a + SN + 1;
+    t(a, a + 1, b); t(a + 1, b + 1, b);   // wound outward
+  }
+});
+
+/* extruded polygon: pts are [x,z] wound counter-clockwise seen from above,
+   the slab spans y = -0.5 .. +0.5 */
+function geoPrism(name, pts) {
+  geoPart(name, (v, t) => {
+    const n = pts.length;
+    for (const q of pts) v(q[0], 0.5, q[1], 0, 1, 0);
+    for (let i = 1; i < n - 1; i++) t(0, i, i + 1);
+    const b = n;
+    for (const q of pts) v(q[0], -0.5, q[1], 0, -1, 0);
+    for (let i = 1; i < n - 1; i++) t(b, b + i + 1, b + i);
+    let k = 2 * n;
+    for (let i = 0; i < n; i++) {
+      const a = pts[i], c = pts[(i + 1) % n];
+      const dx = c[0] - a[0], dz = c[1] - a[1];
+      const l = Math.hypot(dx, dz) || 1;
+      const nx = -dz / l, nz = dx / l;
+      v(a[0], 0.5, a[1], nx, 0, nz);  v(c[0], 0.5, c[1], nx, 0, nz);
+      v(c[0], -0.5, c[1], nx, 0, nz); v(a[0], -0.5, a[1], nx, 0, nz);
+      t(k, k + 3, k + 2); t(k, k + 2, k + 1); k += 4;
+    }
+  });
+}
+
+/* Home plate, to the rule: a 17in front edge, two 8.5in sides, two 12in sides
+   meeting at the back point. Built with that point on the local origin so it
+   can be dropped straight onto the corner of the diamond, and normalised so a
+   uniform scale of 0.4318 gives the regulation size. */
+geoPrism('plate5', [[0, 0], [-0.5, 0.5], [-0.5, 1.0], [0.5, 1.0], [0.5, 0.5]]);
+
+/* A patch of the unit sphere with uv across it. Scaled with the same numbers
+   as the head it sits on, it lies exactly on that surface, so a face drawn
+   into a texture wraps instead of floating. u runs from the character's own
+   -x to +x, which is left-to-right as the reader sees the face. */
+const FACE_AZ = 60 * DEG, FACE_EL = 50 * DEG;
+geoPart('facep', (v, t) => {
+  const N = 16, M = 16;
+  for (let i = 0; i <= M; i++) {
+    const el = ((i / M) * 2 - 1) * FACE_EL, ce = Math.cos(el), se = Math.sin(el);
+    for (let j = 0; j <= N; j++) {
+      const az = ((j / N) * 2 - 1) * FACE_AZ;
+      const x = ce * Math.sin(az), y = se, z = ce * Math.cos(az);
+      v(x * .5, y * .5, z * .5, x, y, z, j / N, 1 - i / M);
+    }
+  }
+  for (let i = 0; i < M; i++) for (let j = 0; j < N; j++) {
+    const a = i * (N + 1) + j, b = a + N + 1;
+    t(a, a + 1, b); t(a + 1, b + 1, b);   // wound outward
+  }
+});
+
+/* the same patch on the |x|^4+|y|^4+|z|^4 = 1 head. A sphere patch scaled to
+   an rbox head sinks ~0.02m inside it away from the centre and the face gets
+   buried, so the surface has to be the one it is actually sitting on. */
+geoPart('facepr', (v, t) => {
+  const N = 16, M = 16;
+  for (let i = 0; i <= M; i++) {
+    const el = ((i / M) * 2 - 1) * FACE_EL, ce = Math.cos(el), se = Math.sin(el);
+    for (let j = 0; j <= N; j++) {
+      const az = ((j / N) * 2 - 1) * FACE_AZ;
+      const dx = ce * Math.sin(az), dy = se, dz = ce * Math.cos(az);
+      const k = 1 / Math.pow(dx * dx * dx * dx + dy * dy * dy * dy + dz * dz * dz * dz, 0.25);
+      const x = dx * k, y = dy * k, z = dz * k;
+      const nx = x * x * x, ny = y * y * y, nz = z * z * z;
+      const l = Math.hypot(nx, ny, nz) || 1;
+      v(x * .5, y * .5, z * .5, nx / l, ny / l, nz / l, j / N, 1 - i / M);
+    }
+  }
+  for (let i = 0; i < M; i++) for (let j = 0; j < N; j++) {
+    const a = i * (N + 1) + j, b = a + N + 1;
+    t(a, a + 1, b); t(a + 1, b + 1, b);   // wound outward
+  }
+});
+
+/* half sphere (dome) — caps, hats, hills */
+geoPart('dome', (v, t) => {
+  const RN = 9, SN = 24;
+  for (let r = 0; r <= RN; r++) {
+    const phi = (r / RN) * (Math.PI / 2), sp = Math.sin(phi), cp = Math.cos(phi);
+    for (let s = 0; s <= SN; s++) {
+      const th = (s / SN) * Math.PI * 2;
+      const x = sp * Math.cos(th), y = cp, z = sp * Math.sin(th);
+      v(x * .5, y * .5, z * .5, x, y, z);
+    }
+  }
+  for (let r = 0; r < RN; r++) for (let s = 0; s < SN; s++) {
+    const a = r * (SN + 1) + s, b = a + SN + 1;
+    t(a, a + 1, b); t(a + 1, b + 1, b);   // wound outward
+  }
+});
+
+/* ============================================================
+   Renderer
+   ============================================================ */
+const VS = `
+attribute vec3 aPos; attribute vec3 aNor; attribute vec2 aUV;
+uniform mat4 uVP, uM;
+uniform float uOutline;
+uniform vec3 uCam;
+uniform vec4 uUVRect;
+varying vec3 vN, vW;
+varying vec2 vUV;
+void main(){
+  vUV = aUV * uUVRect.xy + uUVRect.zw;
+  vec4 w = uM * vec4(aPos,1.0);
+  vec3 n = (uM * vec4(aNor,0.0)).xyz;
+  float l = length(n);
+  vN = n;
+  // Inverted hull: push the shell out along the world normal, draw back faces.
+  // The push is in metres, so it has to grow with distance or the line weight
+  // is ~10x heavier on the batter (10m) than on a right fielder (100m).
+  // uOutline is tuned at INK_REF; the clamp stops close-ups from going to
+  // hairlines and distant players from turning into ink blobs.
+  if (uOutline > 0.0 && l > 0.0001) {
+    float k = clamp(distance(uCam, w.xyz) / 11.0, 0.30, 3.6);
+    w.xyz += (n / l) * uOutline * k;
+  }
+  vW = w.xyz;
+  gl_Position = uVP * w;
+}`;
+
+const FS = `
+precision mediump float;
+varying vec3 vN, vW;
+varying vec2 vUV;
+uniform vec3 uColor, uLight, uSky, uGnd, uFog, uEye;
+uniform float uFogD, uUnlit, uAlpha, uUseTex;
+uniform sampler2D uTex;
+void main(){
+  vec3 base = uColor;
+  float a = uAlpha;
+  if (uUseTex > 0.5) {
+    vec4 t = texture2D(uTex, vUV);
+    if (t.a < 0.02) discard;          // the blank part of a face cell
+    base = t.rgb; a = t.a * uAlpha;
+  }
+  if (uUnlit > 0.5) { gl_FragColor = vec4(base, a); return; }
+  vec3 n = normalize(vN);
+  float d = dot(n, uLight);
+  // three soft cel bands keeps forms readable without looking flat
+  float s = smoothstep(-0.35, -0.05, d) * 0.22
+          + smoothstep(0.10, 0.30, d) * 0.30
+          + smoothstep(0.55, 0.75, d) * 0.22 + 0.52;
+  vec3 hemi = mix(uGnd, uSky, n.y * 0.5 + 0.5);
+  vec3 c = base * s * (0.80 + 0.42 * hemi);
+  float f = clamp(length(vW - uEye) / uFogD, 0.0, 1.0);
+  c = mix(c, uFog, f * f * 0.85);
+  gl_FragColor = vec4(c, a);
+}`;
+
+const R = {
+  gl: null, prog: null, u: {}, vp: m4(), _m: m4(), _t: m4(),
+  eye: [0, 0, 0], w: 1, h: 1, dpr: 1, inkW: 0,
+
+  init(canvas) {
+    const gl = canvas.getContext('webgl', { antialias: true, alpha: false });
+    if (!gl) return false;
+    this.gl = gl; this.canvas = canvas;
+    const mk = (type, src) => {
+      const s = gl.createShader(type); gl.shaderSource(s, src); gl.compileShader(s);
+      if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) console.error(gl.getShaderInfoLog(s));
+      return s;
+    };
+    const p = gl.createProgram();
+    gl.attachShader(p, mk(gl.VERTEX_SHADER, VS));
+    gl.attachShader(p, mk(gl.FRAGMENT_SHADER, FS));
+    gl.linkProgram(p);
+    if (!gl.getProgramParameter(p, gl.LINK_STATUS)) {
+      console.error('shader link failed: ' + gl.getProgramInfoLog(p));
+      return false;
+    }
+    gl.useProgram(p);
+    this.prog = p;
+    for (const n of ['uVP', 'uM', 'uColor', 'uLight', 'uSky', 'uGnd', 'uFog', 'uEye', 'uFogD', 'uUnlit', 'uAlpha', 'uOutline', 'uCam', 'uUseTex', 'uUVRect', 'uTex'])
+      this.u[n] = gl.getUniformLocation(p, n);
+
+    const vb = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, vb);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(GEO.pos), gl.STATIC_DRAW);
+    const ap = gl.getAttribLocation(p, 'aPos');
+    gl.enableVertexAttribArray(ap); gl.vertexAttribPointer(ap, 3, gl.FLOAT, false, 0, 0);
+
+    const nb = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, nb);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(GEO.nor), gl.STATIC_DRAW);
+    const an = gl.getAttribLocation(p, 'aNor');
+    gl.enableVertexAttribArray(an); gl.vertexAttribPointer(an, 3, gl.FLOAT, false, 0, 0);
+
+    const ub = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, ub);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(GEO.uv), gl.STATIC_DRAW);
+    const au = gl.getAttribLocation(p, 'aUV');
+    gl.enableVertexAttribArray(au); gl.vertexAttribPointer(au, 2, gl.FLOAT, false, 0, 0);
+
+    const ib = gl.createBuffer();
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ib);
+    gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(GEO.idx), gl.STATIC_DRAW);
+
+    // unit 0 always holds a valid texture, so sampling is defined even on the
+    // draws that ignore it
+    this.tex = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D, this.tex);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE,
+                  new Uint8Array([0, 0, 0, 0]));
+    gl.activeTexture(gl.TEXTURE0);
+    gl.uniform1i(this.u.uTex, 0);
+    gl.uniform1f(this.u.uUseTex, 0);
+    gl.uniform4f(this.u.uUVRect, 1, 1, 0, 0);
+
+    gl.enable(gl.DEPTH_TEST);
+    gl.enable(gl.CULL_FACE);
+    gl.clearColor(0.05, 0.08, 0.11, 1);
+    return true;
+  },
+
+  /* upload the face atlas (a canvas). Power-of-two, so it can be mipmapped —
+     without mips a distant fielder's face crawls with aliasing. */
+  upload(canvas) {
+    const gl = this.gl;
+    this.atlas = true;
+    gl.bindTexture(gl.TEXTURE_2D, this.tex);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, canvas);
+    gl.generateMipmap(gl.TEXTURE_2D);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  },
+
+  /* a textured decal: blended, and it does not write depth because it sits a
+     hair in front of a surface that already did */
+  decal(rect) {
+    const gl = this.gl;
+    if (rect) {
+      gl.uniform1f(this.u.uUseTex, 1);
+      gl.uniform4f(this.u.uUVRect, rect[0], rect[1], rect[2], rect[3]);
+      gl.enable(gl.BLEND);
+      gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+      gl.depthMask(false);
+    } else {
+      gl.uniform1f(this.u.uUseTex, 0);
+      gl.uniform4f(this.u.uUVRect, 1, 1, 0, 0);
+      gl.disable(gl.BLEND);
+      gl.depthMask(true);
+    }
+  },
+
+  resize() {
+    const c = this.canvas;
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const w = Math.round(c.clientWidth * dpr), h = Math.round(c.clientHeight * dpr);
+    if (c.width !== w || c.height !== h) { c.width = w; c.height = h; }
+    this.w = w; this.h = h; this.dpr = dpr;
+    this.gl.viewport(0, 0, w, h);
+  },
+
+  begin(cam, env) {
+    const gl = this.gl;
+    this.resize();
+    // on a tall screen a fixed vertical fov leaves almost no horizontal view,
+    // so widen it as the aspect ratio narrows
+    const aspect = this.w / this.h;
+    const fov = (cam.fov || 46) * clamp(1.12 / aspect, 1, 1.75);
+    const proj = mPerspective(m4(), fov * DEG, aspect, 0.35, 1100);
+    const view = mLookAt(m4(), cam.ex, cam.ey, cam.ez, cam.tx, cam.ty, cam.tz);
+    mMul(this.vp, proj, view);
+    this.eye = [cam.ex, cam.ey, cam.ez];
+    const bg = col(env.fog);
+    gl.clearColor(bg[0], bg[1], bg[2], 1);
+    gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+    gl.disable(gl.BLEND);
+    gl.depthMask(true);
+    gl.uniformMatrix4fv(this.u.uVP, false, this.vp);
+    gl.uniform3fv(this.u.uLight, env.light);
+    gl.uniform3fv(this.u.uSky, col(env.skyTint));
+    gl.uniform3fv(this.u.uGnd, col(env.gndTint));
+    gl.uniform3fv(this.u.uFog, bg);
+    gl.uniform3fv(this.u.uEye, this.eye);
+    gl.uniform3fv(this.u.uCam, this.eye);
+    gl.uniform1f(this.u.uFogD, env.fogDist);
+    gl.uniform1f(this.u.uUnlit, 0);
+    gl.uniform1f(this.u.uAlpha, 1);
+    gl.uniform1f(this.u.uOutline, 0);
+    this.inkW = 0;
+  },
+
+  /* ink line pass: call R.ink(w), draw the same parts again, then R.ink(0) */
+  ink(w) {
+    const gl = this.gl;
+    this.inkW = w || 0;
+    gl.uniform1f(this.u.uOutline, this.inkW);
+    gl.uniform1f(this.u.uUnlit, this.inkW > 0 ? 1 : 0);
+    gl.uniform1f(this.u.uAlpha, 1);
+    gl.cullFace(this.inkW > 0 ? gl.FRONT : gl.BACK);
+  },
+
+  /* draw one primitive with a full transform */
+  d(prim, x, y, z, rx, ry, rz, sx, sy, sz, c) {
+    const gl = this.gl, part = GEO.parts[prim];
+    mTRS(this._m, x, y, z, rx, ry, rz, sx, sy, sz);
+    gl.uniformMatrix4fv(this.u.uM, false, this._m);
+    gl.uniform3fv(this.u.uColor, this.inkW > 0 ? INK_COL : c);
+    gl.drawElements(gl.TRIANGLES, part.count, gl.UNSIGNED_SHORT, part.offset);
+  },
+
+  /* no rotation — the common case */
+  b(prim, x, y, z, sx, sy, sz, c) { this.d(prim, x, y, z, 0, 0, 0, sx, sy, sz, c); },
+
+  /* a primitive stretched between two points — limbs, bats, rails */
+  seg(prim, ax, ay, az, bx, by, bz, r, c) {
+    const dx = bx - ax, dy = by - ay, dz = bz - az;
+    const len = Math.hypot(dx, dy, dz) || 1e-4;
+    const rx = Math.acos(clamp(dy / len, -1, 1));
+    const ry = Math.atan2(dx, dz);
+    this.d(prim, (ax + bx) / 2, (ay + by) / 2, (az + bz) / 2, rx, ry, 0, r * 2, len, r * 2, c);
+  },
+
+  /* pre-baked matrix (static scenery) */
+  m(prim, mat, c) {
+    const gl = this.gl, part = GEO.parts[prim];
+    gl.uniformMatrix4fv(this.u.uM, false, mat);
+    gl.uniform3fv(this.u.uColor, c);
+    gl.drawElements(gl.TRIANGLES, part.count, gl.UNSIGNED_SHORT, part.offset);
+  },
+
+  unlit(on, alpha) {
+    const gl = this.gl;
+    gl.uniform1f(this.u.uUnlit, on ? 1 : 0);
+    gl.uniform1f(this.u.uAlpha, alpha === undefined ? 1 : alpha);
+    if (alpha !== undefined && alpha < 1) {
+      gl.enable(gl.BLEND);
+      gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+      gl.depthMask(false);
+    } else {
+      gl.disable(gl.BLEND); gl.depthMask(true);
+    }
+  },
+};
+
+const INK_COL = [0.09, 0.07, 0.06];
+
+/* soft contact shadow — a flat disc, drawn in a blended pass */
+const SHADOWS = [];
+function shadow(x, z, r, a) {
+  if (R.inkW > 0) return;                       // not during the outline pass
+  SHADOWS.push(x, z, r, a === undefined ? 0.3 : a);
+}
+function flushShadows(groundY) {
+  if (!SHADOWS.length) return;
+  R.unlit(true, 0.34);
+  const c = [0.05, 0.09, 0.06];
+  for (let i = 0; i < SHADOWS.length; i += 4) {
+    R.gl.uniform1f(R.u.uAlpha, SHADOWS[i + 3]);
+    R.b('disc', SHADOWS[i], groundY + 0.055, SHADOWS[i + 1], SHADOWS[i + 2] * 2, 1, SHADOWS[i + 2] * 2, c);
+  }
+  SHADOWS.length = 0;
+  R.unlit(false);
+}
+
+/* ============================================================
+   Audio — short synthesised blips, built on first user gesture
+   ============================================================ */
+const Snd = {
+  ctx: null, on: true,
+  boot() { if (!this.ctx) { try { this.ctx = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) { this.on = false; } } },
+  tone(freq, dur, type, gain, slideTo) {
+    if (!this.on || !this.ctx) return;
+    const t = this.ctx.currentTime;
+    const o = this.ctx.createOscillator(), g = this.ctx.createGain();
+    o.type = type || 'sine'; o.frequency.setValueAtTime(freq, t);
+    if (slideTo) o.frequency.exponentialRampToValueAtTime(slideTo, t + dur);
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(gain || 0.16, t + 0.012);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    o.connect(g); g.connect(this.ctx.destination);
+    o.start(t); o.stop(t + dur + 0.02);
+  },
+  noise(dur, gain, hz) {
+    if (!this.on || !this.ctx) return;
+    const t = this.ctx.currentTime, n = Math.floor(this.ctx.sampleRate * dur);
+    const buf = this.ctx.createBuffer(1, n, this.ctx.sampleRate), d = buf.getChannelData(0);
+    for (let i = 0; i < n; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / n);
+    const s = this.ctx.createBufferSource(); s.buffer = buf;
+    const f = this.ctx.createBiquadFilter(); f.type = 'bandpass'; f.frequency.value = hz || 900;
+    const g = this.ctx.createGain(); g.gain.value = gain || 0.1;
+    s.connect(f); f.connect(g); g.connect(this.ctx.destination); s.start(t);
+  },
+  hit(power) { this.tone(300 + power * 480, 0.11, 'square', 0.13, 120); this.noise(0.09, 0.1, 1800); },
+  miss() { this.noise(0.09, 0.06, 500); },
+  mitt() { this.noise(0.07, 0.09, 420); },
+  blip() { this.tone(760, 0.06, 'square', 0.05); },
+  good() { this.tone(660, 0.1, 'triangle', 0.11); setTimeout(() => this.tone(990, 0.16, 'triangle', 0.11), 95); },
+  bad()  { this.tone(300, 0.16, 'sawtooth', 0.07, 150); },
+  cheer(){ this.noise(0.9, 0.07, 700); this.tone(520, 0.5, 'triangle', 0.05, 780); },
+  horn() { this.tone(392, 0.30, 'square', 0.05); setTimeout(() => this.tone(330, 0.34, 'square', 0.05), 120); },
+  crash(){ this.noise(0.30, 0.14, 260); this.tone(150, 0.28, 'sawtooth', 0.10, 60); },
+  clang(){ this.tone(880, 0.16, 'square', 0.10, 320); this.noise(0.12, 0.09, 2400); },
+};
 /* GENERATED by tools/mesh2js.py — do not edit.
    Positions Int16 over each mesh's own box, normals Int8, indices
    Uint16. Re-run the script after changing a model or dropping a new
@@ -149,3 +779,998 @@ geoMesh('sal_pupil', [7.285e-06,1.305e-06,1.305e-06], [0,1.0725,-0.024575],
   'ssyAPgAAssyAPgAAssyAPgAAssyAPgAAssyAPgAAssyAPgAAssyAPgAAssyAPgAA+9C+OQAAus++OeoQssy+OesXq8m+OeoQaci+OQAAq8m+ORbvssy+ORXous++ORbvndQyLAAAS9IyLEAfsswyLDIsGccyLEAfx8QyLAAAGccyLMDgsswyLM7TS9IyLMDgCtfrFwAAA9TrF9UosszrF745YsXrF9UoWsLrFwAAYsXrFyvXsszrF0LGA9TrFyvX5NcAAAAAndQAADIssswAAIA+x8QAADIsgMEAAAAAx8QAAM7TsswAAIDBndQAAM7TCtcV6AAAA9QV6NUosswV6L45YsUV6NUoWsIV6AAAYsUV6CvXsswV6ELGA9QV6CvXndTO0wAAS9LO00AfsszO0zIsGcfO00Afx8TO0wAAGcfO08DgsszO087TS9LO08Dg+9BCxgAAus9CxuoQssxCxusXq8lCxuoQachCxgAAq8lCxhbvssxCxhXous9CxhbvssyAwQAAssyAwQAAssyAwQAAssyAwQAAssyAwQAAssyAwQAAssyAwQAAssyAwQAAssyAPgAAssyAwQAATjOAPgAATjOAPgAATjOAPgAATjOAPgAATjOAPgAATjOAPgAATjOAPgAATjOAPgAAlze+OQAAVTa+OeoQTjO+OesXRjC+OeoQBS++OQAARjC+ORbvTjO+ORXoVTa+ORbvOTsyLAAA5zgyLEAfTjMyLDIstS0yLEAfYysyLAAAtS0yLMDgTjMyLM7T5zgyLMDgpj3rFwAAnjrrF9UoTjPrF745/SvrF9Uo9ijrFwAA/SvrFyvXTjPrF0LGnjrrFyvXgD4AAAAAOTsAADIsTjMAAIA+YysAADIsHCgAAAAAYysAAM7TTjMAAIDBOTsAAM7Tpj0V6AAAnjoV6NUoTjMV6L45/SsV6NUo9igV6AAA/SsV6CvXTjMV6ELGnjoV6CvXOTvO0wAA5zjO00AfTjPO0zIstS3O00AfYyvO0wAAtS3O08DgTjPO087T5zjO08DglzdCxgAAVTZCxuoQTjNCxusXRjBCxuoQBS9CxgAARjBCxhbvTjNCxhXoVTZCxhbvTjOAwQAATjOAwQAATjOAwQAATjOAwQAATjOAwQAATjOAwQAATjOAwQAATjOAwQAATjOAPgAATjOAwQAA',
   'GXwKCnwZ9nwZ53wK53z29nznCnznGXz2OHIJIXIu93I40nIhyHL333LSCXLILnLfXFcHPFdG+Vdculc8pFf5xFe6B1ekRlfEdi8EUS9W/C92qi9Rii/8ry+qBC+KVi+vfwAAWgBaAAB/pgBagQAApgCmAACBWgCmdtH8VtFRBNF2r9FWitEEqtGv/NGKUdGqXKn5Rqk8B6lcxKlGpKkHuqnE+amkPKm6OI73Lo4hCY44344uyI4J0o7f947IIY7SGYT2GYQKCoQZ9oQZ54QK54T29oTnCoTnAAAAAAAAGXwKCnwZ9nwZ53wK53z29nznCnznGXz2OHIJIXIu93I40nIhyHL333LSCXLILnLfXFcHPFdG+Vdculc8pFf5xFe6B1ekRlfEdi8EUS9W/C92qi9Rii/8ry+qBC+KVi+vfwAAWgBaAAB/pgBagQAApgCmAACBWgCmdtH8VtFRBNF2r9FWitEEqtGv/NGKUdGqXKn5Rqk8B6lcxKlGpKkHuqnE+amkPKm6OI73Lo4hCY44344uyI4J0o7f947IIY7SGYT2GYQKCoQZ9oQZ54QK54T29oTnCoTnAAAAAAAA',
   'AAABAAkAAAAJAAgAAQACAAoAAQAKAAkAAgADAAsAAgALAAoAAwAEAAwAAwAMAAsABAAFAA0ABAANAAwABQAGAA4ABQAOAA0ABgAHAA8ABgAPAA4ABwAAAAgABwAIAA8ACAAJABEACAARABAACQAKABIACQASABEACgALABMACgATABIACwAMABQACwAUABMADAANABUADAAVABQADQAOABYADQAWABUADgAPABcADgAXABYADwAIABAADwAQABcAEAARABkAEAAZABgAEQASABoAEQAaABkAEgATABsAEgAbABoAEwAUABwAEwAcABsAFAAVAB0AFAAdABwAFQAWAB4AFQAeAB0AFgAXAB8AFgAfAB4AFwAQABgAFwAYAB8AGAAZACEAGAAhACAAGQAaACIAGQAiACEAGgAbACMAGgAjACIAGwAcACQAGwAkACMAHAAdACUAHAAlACQAHQAeACYAHQAmACUAHgAfACcAHgAnACYAHwAYACAAHwAgACcAIAAhACkAIAApACgAIQAiACoAIQAqACkAIgAjACsAIgArACoAIwAkACwAIwAsACsAJAAlAC0AJAAtACwAJQAmAC4AJQAuAC0AJgAnAC8AJgAvAC4AJwAgACgAJwAoAC8AKAApADEAKAAxADAAKQAqADIAKQAyADEAKgArADMAKgAzADIAKwAsADQAKwA0ADMALAAtADUALAA1ADQALQAuADYALQA2ADUALgAvADcALgA3ADYALwAoADAALwAwADcAMAAxADkAMAA5ADgAMQAyADoAMQA6ADkAMgAzADsAMgA7ADoAMwA0ADwAMwA8ADsANAA1AD0ANAA9ADwANQA2AD4ANQA+AD0ANgA3AD8ANgA/AD4ANwAwADgANwA4AD8AOAA5AEEAOABBAEAAOQA6AEIAOQBCAEEAOgA7AEMAOgBDAEIAOwA8AEQAOwBEAEMAPAA9AEUAPABFAEQAPQA+AEYAPQBGAEUAPgA/AEcAPgBHAEYAPwA4AEAAPwBAAEcASAABAAAASAACAAEASAADAAIASAAEAAMASAAFAAQASAAGAAUASAAHAAYASAAAAAcASQBAAEEASQBBAEIASQBCAEMASQBDAEQASQBEAEUASQBFAEYASQBGAEcASQBHAEAASgBLAFMASgBTAFIASwBMAFQASwBUAFMATABNAFUATABVAFQATQBOAFYATQBWAFUATgBPAFcATgBXAFYATwBQAFgATwBYAFcAUABRAFkAUABZAFgAUQBKAFIAUQBSAFkAUgBTAFsAUgBbAFoAUwBUAFwAUwBcAFsAVABVAF0AVABdAFwAVQBWAF4AVQBeAF0AVgBXAF8AVgBfAF4AVwBYAGAAVwBgAF8AWABZAGEAWABhAGAAWQBSAFoAWQBaAGEAWgBbAGMAWgBjAGIAWwBcAGQAWwBkAGMAXABdAGUAXABlAGQAXQBeAGYAXQBmAGUAXgBfAGcAXgBnAGYAXwBgAGgAXwBoAGcAYABhAGkAYABpAGgAYQBaAGIAYQBiAGkAYgBjAGsAYgBrAGoAYwBkAGwAYwBsAGsAZABlAG0AZABtAGwAZQBmAG4AZQBuAG0AZgBnAG8AZgBvAG4AZwBoAHAAZwBwAG8AaABpAHEAaABxAHAAaQBiAGoAaQBqAHEAagBrAHMAagBzAHIAawBsAHQAawB0AHMAbABtAHUAbAB1AHQAbQBuAHYAbQB2AHUAbgBvAHcAbgB3AHYAbwBwAHgAbwB4AHcAcABxAHkAcAB5AHgAcQBqAHIAcQByAHkAcgBzAHsAcgB7AHoAcwB0AHwAcwB8AHsAdAB1AH0AdAB9AHwAdQB2AH4AdQB+AH0AdgB3AH8AdgB/AH4AdwB4AIAAdwCAAH8AeAB5AIEAeACBAIAAeQByAHoAeQB6AIEAegB7AIMAegCDAIIAewB8AIQAewCEAIMAfAB9AIUAfACFAIQAfQB+AIYAfQCGAIUAfgB/AIcAfgCHAIYAfwCAAIgAfwCIAIcAgACBAIkAgACJAIgAgQB6AIIAgQCCAIkAggCDAIsAggCLAIoAgwCEAIwAgwCMAIsAhACFAI0AhACNAIwAhQCGAI4AhQCOAI0AhgCHAI8AhgCPAI4AhwCIAJAAhwCQAI8AiACJAJEAiACRAJAAiQCCAIoAiQCKAJEAkgBLAEoAkgBMAEsAkgBNAEwAkgBOAE0AkgBPAE4AkgBQAE8AkgBRAFAAkgBKAFEAkwCKAIsAkwCLAIwAkwCMAI0AkwCNAI4AkwCOAI8AkwCPAJAAkwCQAJEAkwCRAIoA');   // 148 verts, 288 tris
+/* ============================================================
+   30-actors.js — deformed animal players, bats, gloves, the ball
+   ============================================================ */
+'use strict';
+
+/* local(character) -> world, given a yaw frame */
+function yawFrame(x, z, ry) { return { x, z, ry, c: Math.cos(ry), s: Math.sin(ry), t: 0 }; }
+function L2W(f, lx, lz) { return [f.x + lx * f.c + lz * f.s, f.z - lx * f.s + lz * f.c]; }
+
+/* f.t tips the whole body about its hips — used when a car flattens someone */
+function part(f, prim, lx, ly, lz, sx, sy, sz, c, rx, rz) {
+  let Y = ly, Z = lz;
+  if (f.t) {
+    const dy = ly - f.pivot;
+    Y = f.pivot + dy * f.ct - lz * f.st;
+    Z = dy * f.st + lz * f.ct;
+  }
+  const [wx, wz] = L2W(f, lx, Z);
+  R.d(prim, wx, Y, wz, (rx || 0) + f.t, f.ry, rz || 0, sx, sy, sz, c);
+}
+
+/* a limb hanging from a joint, rotated by rx (swing) and rz (splay) */
+function limb(f, jx, jy, jz, rx, rz, len, rad, c, endC, endS, flat) {
+  const cz = Math.cos(rz), sz = Math.sin(rz), cx = Math.cos(rx), sx = Math.sin(rx);
+  const dx = sz, dy = -cx * cz, dz = -sx * cz;
+  part(f, 'cyl', jx + dx * len * 0.5, jy + dy * len * 0.5, jz + dz * len * 0.5,
+       rad * 2, len, rad * 2, c, rx, rz);
+  if (endC === null) return [jx + dx * len, jy + dy * len, jz + dz * len];
+  if (endC) {
+    const s = endS || rad * 2.5;
+    if (flat) part(f, 'rbox', jx + dx * len, jy + dy * len - s * 0.08, jz + dz * len + s * 0.16,
+                   s * 0.92, s * 0.66, s * 1.34, endC, rx, rz);
+    else part(f, 'sphere', jx + dx * len, jy + dy * len, jz + dz * len, s, s * 0.9, s, endC);
+  }
+  return [jx + dx * len, jy + dy * len, jz + dz * len];
+}
+
+/* Two-bone IK in world space: the hand lands exactly on the target, so whatever
+   it is holding stays held. Cartoon arms stretch rather than fall short. */
+function armIK(sx, sy, sz, hx, hy, hz, L1, L2, pole, rad, c, handC) {
+  let dx = hx - sx, dy = hy - sy, dz = hz - sz;
+  let d = Math.hypot(dx, dy, dz) || 1e-4;
+  if (d > (L1 + L2) * 0.995) {
+    // cartoon arms give a little, but never more than a third of their length;
+    // past that the hand is pulled in rather than the limb turned into a pole
+    const need = d / (L1 + L2);
+    const give = Math.min(need, 1.32);
+    L1 *= give * 1.02; L2 *= give * 1.02;
+    if (need > 1.32) {
+      const k = ((L1 + L2) * 0.995) / d;
+      hx = sx + dx * k; hy = sy + dy * k; hz = sz + dz * k;
+      dx *= k; dy *= k; dz *= k; d *= k;
+    }
+  }
+  const ux = dx / d, uy = dy / d, uz = dz / d;
+  const a = clamp((d * d + L1 * L1 - L2 * L2) / (2 * d), -L1, L1);
+  const h = Math.sqrt(Math.max(0, L1 * L1 - a * a));
+  // project the pole hint onto the plane perpendicular to the shoulder->hand axis
+  let px = pole[0], py = pole[1], pz = pole[2];
+  const dot = px * ux + py * uy + pz * uz;
+  px -= ux * dot; py -= uy * dot; pz -= uz * dot;
+  let pl = Math.hypot(px, py, pz);
+  if (pl < 1e-4) { px = -ux * uy; py = 1 - uy * uy; pz = -uz * uy; pl = Math.hypot(px, py, pz) || 1; }
+  px /= pl; py /= pl; pz /= pl;
+  const ex = sx + ux * a + px * h, ey = sy + uy * a + py * h, ez = sz + uz * a + pz * h;
+  R.seg('cyl', sx, sy, sz, ex, ey, ez, rad, c);
+  R.seg('cyl', ex, ey, ez, hx, hy, hz, rad * 0.9, c);
+  R.b('sphere', ex, ey, ez, rad * 2, rad * 2, rad * 2, c);
+  if (handC !== null) R.b('sphere', hx, hy, hz, rad * 2.2, rad * 2.1, rad * 2.2, handC || c);
+  return [hx, hy, hz];
+}
+
+/* ---------- animal species ---------- */
+/* hw/hh/hd scale the head; muz is the size of the muzzle; brow adds the drawn
+   eyebrow strokes; earR/earX/earY place the ears. */
+const ANIMALS = {
+  // Stage 3. `mesh` swaps the head, the muzzle, the ears and the torso for
+  // shells baked by tools/mesh2js.py, so the skull and the snout are one
+  // surface and the jersey has shoulders. Everything else — arms, legs, cap,
+  // the four expressions — still comes from the shared rig. The head numbers
+  // the other mammals carry (hw/muz/earR/eyeX) are the mesh's business now.
+  bear:    { ink: 0.022, mesh: 'bear', tail: 'nub', tailZ: -0.235,
+             fur: '#96683F', fur2: '#DFC49B' },
+
+  // drawn from the reference sketch: tall straight ears, round head, dot eyes
+  rabbit:  { ink: 0.022, ear: 'long', fur: '#F4F0E8', fur2: '#F6D7DA', tail: 'puff',
+             head: 'sphere', hw: 1.08, hh: 1.06, hd: 0.98, capY: -0.075,
+             buttons: 1,                   // no muzzle — the nose is drawn on
+             earR: 0.152, earX: 0.145, earY: 0.62, earLen: 0.86, earTilt: 0.10,
+             earIn: '#F6D7DA',
+             dotEyes: 1, eyeX: 0.150, eyeW: 0.086, eyeH: 0.098 },
+
+  cat:     { ink: 0.022, ear: 'point', fur: '#E0A44F', fur2: '#F7EDDD', tail: 'long',
+             head: 'rbox', hw: 1.10, hh: 0.98, hd: 0.94,
+             muz: [0.46, 0.255, 0.26], muzY: -0.125, muzZ: 0.245,
+             noseR: 0.085, noseC: '#C2705E', whisk: 1,
+             earR: 0.255, earX: 0.235, earY: 0.36, earT: 0.26,
+             eyeX: 0.156, eyeW: 0.145, eyeH: 0.100, eyeTilt: 0.16 },
+
+  frog:    { ink: 0.022, ear: 'toad', fur: '#7DC163', fur2: '#E8F0C8', tail: 'none',
+             head: 'rbox', hw: 1.24, hh: 0.86, hd: 1.02,
+             noFaceEyes: 1, mouth: 1,
+             earR: 0.285, earX: 0.275, earY: 0.13, earZ: 0.24 },
+
+  penguin: { ink: 0.022, ear: 'none', fur: '#2E3B4A', fur2: '#F4F1E6', tail: 'nub',
+             beak: '#F2A93B', head: 'sphere', hw: 1.02, hh: 1.08, hd: 0.98,
+             facePatch: [0.54, 0.58, 0.30],
+             eyeX: 0.138, eyeW: 0.104, eyeH: 0.104 },
+
+  fox:     { ink: 0.022, ear: 'point', fur: '#D96F3A', fur2: '#F6EFE2', tail: 'bushy',
+             head: 'rbox', hw: 1.04, hh: 0.96, hd: 1.08,
+             muz: [0.33, 0.235, 0.46], muzY: -0.115, muzZ: 0.30, noseR: 0.082,
+             cheek: 0.21, cheekC: '#F6EFE2',
+             earR: 0.275, earX: 0.255, earY: 0.38, earT: 0.22, earTip: '#3C2A20',
+             eyeX: 0.156, eyeW: 0.140, eyeH: 0.098, eyeTilt: 0.20 },
+
+  // Drawn as the real animal rather than a round cartoon of one, and given no
+  // face cell, so they never change expression.
+  salmon:  { ink: 0.013, body: 'fish', ear: 'none', tail: 'none', noHat: 1, shadow: 1.5,
+             noGlove: 1, noBat: 1,
+             fur: '#B4C2CB', fur2: '#EFF2F0', back: '#3C5E71', blush: '#B0524C',
+             fin: '#7F909B', spot: '#22323C', jaw: '#9DAAB2',
+             head: 'sphere', hw: 0.60, hh: 0.78, hd: 1.30 },
+
+  beetle:  { ink: 0.013, body: 'beetle', ear: 'none', tail: 'none', capY: -0.13, capS: 0.46,
+             noGlove: 1, noBat: 1,
+             fur: '#3E2717', fur2: '#5C3C22', horn: '#20130A', leg: '#281A0E',
+             head: 'rbox', hw: 0.66, hh: 0.50, hd: 0.66 },
+
+  panda:   { ink: 0.022, ear: 'round', fur: '#F0EDE6', fur2: '#2C3138', tail: 'nub', patch: 1,
+             head: 'rbox', hw: 1.12, hh: 1.04, hd: 0.98,
+             muz: [0.44, 0.28, 0.28], muzY: -0.13, muzZ: 0.24, noseR: 0.10,
+             earR: 0.25, earX: 0.32, earY: 0.315, earD: 0.60, earC: '#2C3138',
+             eyeX: 0.166, eyeW: 0.135, eyeH: 0.110 },
+
+  hippo:   { ink: 0.022, ear: 'round', fur: '#9E86C4', fur2: '#D8C9EC', tail: 'nub', big: 1,
+             head: 'rbox', hw: 1.18, hh: 0.92, hd: 1.02,
+             muz: [0.62, 0.36, 0.38], muzY: -0.115, muzZ: 0.24, noseR: 0.072, nostril: 1,
+             earR: 0.165, earX: 0.34, earY: 0.30, earD: 0.60,
+             eyeX: 0.186, eyeW: 0.115, eyeH: 0.095 },
+};
+
+const EYE = '#22282F', SHINE = '#FFFFFF';
+
+/* ============================================================
+   Face atlas — the faces are drawn as art into a texture rather
+   than assembled out of spheres. 8 cells across x 8 down, 128px
+   each: row = species, cols 0-3 = the head (eyes, brows, cheeks),
+   cols 4-7 = the muzzle (nose, mouth), one column per expression.
+   ============================================================ */
+const FACE_N = 8, FACE_PX = 128;
+const FACE_ORDER = ['bear', 'rabbit', 'cat', 'frog', 'penguin', 'fox', 'panda', 'hippo'];
+const EXPR = { idle: 0, focus: 1, happy: 2, down: 3 };
+
+/* eye/nose/mouth art per species, in 0..1 of a cell, y measured from the top */
+const FACES = {
+  bear:    { eye: 'round',  eyeX: 0.190, eyeY: 0.340, eyeR: 0.086, brow: '#5B3E24',
+             nose: 'tri',   noseC: '#3A2A22', noseY: 0.300, noseR: 0.150, mouth: 'w' },
+  // the rabbit has no muzzle at all, so its nose and mouth go on the head
+  rabbit:  { eye: 'dot',    eyeX: 0.200, eyeY: 0.355, eyeR: 0.062, onHead: 1,
+             nose: 'dot',   noseC: '#4A3438', noseY: 0.655, noseR: 0.050, mouth: 'w',
+             mouthC: '#4A3438', mouthY: 0.745, mouthW: 0.085 },
+  cat:     { eye: 'almond', eyeX: 0.205, eyeY: 0.355, eyeR: 0.092, tilt: 0.16, whisk: '#B0895A',
+             nose: 'tri',   noseC: '#C2705E', noseY: 0.295, noseR: 0.140, mouth: 'w' },
+  frog:    { eye: 'none',   headMouth: 'wide', mouthC: '#3E6B33' },
+  penguin: { eye: 'bead',   eyeX: 0.250, eyeY: 0.300, eyeR: 0.076, onPatch: 1 },
+  fox:     { eye: 'almond', eyeX: 0.205, eyeY: 0.350, eyeR: 0.084, tilt: 0.20,
+             nose: 'tri',   noseC: '#3C2A20', noseY: 0.300, noseR: 0.175, mouth: 'w',
+             mouthY: 0.560, mouthW: 0.200 },
+  panda:   { eye: 'round',  eyeX: 0.215, eyeY: 0.345, eyeR: 0.076,
+             nose: 'tri',   noseC: '#2C3138', noseY: 0.295, noseR: 0.140, mouth: 'w' },
+  hippo:   { eye: 'round',  eyeX: 0.245, eyeY: 0.360, eyeR: 0.062,
+             nose: 'nostril', noseC: '#6B5487', noseY: 0.300, noseR: 0.095, mouth: 'line' },
+};
+
+function fStroke(g, c, w) { g.strokeStyle = c; g.lineWidth = w; g.lineCap = 'round'; g.lineJoin = 'round'; }
+
+/* one eye, centred on (x,y). s is -1 for the reader's left eye, +1 the right */
+function drawEye(g, F, exp, x, y, s) {
+  const r = F.eyeR, tilt = (F.tilt || 0) * s;
+  if (exp === EXPR.happy) {                       // a closed upward arc
+    fStroke(g, EYE, r * 0.52);
+    g.beginPath();
+    g.arc(x, y + r * 0.42, r * 0.98, Math.PI * 1.12, Math.PI * 1.88);
+    g.stroke();
+    return;
+  }
+  const squash = exp === EXPR.focus ? 0.74 : exp === EXPR.down ? 0.58 : 1;
+  const drop = exp === EXPR.down ? r * 0.20 : 0;
+  g.save();
+  g.translate(x, y + drop);
+  g.rotate(tilt);
+  g.fillStyle = EYE;
+  g.beginPath();
+  g.ellipse(0, 0, r, r * (F.eye === 'almond' ? 1.06 : 1) * squash, 0, 0, Math.PI * 2);
+  g.fill();
+  if (exp !== EXPR.down) {                        // catchlight
+    const k = F.eye === 'dot' || F.eye === 'bead' ? 0.22 : 0.30;
+    g.fillStyle = SHINE;
+    g.beginPath();
+    g.ellipse(r * 0.28, -r * 0.32 * squash, r * k, r * k * squash, 0, 0, Math.PI * 2);
+    g.fill();
+  }
+  g.restore();
+}
+
+/* the brow stroke: level when idle, driven in when focused, up at the outer
+   end when dejected — it carries most of the expression */
+function drawBrow(g, F, exp, x, y, s, col) {
+  if (exp === EXPR.happy) return;
+  const r = F.eyeR, w = r * 1.55, lift = exp === EXPR.focus ? r * 0.62 : r * 1.05;
+  const inner = exp === EXPR.focus ? r * 0.46 : exp === EXPR.down ? -r * 0.34 : 0;
+  fStroke(g, col, r * 0.40);
+  g.beginPath();
+  g.moveTo(x - s * w * 0.5, y - lift - inner);
+  g.quadraticCurveTo(x, y - lift - inner * 0.45 - r * 0.18, x + s * w * 0.5, y - lift + inner * 0.30);
+  g.stroke();
+}
+
+function drawHeadCell(g, F, exp) {
+  if (F.eye !== 'none') {
+    for (const s of [-1, 1]) drawEye(g, F, exp, 0.5 + s * F.eyeX, F.eyeY, s);
+    if (F.brow) for (const s of [-1, 1]) drawBrow(g, F, exp, 0.5 + s * F.eyeX, F.eyeY, s, F.brow);
+  }
+  if (F.whisk) {
+    fStroke(g, F.whisk, 0.013);
+    for (const s of [-1, 1]) for (let i = 0; i < 3; i++) {
+      const y = 0.50 + (i - 1) * 0.055;
+      g.beginPath();
+      g.moveTo(0.5 + s * 0.20, y);
+      g.quadraticCurveTo(0.5 + s * 0.36, y - 0.02 + (i - 1) * 0.02,
+                         0.5 + s * 0.49, y - 0.05 + (i - 1) * 0.05);
+      g.stroke();
+    }
+  }
+  if (F.nose && F.onHead) drawSnout(g, F, exp);
+  if (F.headMouth === 'wide') {                   // the frog's grin spans the head
+    const y = 0.60;
+    fStroke(g, F.mouthC, 0.036);
+    g.beginPath();
+    if (exp === EXPR.down) { g.moveTo(0.16, y + 0.09); g.quadraticCurveTo(0.5, y - 0.05, 0.84, y + 0.09); }
+    else if (exp === EXPR.happy) { g.moveTo(0.14, y - 0.07); g.quadraticCurveTo(0.5, y + 0.16, 0.86, y - 0.07); }
+    else { g.moveTo(0.16, y - 0.02); g.quadraticCurveTo(0.5, y + 0.10, 0.84, y - 0.02); }
+    g.stroke();
+  }
+}
+
+function drawSnout(g, F, exp) {
+  const nx = 0.5, ny = F.noseY, nr = F.noseR;
+  g.fillStyle = F.noseC;
+  if (F.nose === 'tri') {                         // a rounded triangle, point down
+    const w = nr, h = nr * 0.80;
+    g.beginPath();
+    g.moveTo(nx - w, ny - h * 0.55);
+    g.quadraticCurveTo(nx, ny - h * 0.95, nx + w, ny - h * 0.55);
+    g.quadraticCurveTo(nx + w * 0.55, ny + h * 0.75, nx, ny + h);
+    g.quadraticCurveTo(nx - w * 0.55, ny + h * 0.75, nx - w, ny - h * 0.55);
+    g.fill();
+  } else if (F.nose === 'nostril') {
+    for (const s of [-1, 1]) {
+      g.beginPath();
+      g.ellipse(nx + s * nr * 1.5, ny, nr * 0.52, nr * 0.72, 0, 0, Math.PI * 2);
+      g.fill();
+    }
+  } else {
+    g.beginPath(); g.ellipse(nx, ny, nr, nr * 0.82, 0, 0, Math.PI * 2); g.fill();
+  }
+
+  const my = F.mouthY || 0.520, mw = F.mouthW || 0.180, mc = F.mouthC || F.noseC;
+  fStroke(g, mc, 0.028);
+  if (F.mouth === 'line') {
+    g.beginPath();
+    if (exp === EXPR.happy) { g.moveTo(nx - mw, my); g.quadraticCurveTo(nx, my + mw * 0.55, nx + mw, my); }
+    else if (exp === EXPR.down) { g.moveTo(nx - mw, my + mw * 0.40); g.quadraticCurveTo(nx, my - mw * 0.25, nx + mw, my + mw * 0.40); }
+    else { g.moveTo(nx - mw, my); g.lineTo(nx + mw, my); }
+    g.stroke();
+    return;
+  }
+  // the default: a stem down from the nose, splitting into two lobes
+  g.beginPath(); g.moveTo(nx, ny + nr * 0.72); g.lineTo(nx, my - mw * 0.30); g.stroke();
+  if (exp === EXPR.happy) {                       // open, filled
+    g.fillStyle = mc;
+    g.beginPath();
+    g.moveTo(nx - mw, my - mw * 0.22);
+    g.quadraticCurveTo(nx, my + mw * 1.15, nx + mw, my - mw * 0.22);
+    g.quadraticCurveTo(nx, my + mw * 0.10, nx - mw, my - mw * 0.22);
+    g.fill();
+    return;
+  }
+  for (const s of [-1, 1]) {
+    g.beginPath();
+    if (exp === EXPR.down) {
+      g.moveTo(nx, my + mw * 0.34);
+      g.quadraticCurveTo(nx + s * mw * 0.52, my + mw * 0.20, nx + s * mw, my - mw * 0.22);
+    } else if (exp === EXPR.focus) {
+      g.moveTo(nx, my - mw * 0.10);
+      g.lineTo(nx + s * mw * 0.86, my - mw * 0.10);
+    } else {
+      g.moveTo(nx, my - mw * 0.18);
+      g.quadraticCurveTo(nx + s * mw * 0.55, my + mw * 0.42, nx + s * mw, my - mw * 0.08);
+    }
+    g.stroke();
+  }
+}
+
+/* built once at boot; nothing here runs per frame */
+function drawMuzCell(g, F, exp) { if (F.nose && !F.onHead) drawSnout(g, F, exp); }
+
+function buildFaceAtlas() {
+  const S = FACE_PX, cv = document.createElement('canvas');
+  cv.width = cv.height = FACE_N * S;
+  const g = cv.getContext('2d');
+  FACE_ORDER.forEach((name, row) => {
+    const F = FACES[name];
+    if (!F) return;
+    for (let e = 0; e < 4; e++) {
+      for (const cell of [[e, drawHeadCell], [e + 4, drawMuzCell]]) {
+        g.save();
+        g.translate(cell[0] * S, row * S);
+        g.beginPath(); g.rect(0, 0, S, S); g.clip();
+        g.scale(S, S);
+        cell[1](g, F, e);
+        g.restore();
+      }
+    }
+  });
+  return cv;
+}
+
+/* Hand-drawn cells, baked from a scan by tools/face-lab.html and pasted in
+   here as PNG data URIs. The key is 'species:cell', where cell 0-3 is the head
+   and 4-7 the muzzle, one per expression — the same numbering as the atlas.
+   A cell listed here replaces the drawn-in-code one; everything else is
+   untouched. */
+const FACE_SCANS = {
+  'rabbit:0': 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAIAAAACACAYAAADDPmHLAAAJH0lEQVR4Aeyda4wbVxXHzxlvAqlKILRKKI0SP7brhxJ701SkpYCAD6gIAYU2QfRDiFSkVoLwCGpARYVSSgUtSiWKEB9AVVUhRPcDBRVEhUQj+qFV0bYeE7C3u2tvxSr0LbXpI23Wc3vuxrPxTmbsceyduXfusebuvXPvnXvP+Z/fPDxejy3gl9EKMABGhx+AAWAADFfAcPf5CMAAGK6A4e7zEYABMFwBQ9133eYjgKuEoTkDYGjgXbcZAFcJQ3MGwNDAu24zAK4ShuYMgKGBd91mAFwlDM0ZAMMC73WXAfAqYtg6A2BYwL3uMgBeRQxbZwAMC7jXXQbAq4hh6wyAYQH3ussAeBUxbJ0BMCTgQW4yAEHKGFLPABgS6CA3GYAgZQypZwAMCXSQmwxAkDKG1DMAhgQ6yE0GIEgZQ+oZgIQHup97DEA/hRLezgAkPMD93GMA+imU8HYGIOEB7uceA9BPoYS3MwAJD3A/9xiAfgolvJ0BSGiAw7rFAIRVKqH9tAOgVCqdP16Y/HgmX/6cTNt27tykYmzGx/dszJTKHx0v7SqpaJ9rk0YA7E3liuXbTzrrTjggHkHEPyGlsVPWy9l85Y+uQ3HnW7desSFTLF/vjJ2cRQf/6TjOf7KFSituu4Lm1waAbP7prwiB3/d1BOHqXLHyB9+2CCvT6fS717/njSMo8Dc07WZK7pLOFMovpovly90KVXItAMgVdu4WCP7B7ygpBOzLFisPdFZjyVIbNu4DATf6TY6AF1gCH/Vri7NOeQDkOV5A6ggCZPsKJWCv7N+33xp0yBYqXxQC7+sz9Fi6MJnu0yfSZuUBSC2lLgMQHwurytjb1tVh+46qX2bHji0A+E0I8UKES0J0i6yLFdlM5zqR47x3kE0FiosG6T+KvriUokN7SEjpMDGKOYPGGLReeQAsy1oaxCkEHBuk/7B9t9JVP40Req8mQF+l/sosygMwX68+OIhaCPDcIP2H7bu4+Nibg4xhgfXSIP3Xuq/yACwLgDC1nOv/Z3HblvcpdU9ACwCadXsfvQ3cT/F/nVLvBXGga4beg4189YGjR48OdEobuQWeAbUAQNrcqtv3p9pOGRCekOtByRGiGtS2hvV3hxm73U7JG0RhukbWRxsApCKzs/9uWqfENbIckBa2f2DTPwLa1qy62bAPOSiu6DmBgEefmX2y3rNPDI1aASD1mZurLVL+HUp+y8G4DrEL9drjgDhBdwLlReupFePoiEXv/X/QnJn4xEqdQgXtAJDa0R53xFqyuu+1y+o5qn9IFuJKzXp1tjljf4HsWE8Jl1Pd3jNft38MMNVeS7vOdWwtAZDOzs099UIbxz6IgAdoz/sMiR36vbjcntNpBbQFQJr/TH36//ON6n205/1VrnMaXAGtARjcXd7CqwAD4FXEsHUGwLCAe91lALyKGLbOABgWcK+7DIBXEc3WhzWXARhWQc23ZwA0D+Cw5jMAwyqo+fYMgOYBHNZ8BmBYBTXfngHQPIDDms8ADKug5tszAJoGcFRmMwCjUlLTcRgATQM3KrMZgFEpqek4xgOQK1QOZgsVQWk2my+H+vduTWPta3ZiAZCPZ/H1uKsyM7GrIgB+0akaB8Rvhdmu0z8RWSIByOYrN8rHs2QL5X/l8pM3+UVqPD/5ebScR8D7ajuveKuSvJ44AJYfwIBw8HTQ8DKB4k7v42Pko1ocFLdQn02Uupe33n/+u5T78ka3gaMuJw6AhUZ1gURqUlpZhHx8zOnzvDzXC0vgY9S4m1L38l86BVwzPT195ksd3a2KlEdtRuIAkALR3v0TmYdNdB3wN9rm+ma9+pew2ySlXyIBWP6aFojrwgRJgLip1bA/fXqbMFskq08iAZAhajZqvweEQ7LsmwQ86ABc1WrUfu7bbkhlYgGQ8WvW7bvp8H6PLHcnBLxDfodvoWE/3F1vYjnRAMiAthr2NxDFl2XZTXTYv8Atm54nHoBOgI9R/iQld7nBLZieGwFAW6TkHn9pd7Cz9LZwvFheVdfdbkrZCAAQ2lf6BdQROD0xUbnYr021urWyJ/EAZCcqH6GLvm8HCbhkwWKuMDnQfYOgsXSsTzwAdNvvTgrMhZQCF7oovDlbKP8usEOngT5XuJI+PbwnU6jMZ+kUQuneTpO2WaIByBXL+2nv9zy8CWv+0cLrKKCCPkj6abpU3pPLlTfLH6fYXtx9Ubo0OZkplG+mzxXup7eVX0eAbGeMA5mJyoc6ZS0zbQHYfsmlxV6K0556gxB4q9sHAf+MY+1tzUa10mzYiAC/dNtW5QjftRx8XKzD5+SPU6TE0nHLEU8hoDxNZFb1lSspca3MdE1aAkDn7A+nxtp02K7cmytW6FO9vSk3APKijvbin9Ge+muqWwnYUtv63vyxY/+juuVlvmEfXCdObqS9+q7linP8Qx8srYx5jkPEupmWAAhonwAhCqTcASHgtmzh6Wcz+fK1mfyOMl3UHaJbwIeprXt5yO8ZfTMzMyda9dphOhyE/6EJAVUAcatA/NTbr513HoF01p1G0OilJQDrYcNxAfhil84XIuIUYsqmukOUziwCfkuH/M+eqTi7NF+3v0R9UCDcTq0vIMBxmaj8PCX5TyO3CYH72u1UiW4h72o2aj9q1at/H/RB0TSWcoulnEUhDGo0nngJhVj1mb/PZi/LPZUC9lWfNt+qVt2+hUDYTHv1xTJReQulT1L6YWumOuV3FPEdaISVaz2UlgBIUZozta/RaeBXsnxWQpgCxMvlnnpWG1esUkBbAKQXEgLaO1GAkD8oZdNh+2EUeNh585X9zXp1Vvbh1FsBrQFwXWs1anc0G/YkHbavmp+p3rWwsHDSbeO8twKJAKC3i9zaSwEGoJc6BrQxAAYEuZeLDEAvdQxoYwAUDXJUZjEAUSmt6DwMgKKBicosBiAqpRWdhwFQNDBRmcUARKW0ovMwAIoGJiqzGIColFZ0HgZAscBEbQ4DELXiis3HACgWkKjNYQCiVlyx+RgAxQIStTkMQNSKKzYfA6BYQKI2hwGIWnHF5mMAFAlIXGYwAHEpr8i8DIAigYjLDAYgLuUVmZcBUCQQcZnBAMSlvCLzMgCKBCIuMxiAuJRXZF4GIOZAxD39OwAAAP//IPop3AAAAAZJREFUAwCnAhQfxvxEHAAAAABJRU5ErkJggg==',
+};
+
+/* data URIs still decode asynchronously, so the atlas goes up as-is first and
+   again once the scans have landed */
+function applyFaceScans(cv, done) {
+  const keys = Object.keys(FACE_SCANS);
+  if (!keys.length) return;
+  const g = cv.getContext('2d');
+  let left = keys.length;
+  for (const k of keys) {
+    const bits = k.split(':'), row = FACE_ORDER.indexOf(bits[0]), col = +bits[1];
+    const img = new Image();
+    img.onload = img.onerror = () => {
+      if (img.width && row >= 0) {
+        g.clearRect(col * FACE_PX, row * FACE_PX, FACE_PX, FACE_PX);
+        g.drawImage(img, col * FACE_PX, row * FACE_PX, FACE_PX, FACE_PX);
+      }
+      if (--left === 0) done();
+    };
+    img.src = FACE_SCANS[k];
+  }
+}
+
+/* uv rect for one cell: [scaleU, scaleV, offsetU, offsetV] */
+function faceRect(animal, exp, muz) {
+  const row = FACE_ORDER.indexOf(animal);
+  if (row < 0) return null;
+  const col = (exp || 0) + (muz ? 4 : 0), k = 1 / FACE_N;
+  return [k, k, col * k, row * k];
+}
+
+/* ============================================================
+   The odd ones out.
+
+   Every mammal here is a round cartoon of an animal. These two are the animal:
+   their shells come from tools/mesh2js.py, which lofts a salmon through real
+   elliptical sections and sweeps a Trypoxylus horn along a curve that forks
+   twice. Stacked spheres cannot make either shape.
+
+   Neither has arms, and neither stands still.
+     * The salmon has no limbs at all. It flops — in the box, in the field, on
+       the base paths — and it hits with its body.
+     * The beetle has six legs and hits with its horn. No bat, no glove.
+
+   They keep the shared rig's anchors (torso y+0.74, head y+1.34) so the
+   camera, the shadow, knockdowns and slides all still work on them.
+   ============================================================ */
+
+/* The flop. A salmon out of water does not stand up — it lies over on its side
+   and thrashes, slapping itself clear of the ground every other beat.
+
+   `pitch` is how far it has gone over from upright (about 68 degrees at rest),
+   and the body turns about a point partway up rather than about its tail, so
+   the nose does not swing a metre across the infield every time it twitches. */
+const SAL_PIVOT = 0.60;
+
+function fishFlop(seed) {
+  const t = clock * 5.4 + seed;
+  const s = Math.sin(t);
+  return {
+    pitch: 1.19 + s * 0.27,                          // over on its side, whipping
+    roll: Math.sin(t * 1.63 + 1.1) * 0.40,           // the sideways snap
+    up: Math.max(0, s) * Math.max(0, s) * 0.30,      // and it gets air
+    fwd: 0,
+  };
+}
+
+/* The swing. He has no bat and no arms, so he throws the whole fish at the
+   ball: coils up off the dirt, launches, and cartwheels away after contact. */
+function fishSwing(st) {
+  const u = clamp(st / SWING_LAG, 0, 1);
+  const rear = Math.max(0, 1 - u * 2.3);          // the brief coil off the dirt
+  const fire = Math.sin(u * Math.PI * 0.5);       // and then all of it at once
+  const v = clamp((st - SWING_LAG) / 0.66, 0, 1), w = v * v;
+  // Every channel comes back to where the flop rests, and the pitch winds a
+  // whole extra turn, so the cartwheel lands in the resting orientation
+  // instead of popping. G.batSwingT keeps counting for seconds after the
+  // swing, so this has to settle on its own.
+  return {
+    pitch: 1.19 - rear * 0.44 + fire * 0.50 * (1 - w) + w * Math.PI * 2,
+    roll: Math.sin(w * Math.PI) * 2.4 - rear * 0.18,
+    up: 0.06 + fire * 0.66 * (1 - w),
+    fwd: -rear * 0.32 + fire * 0.92 * (1 - w),
+  };
+}
+
+
+/* ---------- 鮭 ---------- */
+function drawSalmon(f, A, look, p, y, big) {
+  const flank = col(A.fur), back = col(A.back), belly = col(A.fur2);
+  const finC = col(A.fin), jaw = col(A.jaw);
+  const uni = col(look.uni), trim = col(look.trim);
+  const sw = p.swingT;
+  const fl = p.fall ? { pitch: 1.50, roll: 0.55, up: 0, fwd: 0 }
+    : (sw >= 0 && sw <= SWING_LAG + 0.66 ? fishSwing(sw) : fishFlop(f.ry * 3.1));
+  // keep the pivot point on the spot; the rest of the fish swings around it
+  const cp = Math.cos(fl.pitch), sp = Math.sin(fl.pitch);
+  const by = y + 0.30 + fl.up - SAL_PIVOT * cp;
+  const bz = fl.fwd - SAL_PIVOT * sp;
+  const rx = fl.pitch + (p.lean || 0), rz = fl.roll;
+  const put = (prim, c) => part(f, prim, 0, by, bz, 1, 1, 1, c, rx, rz);
+
+  put('sal_body', flank);
+  put('sal_back', back);
+  put('sal_belly', belly);
+  put('sal_fins', finC);
+  put('sal_jaw', jaw);
+
+  // the flush he gets on the run upriver, and the eyes — both solved against
+  // the body profile in the baker, so they stay on the surface at any angle
+  put('sal_blush', col(A.blush));
+  put('sal_eye', col('#D6C489'));
+  put('sal_pupil', col('#0E0B09'));
+
+  // team colour, hugging the body: a sphere laid over a fish this narrow just
+  // bulges out of it as a ball
+  put('sal_band', uni);
+  put('sal_collar', trim);
+  put('sal_belt', trim);
+}
+
+/* ---------- カブトムシ ---------- */
+function drawBeetle(f, A, look, p, y, big) {
+  const shell = col(A.fur), legC = col(A.leg), horn = col(A.horn);
+  const uni = col(look.uni), trim = col(look.trim);
+  const ln = p.lean || 0;
+  const gloss = shade(A.fur, 1.5);
+
+  // six legs. The front pair does the work, the middle pair does nothing, and
+  // the back pair carries him — all three swing off the running cycle.
+  const sw = p.legL || 0, sw2 = p.legR || 0, sp2 = p.spread || 0;
+  // [x, z, how much of the running swing it takes, how far forward it reaches]
+  const rows = [[0.105, 0.27, 1.00, -0.42], [0.135, 0.01, 0.55, 0.00],
+                [0.120, -0.25, 0.22, 0.38]];
+  for (const [lx, lz, k, rake] of rows) for (const s of [-1, 1]) {
+    const sg = (s < 0 ? sw : sw2) * k;
+    // femur out and a shade up; tibia straight down under the foot
+    const e = limb(f, s * (lx + sp2), y + 0.58, lz, rake + sg * 0.30, s * 0.96,
+                   0.30, 0.033, legC, null, 0);
+    limb(f, e[0], e[1], e[2], sg * 0.85 + 0.10, -s * 0.26, 0.36, 0.024, legC, legC, 0.050);
+  }
+
+  part(f, 'bee_elytra', 0, y, 0, 1, 1, 1, shade(A.fur, 1.55), ln);
+  part(f, 'bee_prono', 0, y, 0, 1, 1, 1, shade(A.fur, 1.20), ln);
+  part(f, 'bee_head', 0, y, 0, 1, 1, 1, shade(A.fur, 0.55), ln);
+  part(f, 'bee_horn', 0, y, 0, 1, 1, 1, horn, ln);
+
+  // the seam down the wing cases, and the sheen along the top of each
+  part(f, 'box', 0, y + 0.66, -0.18, 0.018, 0.66, 0.28, shade(A.fur, 0.52), ln);
+  for (const s of [-1, 1])
+    part(f, 'sphere', s * 0.108, y + 0.94, -0.15, 0.085, 0.06, 0.15, gloss, ln);
+
+  // compound eyes, flat and black and entirely unreadable
+  part(f, 'bee_eye', 0, y, 0, 1, 1, 1, col('#120A05'), ln);
+  part(f, 'bee_glint', 0, y, 0, 1, 1, 1, col('#75604A'), ln);
+
+  // team colour: a saddle across the wing cases and a band on the shield
+  part(f, 'bee_band', 0, y, 0, 1, 1, 1, uni, ln);
+  part(f, 'bee_trim', 0, y, 0, 1, 1, 1, trim, ln);
+  part(f, 'sphere', 0, y + 1.13, -0.02, 0.300, 0.075, 0.310, uni, ln);
+}
+
+/* pose: { armL, armR, legL, legR, lean, bob, ry } — all radians */
+const IDLE = { armL: 0.12, armR: -0.12, legL: 0, legR: 0, lean: 0, bob: 0 };
+
+/* run `draw` once as an ink shell and once as the fill, for species drawn in
+   the line-art style */
+function inked(look, draw) {
+  const A = ANIMALS[look.animal];
+  if (A && A.ink && R.inkW === 0) { R.ink(A.ink); draw(); R.ink(0); }
+  draw();
+}
+
+function drawAnimal(x, z, ry, look, pose, y0) {
+  const A = ANIMALS[look.animal];
+  if (A.ink && R.inkW === 0) {                  // outline shell first
+    R.ink(A.ink);
+    drawAnimal(x, z, ry, look, pose, y0);
+    R.ink(0);
+  }
+  const p = pose || IDLE;
+  const FC = FACES[look.animal] || null;
+  const f = yawFrame(x, z, ry);
+  const y = (y0 || 0) + (p.bob || 0);
+  if (p.fall) { f.t = p.fall; f.ct = Math.cos(p.fall); f.st = Math.sin(p.fall); f.pivot = y + 0.34; }
+  const big = A.big ? 1.12 : 1;
+  const fur = col(A.fur), fur2 = col(A.fur2);
+  const uni = col(look.uni), trim = col(look.trim), cap = col(look.cap);
+  const trim2 = shade(look.trim, 0.72);
+
+  shadow(x, z, (p.fall ? 0.72 : 0.44) * big * (A.shadow || 1), 0.34);
+
+  // legs (local -x is the character's right side, +x their left)
+  const sp = p.spread || 0;
+  const pant = shade(look.uni, 0.93), shoe = shade(look.cap, 0.66);
+  if (!A.body) {                    // the fish has none and the beetle has six
+    limb(f, -(0.155 * big + sp), y + 0.44, 0, p.legL || 0, -0.04, 0.36, 0.12, pant, shoe, 0.30, 1);
+    limb(f, 0.155 * big + sp, y + 0.44, 0, p.legR || 0, 0.04, 0.36, 0.12, pant, shoe, 0.30, 1);
+  }
+
+  // torso
+  if (A.body === 'fish') drawSalmon(f, A, look, p, y, big);
+  else if (A.body === 'beetle') drawBeetle(f, A, look, p, y, big);
+  else if (A.mesh) {
+    // the kit is baked as slices of the same profile as the body: laying a
+    // sphere over a shaped torso makes it bulge out rather than cover
+    const M = A.mesh + '_', ln = p.lean || 0;
+    part(f, M + 'body', 0, y + 0.74, 0, 1, 1, 1, uni, ln);
+    part(f, M + 'stripe', 0, y + 0.74, 0, 1, 1, 1, shade(look.uni, 0.80), ln);
+    part(f, M + 'placket', 0, y + 0.74, 0, 1, 1, 1, trim, ln);
+    part(f, M + 'collar', 0, y + 0.74, 0, 1, 1, 1, trim, ln);
+    part(f, M + 'belt', 0, y + 0.74, 0, 1, 1, 1, shade(look.cap, 0.85), ln);
+  } else {
+  part(f, 'sphere', 0, y + 0.74, 0, 0.66 * big, 0.70, 0.56 * big, uni, p.lean || 0);
+  part(f, 'sphere', 0, y + 0.97, 0.01, 0.50, 0.14, 0.45, trim);   // jersey collar
+  part(f, 'box', 0, y + 0.72, 0.185, 0.075, 0.42, 0.05, trim);  // button placket
+  if (A.buttons) for (let i = 0; i < 3; i++)                     // ...and its buttons
+    part(f, 'sphere', 0, y + 0.86 - i * 0.145, 0.292 - i * 0.012, 0.058, 0.058, 0.050, trim2);
+  // pinstripes down the front, and the belt at the waist
+  const stripe = shade(look.uni, 0.80);
+  for (const i of [-2, -1, 1, 2]) {
+    const px = i * 0.098 * big;
+    const k = Math.max(0, 1 - (px / (0.34 * big)) ** 2);
+    part(f, 'box', px, y + 0.74, 0.28 * big * Math.sqrt(k) - 0.01, 0.026, 0.34, 0.035, stripe);
+  }
+  part(f, 'sphere', 0, y + 0.515, 0.02, 0.60 * big, 0.10, 0.50 * big, shade(look.cap, 0.85));
+  }
+
+  // arms — either swung by rotation, or aimed at a world-space grip
+  const shY = y + 0.94;
+  let hl, hr;
+  if (A.body) { hl = [x, y + 0.9, z]; hr = [x, y + 0.9, z]; }
+  else if (p.handL || p.handR) {
+    // reaching arms hang off narrower shoulders and get a longer bone pair, so
+    // the front arm can cross the chest to the knob without rubber-banding
+    const SH = 0.17 * big, BONE = 0.32;
+    const [slx, slz] = L2W(f, -SH, 0);
+    const [srx, srz] = L2W(f, SH, 0);
+    const poleL = p.pole || [0, -1, 0], poleR = p.pole || [0, -1, 0];
+    const hand = p.gloveC ? col(p.gloveC) : fur;
+    hl = p.handL
+      ? armIK(slx, shY, slz, p.handL[0], p.handL[1], p.handL[2], BONE, BONE, poleL, 0.075, uni,
+              p.noPawL ? null : hand)
+      : limb(f, -0.33 * big, shY, 0, p.armL || 0, -0.30, 0.34, 0.112, uni, fur, 0.27);
+    hr = p.handR
+      ? armIK(srx, shY, srz, p.handR[0], p.handR[1], p.handR[2], BONE, BONE, poleR, 0.075, uni,
+              p.noPawR ? null : hand)
+      : limb(f, 0.33 * big, shY, 0, p.armR || 0, 0.30, 0.34, 0.112, uni,
+             p.noPawR ? null : fur, 0.27);
+  } else {
+    hl = limb(f, -0.33 * big, shY, 0, p.armL || 0, -0.30, 0.34, 0.112, uni,
+              p.noPawL ? null : fur, 0.27);
+    hr = limb(f, 0.33 * big, shY, 0, p.armR || 0, 0.30, 0.34, 0.112, uni,
+              p.noPawR ? null : fur, 0.27);
+  }
+
+  // head — may be turned independently of the body (a batter watching the ball)
+  const fh = p.headRy ? yawFrame(x, z, ry + p.headRy) : f;
+  const hy = y + 1.34;
+  const HW = A.hw || 1, HH = A.hh || 1, HD = A.hd || 1;
+  const hzF = 0.32 * HD + 0.02;                 // where the front of the face is
+  if (A.mesh) part(fh, A.mesh + '_head', 0, hy, 0, 1, 1, 1, fur);   // ears included
+  else if (!A.body)
+    part(fh, A.head || 'sphere', 0, hy, 0.02, 0.68 * big * HW, 0.66 * HH, 0.64 * big * HD, fur);
+
+  if (A.patch) {                                // panda mask
+    for (const s of [-1, 1])
+      part(fh, 'sphere', s * 0.17, hy + 0.08, hzF - 0.07, 0.27, 0.29, 0.16, fur2);
+  }
+  if (A.facePatch) {                            // the penguin's white face
+    const fp = A.facePatch;
+    part(fh, 'sphere', 0, hy - 0.02, hzF - 0.10, fp[0], fp[1], fp[2], fur2);
+  }
+  if (A.cheek) {                                // fluffy cheeks
+    for (const s of [-1, 1])
+      part(fh, 'sphere', s * 0.29, hy - 0.09, 0.09, A.cheek, A.cheek * 0.94, A.cheek * 0.88,
+           A.cheekC ? col(A.cheekC) : fur2);
+  }
+
+  if (FC && R.atlas && R.inkW === 0) {            // eyes and brows, as art
+    R.decal(faceRect(look.animal, p.face || 0, 0));
+    const k = 1.015;
+    if (A.mesh) {
+      // the patch was baked out of the same (azimuth, elevation) map as the
+      // skull, so it lies on the surface rather than being fitted to it
+      part(fh, A.mesh + '_face', 0, hy, 0, 1, 1, 1, fur);
+    } else if (FC.onPatch && A.facePatch) {
+      const fp = A.facePatch;                      // the patch stands proud of
+      part(fh, 'facep', 0, hy - 0.02, hzF - 0.10,  // the skull, so sit on that
+           fp[0] * k, fp[1] * k, fp[2] * k, fur);
+    } else {
+      part(fh, A.head === 'rbox' ? 'facepr' : 'facep', 0, hy, 0.02,
+           0.68 * big * HW * k, 0.66 * HH * k, 0.64 * big * HD * k, fur);
+    }
+    R.decal(null);
+  }
+
+  if (A.mesh) {
+    part(fh, A.mesh + '_muz', 0, hy, 0, 1, 1, 1, fur2);     // the pale mask
+    part(fh, A.mesh + '_earin', 0, hy, 0, 1, 1, 1, fur2);
+    if (FC && !FC.onHead && R.atlas && R.inkW === 0) {
+      R.decal(faceRect(look.animal, p.face || 0, 1));
+      part(fh, A.mesh + '_snout', 0, hy, 0, 1, 1, 1, fur);
+      R.decal(null);
+    }
+  } else if (A.beak) {
+    part(fh, 'cone', 0, hy - 0.045, hzF - 0.03, 0.27, 0.32, 0.27, col(A.beak), -Math.PI / 2);
+    part(fh, 'box', 0, hy - 0.045, hzF + 0.07, 0.19, 0.022, 0.16, shade(A.beak, 0.62));
+  } else if (A.muz) {
+    const mz = A.muz, my = hy + (A.muzY === undefined ? -0.09 : A.muzY);
+    const mzz = A.muzZ === undefined ? 0.26 : A.muzZ;
+    part(fh, 'sphere', 0, my, mzz, mz[0], mz[1], mz[2], A.muzC ? col(A.muzC) : fur2);
+    if (FC && !FC.onHead && R.atlas && R.inkW === 0) {   // nose and mouth, as art
+      R.decal(faceRect(look.animal, p.face || 0, 1));
+      part(fh, 'facep', 0, my, mzz, mz[0] * 1.03, mz[1] * 1.03, mz[2] * 1.03, fur);
+      R.decal(null);
+    }
+    const nr = A.noseR || 0.11;
+    if (!FC && A.nostril) {
+      for (const s of [-1, 1])
+        part(fh, 'sphere', s * mz[0] * 0.24, my + mz[1] * 0.28, mzz + mz[2] * 0.40,
+             nr, nr * 0.90, nr * 0.60, col('#3A3040'));
+    } else if (!FC) {
+      part(fh, 'sphere', 0, my + mz[1] * 0.40, mzz + mz[2] * 0.40,
+           nr, nr * 0.74, nr * 0.72, col(A.noseC || '#33291F'));
+    }
+    if (!FC && A.whisk) for (const s of [-1, 1]) for (let i = 0; i < 3; i++)
+      part(fh, 'box', s * (mz[0] * 0.60 + 0.13), my + 0.02 + (i - 1) * 0.05, mzz + 0.03,
+           0.28, 0.017, 0.017, col('#6B5A48'), 0, s * ((i - 1) * 0.24 + 0.05));
+  }
+  if (A.mouth && !FC) {                         // the frog's wide grin
+    for (const s of [-1, 1])
+      part(fh, 'box', s * 0.17, hy - 0.16, hzF - 0.02, 0.36, 0.036, 0.07,
+           shade(A.fur, 0.42), 0, s * -0.11);
+  }
+
+  // eyes, with the drawn brow line above them
+  if (A.smallMouth && !FC && R.inkW === 0) {    // a little mouth under the nose
+    const mz = A.muz || [0.2, 0.13, 0.16];
+    const my2 = hy + (A.muzY === undefined ? -0.09 : A.muzY) + mz[1] * 0.40 - 0.078;
+    for (const s of [-1, 1])
+      part(fh, 'box', s * 0.038, my2, hzF - 0.062, 0.074, 0.024, 0.05,
+           col('#4A3438'), 0, s * 0.30);
+  }
+  // a species with its own body draws its own eyes, in the mesh
+  if (FC || A.body) { /* the eyes live in the face cell, or in the mesh */ }
+  else if (!A.noFaceEyes && A.dotEyes) {         // simple dots, as drawn
+    const ex = A.eyeX || 0.150, ew = A.eyeW || 0.078, eh = A.eyeH || 0.086;
+    if (R.inkW === 0) for (const s of [-1, 1]) {
+      part(fh, 'sphere', s * ex, hy + 0.085, hzF - 0.028, ew, eh, 0.070, col(EYE));
+      part(fh, 'sphere', s * ex + 0.016, hy + 0.102, hzF - 0.006, 0.021, 0.021, 0.018, col(SHINE));
+    }
+  } else if (!A.noFaceEyes) {
+    const ex = A.eyeX || 0.150, ew = A.eyeW || 0.140, eh = A.eyeH || 0.115;
+    const et = A.eyeTilt || 0;
+    for (const s of [-1, 1]) {
+      part(fh, 'sphere', s * ex, hy + 0.098, hzF - 0.025, ew, eh, 0.085, col('#F6F1E6'), 0, s * et);
+      part(fh, 'sphere', s * ex - s * 0.008, hy + 0.094, hzF + 0.012,
+           ew * 0.60, eh * 0.74, 0.058, col(EYE), 0, s * et);
+      part(fh, 'sphere', s * ex + 0.024, hy + 0.118, hzF + 0.028, 0.034, 0.034, 0.028, col(SHINE));
+      if (A.brow)
+        part(fh, 'box', s * ex, hy + 0.205, hzF - 0.030, 0.215, 0.040, 0.085,
+             shade(A.fur, 0.34), 0, s * 0.16);
+    }
+  }
+
+  // ears
+  const earC = A.earC ? col(A.earC) : fur;
+  if (A.ear === 'round') {
+    const er = A.earR || 0.26, exx = A.earX || 0.26, eyy = A.earY || 0.26, ed = A.earD || 0.77;
+    for (const s of [-1, 1]) {
+      part(fh, 'sphere', s * exx, hy + eyy, -0.02, er, er, er * ed, earC);
+      part(fh, 'sphere', s * exx, hy + eyy + 0.01, 0.04, er * 0.55, er * 0.55, er * 0.50, fur2);
+    }
+  }
+  if (A.ear === 'point') {
+    const er = A.earR || 0.26, exx = A.earX || 0.21, eyy = A.earY || 0.34, tl = A.earT || 0.22;
+    for (const s of [-1, 1]) {
+      part(fh, 'cone', s * exx, hy + eyy, -0.02, er, er * 1.30, er * 0.76, earC, 0, s * tl);
+      part(fh, 'cone', s * exx, hy + eyy - 0.01, 0.035, er * 0.52, er * 0.86, er * 0.42, fur2, 0, s * tl);
+      if (A.earTip)
+        part(fh, 'cone', s * (exx + er * 0.32), hy + eyy + er * 0.46, -0.02,
+             er * 0.60, er * 0.50, er * 0.46, col(A.earTip), 0, s * tl);
+    }
+  }
+  if (A.ear === 'long') {
+    const er = A.earR || 0.17, exx = A.earX || 0.15, eyy = A.earY || 0.44;
+    const el = A.earLen || 0.56, tl = A.earTilt === undefined ? 0.20 : A.earTilt;
+    for (const s of [-1, 1]) {
+      part(fh, 'sphere', s * exx, hy + eyy, -0.03, er, el, er * 0.82, fur, 0, s * tl);
+      part(fh, 'sphere', s * (exx + 0.010), hy + eyy + 0.02, 0.020,
+           er * 0.50, el * 0.80, er * 0.46, A.earIn ? col(A.earIn) : fur2, 0, s * tl);
+    }
+  }
+  if (A.ear === 'toad') {
+    const er = A.earR || 0.28, exx = A.earX || 0.19, eyy = A.earY || 0.26;
+    const ez = A.earZ === undefined ? 0.05 : A.earZ;
+    for (const s of [-1, 1]) {
+      part(fh, 'sphere', s * exx, hy + eyy, ez, er, er, er * 0.92, fur);
+      part(fh, 'sphere', s * exx, hy + eyy + 0.02, ez + 0.11, er * 0.66, er * 0.66, er * 0.46, col('#F6F1E6'));
+      part(fh, 'sphere', s * exx - s * 0.014, hy + eyy + 0.02, ez + 0.15,
+           er * 0.34, er * 0.42, er * 0.28, col(EYE));
+      part(fh, 'sphere', s * exx + 0.05, hy + eyy + 0.09, ez + 0.17, 0.036, 0.036, 0.030, col(SHINE));
+    }
+  }
+  // tail
+  if (A.tail === 'puff') part(f, 'sphere', 0, y + 0.66, -0.30, 0.24, 0.24, 0.24, fur2);
+  // the baked torso has a shallower back than the sphere one, so the nub has
+  // to be seated further in or it floats off the jersey
+  if (A.tail === 'nub') part(f, 'sphere', 0, y + 0.60, A.tailZ || -0.30, 0.16, 0.16, 0.16, fur);
+  if (A.tail === 'long') part(f, 'sphere', 0, y + 0.78, -0.36, 0.14, 0.44, 0.14, fur, 0.5);
+  if (A.tail === 'bushy') {
+    part(f, 'sphere', 0, y + 0.72, -0.38, 0.26, 0.46, 0.26, fur, 0.6);
+    part(f, 'sphere', 0, y + 0.94, -0.50, 0.20, 0.20, 0.20, fur2);
+  }
+  // headwear: a batting helmet at the plate and on the bases, otherwise a cap
+  if (p.noHat || A.noHat) { /* a shopper, or a fish — nothing to hang a cap on */ }
+  else if (p.helmet) {
+    const cy = A.capY || 0, cs = A.capS || 1;
+    part(fh, 'dome', 0, hy + 0.27 * cs + cy, 0.01, 0.80 * big * cs, 0.44 * cs, 0.78 * big * cs, cap);
+    part(fh, 'sphere', 0, hy + 0.285 * cs + cy, 0.01, 0.80 * big * cs, 0.22 * cs, 0.78 * big * cs, cap);
+    part(fh, 'box', 0, hy + 0.265 * cs + cy, 0.34 * cs, 0.50 * cs, 0.075 * cs, 0.26 * cs, cap);
+    // the flap covers the ear turned toward the pitcher (local +x)
+    part(fh, 'sphere', 0.335 * big * cs, hy + 0.12 * cs + cy, 0.02,
+         0.14 * cs, 0.32 * cs, 0.40 * cs, cap);
+    part(fh, 'box', 0, hy + 0.40 * cs + cy, 0.10 * cs, 0.09 * cs, 0.06 * cs, 0.60 * cs, trim);
+  } else {
+    const cy = A.capY || 0, cs = A.capS || 1;
+    part(fh, 'dome', 0, hy + 0.29 * cs + cy, 0.01 * cs, 0.74 * big * cs, 0.38 * cs, 0.70 * big * cs, cap);
+    part(fh, 'box', 0, hy + 0.283 * cs + cy, 0.31 * cs, 0.46 * cs, 0.07 * cs, 0.30 * cs, cap);
+    part(fh, 'sphere', 0, hy + 0.46 * cs + cy, 0.01, 0.09 * cs, 0.09 * cs, 0.09 * cs, trim);
+  }
+
+  return { f, hl, hr, hy, y };
+}
+
+/* A bat to real proportions: 2.5cm handle, a taper, a 6.5cm barrel, knob at the
+   bottom. `grip` is where the bottom hand sits, `dir` points at the barrel. */
+function drawBatRig(grip, dir, len, wood, tape) {
+  const P = (t) => [grip[0] + dir[0] * t, grip[1] + dir[1] * t, grip[2] + dir[2] * t];
+  const w = col(wood), g = col(tape);
+  const knob = P(-0.055), hEnd = P(0.34), taper = P(0.60), tip = P(len);
+  R.seg('cyl', knob[0], knob[1], knob[2], hEnd[0], hEnd[1], hEnd[2], 0.017, g);
+  R.seg('taper', taper[0], taper[1], taper[2], hEnd[0], hEnd[1], hEnd[2], 0.033, w);
+  R.seg('cyl', taper[0], taper[1], taper[2], tip[0], tip[1], tip[2], 0.033, w);
+  R.b('sphere', tip[0], tip[1], tip[2], 0.070, 0.070, 0.070, w);
+  const k2 = P(-0.02);
+  R.seg('cyl', knob[0], knob[1], knob[2], k2[0], k2[1], k2[2], 0.031, g);
+}
+
+/* the two fists wrapped around the handle */
+function drawGrip(grip, dir, at, c) {
+  const P = (t) => [grip[0] + dir[0] * t, grip[1] + dir[1] * t, grip[2] + dir[2] * t];
+  const a = P(at - 0.055), b = P(at + 0.055);
+  R.seg('sphere', a[0], a[1], a[2], b[0], b[1], b[2], 0.082, col(c));
+}
+
+/* A fielder's mitt: palm, four finger ridges, a thumb and the web between
+   them. All one leather; the shape does the work, not a painted pocket. */
+function drawGlove(pt, ry) {
+  if (!pt) return;
+  const a = ry || 0, fx = Math.sin(a), fz = Math.cos(a);
+  const sx = fz, sz = -fx;                       // across the mitt
+  const x = pt[0] + fx * 0.05, y = pt[1], z = pt[2] + fz * 0.05;
+  const hide = col('#7A4A22'), dark = col('#46280F'), web = col('#9A6B38');
+  R.d('rbox', x, y - 0.02, z, 0, a, 0, 0.38, 0.36, 0.20, hide);          // palm
+  for (let i = -1; i <= 2; i++)                                          // fingers
+    R.d('rbox', x + sx * i * 0.083, y + 0.20, z + sz * i * 0.083, 0, a, 0,
+        0.072, 0.22, 0.18, hide);
+  R.d('rbox', x - sx * 0.235, y - 0.03, z - sz * 0.235, 0, a, 0, 0.11, 0.30, 0.19, hide);
+  R.d('rbox', x - sx * 0.145, y + 0.18, z - sz * 0.145, 0, a, 0, 0.11, 0.20, 0.16, web);
+  R.d('rbox', x + fx * 0.075, y - 0.05, z + fz * 0.075, 0, a, 0, 0.20, 0.18, 0.05, dark);
+  R.d('rbox', x, y - 0.22, z, 0, a, 0, 0.32, 0.10, 0.18, dark);          // heel
+}
+
+/* ---------- the ball ---------- */
+const BALL_R = 0.14;
+/* a real ball is a speck at 80m — grow it with distance so the player can
+   always follow the flight */
+function ballScale(x, y, z) {
+  const d = Math.hypot(x - R.eye[0], y - R.eye[1], z - R.eye[2]);
+  // Nearly true perspective: the compensation is small enough that the ball
+  // visibly shrinks as it flies away, which is the whole depth cue.
+  return BALL_R * 2 * clamp(Math.pow(d / 12, 0.15), 1, 1.5) * (G.ballBoost || 1);
+}
+function drawBall(x, y, z, spin) {
+  const s = ballScale(x, y, z);
+  R.b('sphere', x, y, z, s, s, s, col('#FBF7EC'));
+  R.d('cyl', x, y, z, Math.PI / 2, spin || 0, 0, s * 0.78, s * 0.25, s * 0.78, col('#D9402E'));
+}
+function drawTrail(tr) {
+  for (let i = 0; i < tr.length; i += 3) {
+    const k = 1 - i / tr.length;
+    const s = ballScale(tr[i], tr[i + 1], tr[i + 2]) * 0.72 * k * k;
+    if (s < 0.012) continue;
+    R.b('sphere', tr[i], tr[i + 1], tr[i + 2], s, s, s, col('#FFE9B0'));
+  }
+}
+
+/* ============================================================
+   Teams
+   ============================================================ */
+const NAME_POOL = {
+  bear:    ['ゴロー', 'ブンタ', 'クマキチ', 'ドスコイ', 'ハチベエ', 'テツ', 'モリオ', 'ガンタ', 'ノボル'],
+  rabbit:  ['ミミ', 'ピョン', 'ラビ', 'シロタ', 'ハネダ', 'ツキノ', 'コハネ', 'トビオ', 'ユキ'],
+  cat:     ['タマ', 'ミケ', 'ニャン太', 'トラキチ', 'クロベエ', 'シッポ', 'モモ', 'ヒゲオ', 'コタツ'],
+  frog:    ['ケロ', 'ゲコタ', 'アマガエル', 'ピョンジ', 'ヌマオ', 'ハスオ', 'グエコ', 'ミズキ', 'カジカ'],
+  penguin: ['ペンタ', 'コオリ', 'フブキ', 'ヨチヨチ', 'シラス', 'アデリー', 'ヒレタ', 'ナンキョク', 'ツララ'],
+  salmon:  ['サケオ', 'シャケ', 'ベニ', 'ソジロウ', 'アキアジ', 'トキシラズ', 'ハラス', 'イクラ', 'メジカ'],
+  beetle:  ['カブト', 'ツノオ', 'クヌギ', 'ゲンジ', 'ムシタロウ', 'コクワ', 'ジュエキ', 'ヨナガ', 'カブオ'],
+  fox:     ['コン', 'キツネビ', 'アカネ', 'シッポリ', 'イナリ', 'ゴンタ', 'ヒノ', 'ミミナガ', 'ユウ'],
+  panda:   ['パンダ丸', 'シャンシャン', 'ササオ', 'モウソウ', 'クロシロ', 'マルオ', 'ゴロゴロ', 'タケゾウ', 'リンリン'],
+  hippo:   ['カバオ', 'ドロン', 'ヌマヅ', 'オオクチ', 'ブクブク', 'ミズベ', 'ズッシリ', 'アグリ', 'ハナ'],
+};
+
+const TEAMS = [
+  { id: 'bears',    name: 'もりのクマーズ',   animal: 'bear',    uni: '#7B4B2A', trim: '#F0D9A8', cap: '#5E3620',
+    tag: 'POWER',   desc: 'とにかく長打。当たれば飛ぶが、確実性は低め。', pow: 5, con: 2, spd: 2, def: 3 },
+  { id: 'rabbits',  name: 'はらっぱラビッツ', animal: 'rabbit',  uni: '#E8EDF2', trim: '#E86A8A', cap: '#D9527A',
+    tag: 'SPEED',   desc: '足が速い。内野安打も盗塁もお手のもの。', pow: 2, con: 4, spd: 5, def: 4 },
+  { id: 'salmons',  name: 'そじょうサーモンズ', animal: 'salmon', uni: '#2F5C7A', trim: '#F0B9A8', cap: '#22455C',
+    tag: 'CONTACT', desc: 'バットに当てるのがうまい。四球も選ぶ。', pow: 3, con: 5, spd: 3, def: 3 },
+  { id: 'frogs',    name: 'ぬまたフロッグス', animal: 'frog',    uni: '#4E8A4E', trim: '#E8F0C8', cap: '#2E5E34',
+    tag: 'BALANCE', desc: 'すべてが平均的。クセがなく扱いやすい。', pow: 3, con: 3, spd: 3, def: 3 },
+  { id: 'penguins', name: 'こおりやまペンギンズ', animal: 'penguin', uni: '#28405E', trim: '#F4F1E6', cap: '#1B2C42',
+    tag: 'DEFENSE', desc: '守備が堅い。相手の打球をよく捕る。', pow: 3, con: 3, spd: 2, def: 5 },
+  { id: 'beetles',  name: 'くぬぎカブトズ', animal: 'beetle', uni: '#D6A63E', trim: '#F6E7BC', cap: '#241408',
+    tag: 'PITCHING',desc: '投手陣が強力。変化球のキレがちがう。', pow: 3, con: 3, spd: 3, def: 4, arm: 5 },
+];
+
+const teamById = (id) => TEAMS.find((t) => t.id === id);
+
+/* Build a 9-man roster with a batting order and fielding positions. */
+function makeTeam(def) {
+  const names = NAME_POOL[def.animal].slice();
+  const order = ['CF', 'SS', 'RF', '1B', 'LF', '3B', 'C', '2B', 'P'];
+  const roster = order.map((posK, i) => {
+    const v = (s, spread) => clamp(s / 5 + rnd(-spread, spread), 0.12, 1.0);
+    return {
+      name: names[i], no: i + 1, pos: posK,
+      look: { animal: def.animal, uni: def.uni, trim: def.trim, cap: def.cap },
+      power: v(def.pow, 0.14), contact: v(def.con, 0.14), speed: v(def.spd, 0.12), defense: v(def.def, 0.12),
+      arm: (def.arm || 3) / 5,
+      ab: 0, h: 0, hr: 0, rbi: 0, k: 0, bb: 0, hbp: 0,
+    };
+  });
+  // the pitcher bats ninth but is the best arm
+  roster[8].arm = clamp((def.arm || 3) / 5 + 0.18, 0, 1);
+  roster[8].power = clamp(roster[8].power - 0.22, 0.1, 1);
+  roster[8].contact = clamp(roster[8].contact - 0.18, 0.1, 1);
+  return { def, name: def.name, roster, animal: def.animal, uni: def.uni, trim: def.trim, cap: def.cap };
+}
+/* 造形ラボ — contact sheet of one animal from several angles. Dev tool only. */
+var clock = 0;
+var SWING_LAG = 0.09;
+
+const glc = document.getElementById('gl');
+const sheet = document.getElementById('sheet');
+const sctx = sheet.getContext('2d');
+
+const LOOKS = {};
+TEAMS.forEach((t) => { LOOKS[t.animal] = t; });
+// species that no longer field a team still need to be viewable
+for (const name in ANIMALS)
+  if (!LOOKS[name]) LOOKS[name] = { animal: name, uni: '#E8EDF2', trim: '#8899AA', cap: '#5A6B7C' };
+
+const ENV = { light: [0.35, 1, 0.28], skyTint: '#EAF2FA', gndTint: '#C9D2DC',
+              fog: '#F2F4F6', fogDist: 4000 };
+
+const POSE_IDLE = { armL: 0.12, armR: -0.12, legL: 0, legR: 0, lean: 0, bob: 0 };
+
+function view(name, opt) {
+  // `fr` is the half-height of what the frame covers, in metres: that, not
+  // `dist`, is what zooms — dist only changes the perspective
+  return Object.assign({ label: name, ry: Math.PI, dist: 3.4, ty: 0.85,
+                         ey: 0.95, fr: 1.15, pose: POSE_IDLE }, opt || {});
+}
+
+const SETS = {
+  a: [
+    view('正面 front',    { ry: Math.PI }),
+    view('斜め 3/4',      { ry: Math.PI * 0.72 }),
+    view('横 side',       { ry: Math.PI * 0.5 }),
+    view('背面 back',     { ry: 0 }),
+  ],
+  b: [
+    view('真上 top',      { ry: Math.PI, ey: 3.2, ty: 0.7, dist: 1.7 }),
+    view('低い 正面 low', { ry: Math.PI, ey: 0.28, ty: 0.72, dist: 3.0 }),
+    view('走り run',      { ry: Math.PI * 0.78,
+                            pose: { legL: 0.8, legR: -0.8, bob: 0.05, lean: 0.12 } }),
+    view('走り 正面',     { ry: Math.PI,
+                            pose: { legL: -0.6, legR: 0.6, bob: 0.03 } }),
+  ],
+  // the head on its own, which is where the face and the muzzle have to hold up
+  c: [
+    view('顔 face',       { ry: Math.PI, dist: 2.2, fr: 0.52, ty: 1.36, ey: 1.38 }),
+    view('顔 3/4',        { ry: Math.PI * 0.74, dist: 2.2, fr: 0.52, ty: 1.36, ey: 1.38 }),
+    view('顔 横',         { ry: Math.PI * 0.5, dist: 2.2, fr: 0.52, ty: 1.36, ey: 1.38 }),
+    view('顔 後ろ斜め',   { ry: Math.PI * 0.26, dist: 2.2, fr: 0.52, ty: 1.36, ey: 1.44 }),
+  ],
+  // what the kit and the silhouette do when the body is turned or knocked over
+  d: [
+    view('打席 bat',      { ry: Math.PI * 0.62,
+                            pose: { face: 1, lean: -0.12, spread: 0.10,
+                                    armL: -0.9, armR: -1.1 } }),
+    view('万歳 cheer',    { ry: Math.PI,
+                            pose: { armL: -2.4, armR: -2.4, bob: 0.12, face: 2 } }),
+    view('転倒 fall',     { ry: Math.PI * 0.7, pose: { fall: 1.35, face: 3 } }),
+    view('帽子なし',      { ry: Math.PI * 0.76, pose: { noHat: 1 } }),
+  ],
+  // the beetle's own two: the horn is his whole identity and the front legs
+  // are the pair that digs, so both get framed on their own
+  e: [
+    view('角 正面',       { ry: Math.PI, dist: 2.4, fr: 0.42, ty: 1.20, ey: 1.22 }),
+    view('角 3/4',        { ry: Math.PI * 0.74, dist: 2.4, fr: 0.42, ty: 1.20, ey: 1.26 }),
+    view('前脚 正面',     { ry: Math.PI, dist: 2.4, fr: 0.36, ty: 0.36, ey: 0.44 }),
+    view('前脚 3/4',      { ry: Math.PI * 0.78, dist: 2.4, fr: 0.36, ty: 0.36, ey: 0.44 }),
+  ],
+};
+let VIEWS = SETS.a;
+
+const COLS = 2, TW = 520, TH = 520;
+
+function renderAll(animal) {
+  sheet.width = COLS * TW;
+  sheet.height = Math.ceil(VIEWS.length / COLS) * TH;
+  sctx.fillStyle = '#F2F4F6';
+  sctx.fillRect(0, 0, sheet.width, sheet.height);
+  VIEWS.forEach((v, i) => {
+    const d = v.dist;
+    const fov = 2 * Math.atan(v.fr / d) * 180 / Math.PI;
+    R.begin({ ex: 0, ey: v.ey, ez: -d, tx: 0, ty: v.ty, tz: 0, fov: fov }, ENV);
+    drawAnimal(0, 0, v.ry, LOOKS[animal], v.pose, 0);
+    const x = (i % COLS) * TW, y = Math.floor(i / COLS) * TH;
+    sctx.drawImage(glc, x, y, TW, TH);
+    sctx.fillStyle = '#11202C';
+    sctx.font = 'bold 17px system-ui,sans-serif';
+    sctx.fillText(v.label, x + 12, y + 26);
+    sctx.strokeStyle = '#C3CCD4';
+    sctx.strokeRect(x + 0.5, y + 0.5, TW - 1, TH - 1);
+  });
+  const err = R.gl.getError();
+  document.getElementById('info').textContent =
+    'verts ' + (GEO.pos.length / 3) + '  glError ' + err;
+}
+
+if (!R.init(glc)) {
+  document.body.innerHTML = '<p>WebGL unavailable</p>';
+} else {
+  R.upload(buildFaceAtlas());
+  const q = new URLSearchParams(location.search);
+  const animal = q.get('a') || window.LAB_ANIMAL || 'bear';
+  VIEWS = SETS[q.get('v') || window.LAB_SET || 'a'] || SETS.a;
+  R.resize();
+  requestAnimationFrame(() => { renderAll(animal); });
+  // so the page can be re-driven from the console without a reload
+  window.LAB = (a, v) => { VIEWS = SETS[v || 'a'] || SETS.a; renderAll(a || animal); };
+}
+</script>
