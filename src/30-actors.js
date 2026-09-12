@@ -89,11 +89,13 @@ const ANIMALS = {
   bear:    { ink: 0.022, mesh: 'bear', tail: 'nub', tailZ: -0.235,
              fur: '#96683F', fur2: '#DFC49B' },
 
-  // drawn from the reference sketch: tall straight ears, round head, dot eyes
-  rabbit:  { ink: 0.022, ear: 'long', fur: '#F4F0E8', fur2: '#F6D7DA', tail: 'puff',
+  // Drawn from the reference sketch: tall straight ears, round head, dot eyes.
+  // Ears, haunches, hind feet and tail are baked (段階3); the head is still a
+  // sphere because that is the surface the drawn face is projected onto.
+  rabbit:  { ink: 0.022, ear: 'bunny', fur: '#F4F0E8', fur2: '#F6D7DA', tail: 'cotton',
              head: 'sphere', hw: 1.08, hh: 1.06, hd: 0.98, capY: -0.075,
              buttons: 1,                   // no muzzle — the nose is drawn on
-             earR: 0.152, earX: 0.145, earY: 0.62, earLen: 0.86, earTilt: 0.10,
+             legs: 'bunny', earX: 0.148, earY: 0.18, earTilt: 0.13,
              earIn: '#F6D7DA',
              dotEyes: 1, eyeX: 0.150, eyeW: 0.086, eyeH: 0.098 },
 
@@ -574,7 +576,16 @@ function drawAnimal(x, z, ry, look, pose, y0) {
   // legs (local -x is the character's right side, +x their left)
   const sp = p.spread || 0;
   const pant = shade(look.uni, 0.93), shoe = shade(look.cap, 0.66);
-  if (!A.body) {                    // the fish has none and the beetle has six
+  if (A.legs === 'bunny') {
+    // haunch, a thin shin, and a long hind foot — all three hang off the same
+    // hip joint the plain legs use, so running and sliding are unchanged
+    for (const s of [-1, 1]) {
+      const jx = s * (0.155 * big + sp), lr = s < 0 ? (p.legL || 0) : (p.legR || 0);
+      part(f, 'rabbit_thigh', jx, y + 0.44, 0, 1, 1, 1, pant, lr, s * 0.04);
+      const e = limb(f, jx, y + 0.44, 0, lr, s * 0.04, 0.34, 0.088, pant, null, 0);
+      part(f, 'rabbit_foot', e[0], e[1], e[2], 1, 1, 1, shoe, lr, s * 0.04);
+    }
+  } else if (!A.body) {             // the fish has none and the beetle has six
     limb(f, -(0.155 * big + sp), y + 0.44, 0, p.legL || 0, -0.04, 0.36, 0.12, pant, shoe, 0.30, 1);
     limb(f, 0.155 * big + sp, y + 0.44, 0, p.legR || 0, 0.04, 0.36, 0.12, pant, shoe, 0.30, 1);
   }
@@ -764,13 +775,20 @@ function drawAnimal(x, z, ry, look, pose, y0) {
              er * 0.60, er * 0.50, er * 0.46, col(A.earTip), 0, s * tl);
     }
   }
-  if (A.ear === 'long') {
-    const er = A.earR || 0.17, exx = A.earX || 0.15, eyy = A.earY || 0.44;
-    const el = A.earLen || 0.56, tl = A.earTilt === undefined ? 0.20 : A.earTilt;
+  if (A.ear === 'bunny') {
+    // Baked: they taper, the hollow faces forward, and the pink sits in it.
+    // `earY` is where the root goes — the length is the mesh's business. They
+    // stay separate parts rather than going into the head: a rabbit's ears
+    // have to be able to move.
+    const exx = A.earX || 0.148, eyy = A.earY || 0.18;
+    const tl = A.earTilt === undefined ? 0.13 : A.earTilt;
+    // and they lean back when the legs are going. Driven by the pose, not by
+    // `clock` — that lives in 50-main.js, which the face lab does not load.
+    const back = Math.min(0.30, (Math.abs(p.legL || 0) + Math.abs(p.legR || 0)) * 0.16);
+    const inC = A.earIn ? col(A.earIn) : fur2;
     for (const s of [-1, 1]) {
-      part(fh, 'sphere', s * exx, hy + eyy, -0.03, er, el, er * 0.82, fur, 0, s * tl);
-      part(fh, 'sphere', s * (exx + 0.010), hy + eyy + 0.02, 0.020,
-           er * 0.50, el * 0.80, er * 0.46, A.earIn ? col(A.earIn) : fur2, 0, s * tl);
+      part(fh, 'rabbit_ear', s * exx, hy + eyy, -0.02, 1, 1, 1, fur, -back, -s * tl);
+      part(fh, 'rabbit_earin', s * exx, hy + eyy, -0.02, 1, 1, 1, inC, -back, -s * tl);
     }
   }
   if (A.ear === 'toad') {
@@ -786,6 +804,7 @@ function drawAnimal(x, z, ry, look, pose, y0) {
   }
   // tail
   if (A.tail === 'puff') part(f, 'sphere', 0, y + 0.66, -0.30, 0.24, 0.24, 0.24, fur2);
+  if (A.tail === 'cotton') part(f, 'rabbit_tail', 0, y + 0.66, -0.30, 1, 1, 1, fur2);
   // the baked torso has a shallower back than the sphere one, so the nub has
   // to be seated further in or it floats off the jersey
   if (A.tail === 'nub') part(f, 'sphere', 0, y + 0.60, A.tailZ || -0.30, 0.16, 0.16, 0.16, fur);

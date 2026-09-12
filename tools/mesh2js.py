@@ -961,6 +961,146 @@ def build_beetle():
     return out
 
 
+# ------------------------------------------------------------------- rabbit
+# The head and the jersey are the `mesh:` path's business. What is baked here
+# is everything that path does not reach and that a rabbit cannot do without:
+# the ears, the haunches, the long hind feet, and the tail.
+#
+# Canonical pose: the character's own frame — +z is the face, +y is up, +x is
+# the LEFT half of the body. Each piece is authored around the joint it hangs
+# from, at the size it is drawn, so 30-actors.js places it with the same
+# numbers it used for the sphere it replaces. Scale 1 is life size.
+
+RAB_EAR_LEN = 0.88
+RAB_EAR_W = [(0.00, 0.052), (0.08, 0.070), (0.22, 0.082), (0.42, 0.086),
+             (0.60, 0.081), (0.76, 0.068), (0.88, 0.046), (0.95, 0.024),
+             (1.00, 0.005)]
+RAB_EAR_T = [(0.00, 0.021), (0.30, 0.019), (0.70, 0.015), (0.90, 0.010),
+             (1.00, 0.003)]
+RAB_EAR_C = [(0.00, 0.012), (0.18, 0.052), (0.45, 0.072), (0.72, 0.062),
+             (0.90, 0.030), (1.00, 0.006)]
+RAB_EAR_Z = [(0.00, -0.005), (0.35, -0.030), (0.70, -0.036), (1.00, -0.020)]
+
+# The haunch, hanging off the hip joint: deep rather than wide, and carried
+# behind the leg. That mass is most of what makes a rabbit a rabbit, and it is
+# below the belt, so it stays out of the way of the jersey.
+# (y from the hip joint, half width, half depth, how far back the middle sits)
+# `lerp_profile` reads keys in ascending order, so this table runs ankle-end
+# first. Written the other way round it silently returns the first value for
+# every ring, and the haunch comes out a pencil.
+RAB_THIGH = [(-0.245, 0.078, 0.082, -0.004), (-0.200, 0.100, 0.112, -0.016),
+             (-0.140, 0.124, 0.150, -0.030), (-0.070, 0.138, 0.168, -0.040),
+             (0.010, 0.120, 0.135, -0.026), (0.075, 0.075, 0.080, -0.010)]
+
+# The hind foot, from the ankle forward: long, flat, and turned up at the toe.
+# (z along the foot, half width, top, sole)
+RAB_FOOT = [(-0.105, 0.050, 0.026, -0.062), (-0.065, 0.079, 0.082, -0.096),
+            (-0.010, 0.096, 0.094, -0.110), (0.055, 0.103, 0.064, -0.112),
+            (0.140, 0.104, 0.030, -0.110), (0.215, 0.098, 0.006, -0.102),
+            (0.270, 0.078, -0.016, -0.090), (0.305, 0.042, -0.032, -0.072),
+            (0.325, 0.013, -0.044, -0.058)]
+
+
+def oriented(m):
+    """Flip a closed solid if it came out wound inside-out.
+
+    Back faces are culled, so a mesh wound the wrong way is not an error — it
+    is simply invisible, which is a miserable thing to debug. Signed volume
+    settles it without anyone having to reason about ring order.
+    """
+    v = 0.0
+    for a, b, c in m.f:
+        pa, pb, pc = m.v[a], m.v[b], m.v[c]
+        v += (pa[0] * (pb[1] * pc[2] - pb[2] * pc[1])
+              - pa[1] * (pb[0] * pc[2] - pb[2] * pc[0])
+              + pa[2] * (pb[0] * pc[1] - pb[1] * pc[0])) / 6.0
+    if v < 0.0:
+        m.f = [(a, c, b) for a, b, c in m.f]
+    return m
+
+
+def cupped(y, cz, w, th, cup, n=12):
+    """One slice of an ear: a lens, bowed so the hollow faces forward.
+
+    `cup` turns the two edges toward +z and sinks the middle between them,
+    which is the whole difference between an ear and a paddle.
+    """
+    pts = []
+    for k in range(n):
+        a = (k / float(n)) * math.tau
+        u = math.cos(a)
+        pts.append((u * w, y, cz + cup * (u * u - 1.0 / 3.0) + th * math.sin(a)))
+    return pts
+
+
+def ring_xy(z, hw, top, bot, n=12, e=2.5):
+    """A superelliptical slice in the x/y plane, for the foot — which is
+    stacked along z rather than up."""
+    cy, hh = (top + bot) * 0.5, (top - bot) * 0.5
+    pts = []
+    for k in range(n):
+        a = (k / float(n)) * math.tau
+        ca, sa = math.cos(a), math.sin(a)
+        pts.append((math.copysign(abs(ca) ** (2.0 / e), ca) * hw,
+                    cy + math.copysign(abs(sa) ** (2.0 / e), sa) * hh, z))
+    return pts
+
+
+def build_rabbit():
+    out = {}
+    W = lambda t: lerp_profile(t, RAB_EAR_W)
+    TH = lambda t: lerp_profile(t, RAB_EAR_T)
+    CU = lambda t: lerp_profile(t, RAB_EAR_C)
+    CZ = lambda t: lerp_profile(t, RAB_EAR_Z)
+    N = 20
+
+    # The ears stay their own parts rather than going into the head mesh: they
+    # are half the silhouette, they lean back when he runs, and the inside is
+    # a different colour. A bear's ears can be part of its skull; these cannot.
+    rings = []
+    for i in range(N):
+        t = i / float(N - 1)
+        rings.append(cupped(t * RAB_EAR_LEN, CZ(t), W(t), TH(t), CU(t)))
+    out['rabbit_ear'] = oriented(loft(rings))
+
+    # The pink inside is a thinner lens lying in the hollow. It has to stand
+    # proud of the ear or the outline pass eats it, but it stays under the rim
+    # the cup turns up, so it still reads as being inside the ear.
+    rings = []
+    for i in range(16):
+        t = 0.10 + 0.82 * i / 15.0
+        cup, th = CU(t) * 0.72, 0.010
+        cz = CZ(t) - CU(t) / 3.0 + TH(t) + 0.030 + cup / 3.0 - th
+        rings.append(cupped(t * RAB_EAR_LEN, cz, W(t) * 0.62, th, cup, 10))
+    out['rabbit_earin'] = oriented(loft(rings))
+
+    w, d, sh = [[(k[0], k[i]) for k in RAB_THIGH] for i in (1, 2, 3)]
+    lo, hi, rings = RAB_THIGH[0][0], RAB_THIGH[-1][0], []
+    for i in range(14):
+        y = lo + (hi - lo) * i / 13.0
+        rings.append(section(0.0, y, lerp_profile(y, sh), lerp_profile(y, w),
+                             lerp_profile(y, d), 14, e=2.30))
+    out['rabbit_thigh'] = oriented(loft(rings))
+
+    out['rabbit_foot'] = oriented(loft([ring_xy(*r) for r in RAB_FOOT]))
+
+    # The cotton tail. One puff was a ball and it read as a ball, so this one
+    # grows its lobes out of the radius instead of being six balls merged —
+    # same puff, a fifth of the vertices, and no surfaces buried inside it.
+    rings, NS, NR = [], 12, 11
+    for i in range(NR + 1):
+        a = math.pi * i / NR
+        cy, sr = math.cos(a), math.sin(a)
+        ring = []
+        for k in range(NS):
+            b = (k / float(NS)) * math.tau
+            r = 0.116 * (1.0 + 0.24 * math.sin(3.0 * b) * sr
+                        + 0.11 * math.sin(2.0 * b + 1.1) * sr + 0.13 * cy * cy)
+            ring.append((math.cos(b) * sr * r, cy * r, math.sin(b) * sr * r))
+        rings.append(ring)
+    out['rabbit_tail'] = oriented(loft(rings))
+    return out
+
 # ------------------------------------------------------------------- packing
 
 def load_obj(path):
@@ -1020,6 +1160,7 @@ def main():
     meshes.update(build_salmon())
     meshes.update(build_bear())
     meshes.update(build_beetle())
+    meshes.update(build_rabbit())
 
     # anything hand-made wins over the procedural version of the same name
     objdir = os.path.join('tools', 'obj')
