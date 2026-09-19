@@ -64,6 +64,17 @@ const SETS = {
     view('前脚 正面',     { ry: Math.PI, dist: 2.4, fr: 0.36, ty: 0.36, ey: 0.44 }),
     view('前脚 3/4',      { ry: Math.PI * 0.78, dist: 2.4, fr: 0.36, ty: 0.36, ey: 0.44 }),
   ],
+  // headwear, which is shared by every species and so is easy to leave alone:
+  // the cap and the helmet framed on their own, both from a camera low enough
+  // to catch a bill hanging over the eyes
+  f: [
+    view('帽子 正面',     { ry: Math.PI, dist: 2.3, fr: 0.50, ty: 1.44, ey: 1.10 }),
+    view('帽子 3/4',      { ry: Math.PI * 0.74, dist: 2.3, fr: 0.50, ty: 1.44, ey: 1.30 }),
+    view('ヘル 正面',     { ry: Math.PI, dist: 2.3, fr: 0.50, ty: 1.44, ey: 1.10,
+                            pose: { helmet: 1 } }),
+    view('ヘル 3/4',      { ry: Math.PI * 0.74, dist: 2.3, fr: 0.50, ty: 1.44, ey: 1.30,
+                            pose: { helmet: 1 } }),
+  ],
 };
 let VIEWS = SETS.a;
 

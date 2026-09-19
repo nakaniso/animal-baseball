@@ -93,7 +93,7 @@ const ANIMALS = {
   // Ears, haunches, hind feet and tail are baked (段階3); the head is still a
   // sphere because that is the surface the drawn face is projected onto.
   rabbit:  { ink: 0.022, ear: 'bunny', fur: '#F4F0E8', fur2: '#F6D7DA', tail: 'cotton',
-             head: 'sphere', hw: 1.08, hh: 1.06, hd: 0.98, capY: -0.075,
+             head: 'sphere', hw: 1.08, hh: 1.06, hd: 0.98,
              buttons: 1,                   // no muzzle — the nose is drawn on
              legs: 'bunny', earX: 0.148, earY: 0.18, earTilt: 0.13,
              earIn: '#F6D7DA',
@@ -602,6 +602,14 @@ function drawAnimal(x, z, ry, look, pose, y0) {
     part(f, M + 'placket', 0, y + 0.74, 0, 1, 1, 1, trim, ln);
     part(f, M + 'collar', 0, y + 0.74, 0, 1, 1, 1, trim, ln);
     part(f, M + 'belt', 0, y + 0.74, 0, 1, 1, 1, shade(look.cap, 0.85), ln);
+    // The sleeve is a capped cylinder hung outside the jersey, so its cut end
+    // sat in plain sight as a hard facet on each shoulder — most obvious from
+    // a low camera, which is the one the game uses at the plate. The mesh
+    // cannot reach it: the torso is tall enough there, just not wide enough,
+    // and widening the whole ring only makes him square. A cap over the joint
+    // is what a set-in sleeve looks like anyway.
+    for (const s of [-1, 1])
+      part(f, 'sphere', s * 0.320 * big, y + 0.952, 0.004, 0.262, 0.240, 0.268, uni, ln);
   } else {
   part(f, 'sphere', 0, y + 0.74, 0, 0.66 * big, 0.70, 0.56 * big, uni, p.lean || 0);
   part(f, 'sphere', 0, y + 0.97, 0.01, 0.50, 0.14, 0.45, trim);   // jersey collar
@@ -816,19 +824,28 @@ function drawAnimal(x, z, ry, look, pose, y0) {
   // headwear: a batting helmet at the plate and on the bases, otherwise a cap
   if (p.noHat || A.noHat) { /* a shopper, or a fish — nothing to hang a cap on */ }
   else if (p.helmet) {
-    const cy = A.capY || 0, cs = A.capS || 1;
-    part(fh, 'dome', 0, hy + 0.27 * cs + cy, 0.01, 0.80 * big * cs, 0.44 * cs, 0.78 * big * cs, cap);
-    part(fh, 'sphere', 0, hy + 0.285 * cs + cy, 0.01, 0.80 * big * cs, 0.22 * cs, 0.78 * big * cs, cap);
-    part(fh, 'box', 0, hy + 0.265 * cs + cy, 0.34 * cs, 0.50 * cs, 0.075 * cs, 0.26 * cs, cap);
+    // Same two shells as the cap, a size up and with the bill squashed to a
+    // stub — a helmet is a cap that swallowed the head, not a different
+    // object. The crest used to be a free-standing box above the dome and
+    // read as a chimney; it is sunk into the shell now.
+    const cy = A.capY || 0, cs = A.capS || 1, shy = hy + cy - 0.014 * cs;
+    part(fh, 'cap_crown', 0, shy, 0, 1.055 * big * cs, 1.05 * cs, 1.055 * big * cs, cap);
+    part(fh, 'cap_bill', 0, shy, 0, 1.06 * big * cs, 1.05 * cs, 0.70 * big * cs, cap);
     // the flap covers the ear turned toward the pitcher (local +x)
-    part(fh, 'sphere', 0.335 * big * cs, hy + 0.12 * cs + cy, 0.02,
-         0.14 * cs, 0.32 * cs, 0.40 * cs, cap);
-    part(fh, 'box', 0, hy + 0.40 * cs + cy, 0.10 * cs, 0.09 * cs, 0.06 * cs, 0.60 * cs, trim);
+    part(fh, 'sphere', 0.345 * big * cs, hy + 0.10 * cs + cy, 0.01,
+         0.15 * cs, 0.34 * cs, 0.42 * cs, cap);
+    part(fh, 'rbox', 0, hy + 0.462 * cs + cy, 0.012 * cs,
+         0.082 * cs, 0.112 * cs, 0.54 * cs, trim);
   } else {
+    // Baked at full size, so the scale is 1 and `capS` is the only shrink.
+    // A dome and a box read as a plate with a plank on it; the crown has a
+    // lip and a shoulder, and the bill curves down its length and up across
+    // its width so it is still a bill when seen edge-on.
     const cy = A.capY || 0, cs = A.capS || 1;
-    part(fh, 'dome', 0, hy + 0.29 * cs + cy, 0.01 * cs, 0.74 * big * cs, 0.38 * cs, 0.70 * big * cs, cap);
-    part(fh, 'box', 0, hy + 0.283 * cs + cy, 0.31 * cs, 0.46 * cs, 0.07 * cs, 0.30 * cs, cap);
-    part(fh, 'sphere', 0, hy + 0.46 * cs + cy, 0.01, 0.09 * cs, 0.09 * cs, 0.09 * cs, trim);
+    part(fh, 'cap_crown', 0, hy + cy, 0, big * cs, cs, big * cs, cap);
+    part(fh, 'cap_bill', 0, hy + cy, 0, big * cs, cs, big * cs, cap);
+    part(fh, 'sphere', 0, hy + 0.492 * cs + cy, 0.012 * cs,
+         0.082 * cs, 0.082 * cs, 0.082 * cs, trim);
   }
 
   return { f, hl, hr, hy, y };

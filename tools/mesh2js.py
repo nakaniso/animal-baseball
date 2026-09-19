@@ -331,8 +331,11 @@ def build_salmon():
     out['sal_pupil'] = iris
 
     # the flush a fish gets on the run upriver, a band along the flank only
+    # 46 rings of 9 along a smooth lens is nine hundred vertices spent on a
+    # stripe, and vertices here are bytes in the one HTML file the whole game
+    # ships as. At 24 by 7 it is the same shape and 13KB cheaper.
     band = Mesh()
-    N, COLS = 46, 9
+    N, COLS = 24, 7
     for a_c in (0.0, math.pi):
         rows = []
         for i in range(N):
@@ -408,6 +411,24 @@ def bump(q, amp):
     return amp * u * u * (3 - 2 * u)
 
 
+def mesa(q, amp, flat=0.46):
+    """A blob with a flat top and a steep flank — a muzzle, not a swelling.
+
+    `bump` falls away from its own centre, so the snout it makes is a dome:
+    broadest where it meets the skull and pointed where the nose is, which is
+    a mouse. A bear's muzzle is the other way round — it holds its width out
+    to the end and drops back to the skull down a short flank. That flank is
+    the stop, and the stop is what reads as "bear" in profile. `flat` is the
+    share of the footprint that keeps full height; the rest is the flank,
+    still smoothstep, so the rim keeps a radius the pale patch can clear.
+    """
+    if q <= flat * flat:
+        return amp
+    u = (1.0 - math.sqrt(max(0.0, q))) / (1.0 - flat)
+    u = max(0.0, min(1.0, u))
+    return amp * u * u * (3 - 2 * u)
+
+
 def bear_head_pt(az, el, out=0.0):
     """A point on the bear's skull. Star-shaped in (az, el) by construction."""
     dx = math.cos(el) * math.sin(az)
@@ -418,15 +439,20 @@ def bear_head_pt(az, el, out=0.0):
     x, y, z = dx * k * HEAD_X, dy * k * HEAD_Y, dz * k * HEAD_Z
 
     # the muzzle: broad, shallow, and part of the same surface. Wider than it
-    # is tall is what stops it reading as a ball glued to the front.
-    d = bump((az / 0.64) ** 2 + ((el - SNOUT_EL) / 0.42) ** 2, 0.152)
+    # is tall is what stops it reading as a ball glued to the front, and a
+    # mesa rather than a bump is what gives it a stop to meet the skull at.
+    d = mesa((az / 0.70) ** 2 + ((el - SNOUT_EL) / 0.46) ** 2, 0.176, 0.44)
+
+    # the lower jaw, carrying on behind the muzzle. Without it the chin cuts
+    # straight back to the throat and the profile is a dome with a peg on it.
+    d += bump((az / 0.64) ** 2 + ((el + 0.80) / 0.42) ** 2, 0.042)
 
     # the brow ridge. More than anything else this is what separates a bear
     # from a teddy, and it is exactly what a stack of spheres cannot do.
-    d += bump((az / 0.95) ** 2 + ((el - 0.17) / 0.22) ** 2, 0.024)
+    d += bump((az / 0.95) ** 2 + ((el - 0.19) / 0.24) ** 2, 0.032)
 
     # jowls, low and wide, carrying the line from the muzzle back to the ears
-    d += bump(((abs(az) - 1.00) / 0.58) ** 2 + ((el + 0.20) / 0.44) ** 2, 0.030)
+    d += bump(((abs(az) - 1.00) / 0.58) ** 2 + ((el + 0.20) / 0.44) ** 2, 0.034)
 
     # and the flat of the crown, so the cap has something to sit on
     d -= 0.020 * max(0.0, (el - 0.95) / 0.62) ** 2
@@ -525,11 +551,30 @@ def oval_patch(fn, az_c, el_c, az_r, el_r, out, nr=6, nt=22):
     return m
 
 
+EAR_AZ, EAR_EL = 1.70, 0.74      # where on the skull the ear is rooted
+EAR_LIFT = 0.062                 # and how far out of it the disc's centre sits
+
+
 def _ear_frame(side):
-    c = (side * 0.320, 0.268, -0.018 + HEAD_FWD)   # out past the cap, not over it
-    ax = (side * 0.42, 0.06, 0.905)                # forward, splayed outward
+    # Two numbers decide the whole silhouette, and both were wrong.
+    #
+    # The axis is the ear's own normal. Splayed barely off forward
+    # (0.42, 0.06, 0.90) the disc lay almost in the screen plane head-on and
+    # went edge-on in profile, which put a fin on top of the skull from the
+    # side — the same failure the rounded rim was meant to cure, one level up.
+    # Halfway out costs the same foreshortening either way and reads round
+    # from both.
+    #
+    # The centre was typed in as coordinates, so it drifted inside the skull
+    # the moment the skull changed and left a sickle of rim showing. Solve it
+    # off the head map instead, the way the beetle's legs are solved off the
+    # shell: a point on the surface, lifted along the axis. Now the ear sits
+    # on the head whatever the head does next.
+    ax = (side * 0.720, 0.185, 0.668)
     L = math.sqrt(sum(q * q for q in ax))
     ax = tuple(q / L for q in ax)
+    root = bear_head_pt(side * EAR_AZ, EAR_EL)
+    c = tuple(root[i] + ax[i] * EAR_LIFT for i in range(3))
     u = (ax[2], 0.0, -ax[0])
     Lu = math.sqrt(u[0] ** 2 + u[2] ** 2) or 1.0
     u = (u[0] / Lu, 0.0, u[2] / Lu)
@@ -537,6 +582,22 @@ def _ear_frame(side):
          ax[2] * u[0] - ax[0] * u[2],
          ax[0] * u[1] - ax[1] * u[0])
     return c, ax, u, v
+
+
+EAR_R = 0.138
+EAR_IN = 0.54                     # the inner ear's share of the radius
+
+
+def _ear_front(rho):
+    """How far the front face stands off the disc plane, at radius `rho`.
+
+    Not a plain dome: a rim ridge with a dish inside it. A convex front has
+    nowhere to put the inner ear except on top of it, where it reads as a
+    button stuck to the outside; a cupped one has a hollow that the pale
+    patch sits down in while still standing clear of the surface.
+    """
+    return 0.074 * math.sqrt(max(0.0, 1 - rho * rho)) \
+        - 0.040 * max(0.0, 1 - (rho / 0.74) ** 2)
 
 
 def bear_ear(side):
@@ -548,30 +609,30 @@ def bear_ear(side):
     round from every angle. The fold goes in bear_ear_inner, not here.
     """
     c, ax, u, v = _ear_frame(side)
-    R_ = 0.130
 
     def pt(rho, th, off):
-        a = R_ * rho * math.cos(th)
-        b = R_ * rho * math.sin(th) * 1.06
+        a = EAR_R * rho * math.cos(th)
+        b = EAR_R * rho * math.sin(th) * 1.06
         return tuple(c[i] + u[i] * a + v[i] * b + ax[i] * off for i in range(3))
 
     m = Mesh()
-    NT, NR = 18, 5
-    for depth, sgn in ((0.055, 1), (-0.078, -1)):
+    NT, NR = 18, 6
+    for front in (True, False):
         rings = []
         for r in range(NR + 1):
             rho = r / float(NR)
             # the rim (rho = 1) is shared; the faces part company inside it
-            rings.append([pt(rho, math.tau * j / NT, depth * math.sqrt(max(0.0, 1 - rho * rho)))
-                          for j in range(NT)])
+            off = _ear_front(rho) if front else \
+                -0.086 * math.sqrt(max(0.0, 1 - rho * rho))
+            rings.append([pt(rho, math.tau * j / NT, off) for j in range(NT)])
         idx = [[m.vert(*q) for q in ring] for ring in rings]
         for r in range(NR):
             a, b = idx[r], idx[r + 1]
             for j in range(NT):
                 k = (j + 1) % NT
                 if r == 0:
-                    m.tri(a[0], b[j], b[k]) if sgn > 0 else m.tri(a[0], b[k], b[j])
-                elif sgn > 0:
+                    m.tri(a[0], b[j], b[k]) if front else m.tri(a[0], b[k], b[j])
+                elif front:
                     m.quad(a[j], b[j], b[k], a[k])
                 else:
                     m.quad(a[k], b[k], b[j], a[j])
@@ -579,19 +640,25 @@ def bear_ear(side):
 
 
 def bear_ear_inner(side):
+    """The pale patch that sits in the hollow of the ear.
+
+    It has to stand *proud* of the outer ear, not follow it: laid on the same
+    curve minus a few millimetres it ends up inside the flap, and the bear
+    went a whole revision with an inner ear no camera ever saw. The clearance
+    also has to beat A.ink (0.022) or the outline pass swallows it.
+    """
     c, ax, u, v = _ear_frame(side)
-    R_ = 0.130 * 0.58
     m = Mesh()
-    NT, NR = 16, 4
+    NT, NR = 16, 5
     rings = []
     for r in range(NR + 1):
         rho = r / float(NR)
-        off = 0.055 * math.sqrt(max(0.0, 1 - (rho * 0.58) ** 2)) - 0.016
+        off = _ear_front(rho * EAR_IN) + 0.028
         ring = []
         for j in range(NT):
             th = math.tau * j / NT
-            a = R_ * rho * math.cos(th)
-            b = R_ * rho * math.sin(th) * 1.06
+            a = EAR_R * EAR_IN * rho * math.cos(th)
+            b = EAR_R * EAR_IN * rho * math.sin(th) * 1.06
             ring.append(tuple(c[i] + u[i] * a + v[i] * b + ax[i] * off for i in range(3)))
         rings.append(ring)
     idx = [[m.vert(*q) for q in ring] for ring in rings]
@@ -610,9 +677,13 @@ def bear_ear_inner(side):
 BODY_W = [(0.00, 0.228), (0.05, 0.284), (0.15, 0.305), (0.30, 0.322),
           (0.45, 0.338), (0.60, 0.352), (0.72, 0.356), (0.84, 0.330),
           (0.92, 0.262), (1.00, 0.165)]
-BODY_D = [(0.00, 0.192), (0.05, 0.236), (0.15, 0.252), (0.30, 0.268),
-          (0.45, 0.282), (0.60, 0.292), (0.72, 0.286), (0.84, 0.252),
-          (0.92, 0.198), (1.00, 0.134)]
+# A bear is deep, not wide: seen side-on the old torso was a slab barely two
+# thirds the width it had front-on, which is a mascot suit, not an animal.
+# The chest now carries nearly as much depth as width and the waist gives
+# some back, so the silhouette changes when he turns.
+BODY_D = [(0.00, 0.206), (0.05, 0.252), (0.15, 0.268), (0.30, 0.286),
+          (0.45, 0.304), (0.60, 0.318), (0.72, 0.314), (0.84, 0.276),
+          (0.92, 0.214), (1.00, 0.142)]
 BODY_Z = [(0.00, 0.004), (0.25, 0.018), (0.50, 0.006), (0.72, -0.026),
           (1.00, -0.042)]
 
@@ -629,17 +700,27 @@ def bear_body_pt(a, t, out=0.0):
     x = math.copysign(abs(sa) ** (2.0 / e), sa) * hw
     z = math.copysign(abs(ca) ** (2.0 / e), ca) * hd
 
-    # shoulder caps, so the sleeves come out of the jersey instead of floating
-    # alongside it. The arms hang from x = +/-0.33 at this height.
-    q = ((abs(x) - 0.300) / 0.185) ** 2 + ((y - 0.155) / 0.150) ** 2
+    # Shoulder caps. The sleeve is a capped cylinder hung at x = +/-0.33 with a
+    # 0.112 radius, so its top is a flat disc reaching out to 0.44 — and at
+    # 0.022 the old cap left that cut end in plain sight from the front and the
+    # back, a pair of tabs on the shoulders. The jersey has to come out far
+    # enough to swallow it and roll over the top, which is also what makes an
+    # arm look like it is in a sleeve rather than parked beside one.
+    q = ((abs(x) - 0.310) / 0.190) ** 2 + ((y - 0.158) / 0.175) ** 2
     if q < 1.0:
-        x += math.copysign(0.022 * (1.0 - q) ** 1.1, x)
+        x += math.copysign(bump(q, 0.078), x)
 
-    # the shoulder hump. Bears carry a mass of muscle over the shoulder blades,
-    # and under a jersey it is the one line that says bear from fifty metres.
+    # The shoulder hump. Bears carry a mass of muscle over the shoulder blades,
+    # and under a jersey it is the one line that says bear from fifty metres —
+    # but only if it shows in the outline. Lifting it alone put it inside the
+    # back's own curve, so it also pushes back: at 6cm of rise and nothing
+    # behind it the hump was invisible from every angle that mattered.
     back = max(0.0, -z / hd)
-    up = max(0.0, min(1.0, (t - 0.40) / 0.26)) * max(0.0, min(1.0, (0.94 - t) / 0.16))
-    y += 0.062 * (back ** 1.7) * (up * up * (3 - 2 * up))
+    up = max(0.0, min(1.0, (t - 0.40) / 0.24)) * max(0.0, min(1.0, (0.95 - t) / 0.15))
+    up = up * up * (3 - 2 * up)
+    hump = (back ** 1.6) * up
+    y += 0.082 * hump
+    z -= 0.056 * hump
     return (x, y, z + cz)
 
 
@@ -725,6 +806,127 @@ def build_bear():
         stripes.merge(bear_strip(a_c, 0.030, 0.18, 0.88, 0.006, na=3))
     out['bear_stripe'] = stripes
     return out
+
+
+# ---------------------------------------------------------------- headwear
+# Shared by every species that wears one, which is why it was left alone for
+# so long and why it ended up the weakest thing on the bear: a half-sphere
+# 13cm tall with a rectangular slab for a bill. Head-on it was a dark bar
+# across the brow; from the side, a plate with a plank nailed to it.
+#
+# A cap is two things the primitives cannot give. The crown has a lip where
+# the sweatband is and a shoulder where the panels turn over, so it is not a
+# dome. And the bill is curved twice — down along its length and up across
+# its width — which is the whole reason a real one reads as a bill from any
+# angle instead of disappearing edge-on.
+
+CAP_RX, CAP_RZ, CAP_CZ = 0.378, 0.336, 0.012      # the crown at the sweatband
+CAP_RIM = 0.222                                   # and where that sits
+# t -> (height, how much of the base radius is left)
+CAP_PROF = [(0.00, 0.222, 1.000), (0.11, 0.262, 1.012), (0.28, 0.322, 0.982),
+            (0.47, 0.380, 0.918), (0.66, 0.428, 0.808), (0.82, 0.462, 0.632),
+            (0.93, 0.484, 0.398), (1.00, 0.496, 0.000)]
+
+
+def _cap_ring(y, s, n, out=0.0):
+    ring = []
+    for j in range(n):
+        a = math.tau * j / n
+        sa, ca = math.sin(a), math.cos(a)
+        e = 2.02                        # rounder in plan than the skull is
+        x = math.copysign(abs(sa) ** (2.0 / e), sa) * (CAP_RX * s + out)
+        z = math.copysign(abs(ca) ** (2.0 / e), ca) * (CAP_RZ * s + out)
+        ring.append((x, y, z + CAP_CZ))
+    return ring
+
+
+def cap_crown(n=26):
+    """The crown, closed underneath by the sweatband so it has no open mouth."""
+    rings = []
+    # the sweatband, turned under and in: without it you can see up inside the
+    # hat from any low camera, and the game has plenty of those
+    rings.append(_cap_ring(CAP_RIM - 0.052, 0.905, n))
+    for t, y, sc in CAP_PROF:
+        rings.append(_cap_ring(y, sc, n))
+    m = Mesh()
+    idx = [[m.vert(*q) for q in r] for r in rings]
+    for i in range(len(idx) - 1):
+        a, b = idx[i], idx[i + 1]
+        for j in range(n):
+            k = (j + 1) % n
+            m.quad(a[j], a[k], b[k], b[j])
+    # the crown closes to a point at the top, and the underside to a disc
+    ring = idx[0]
+    c = m.vert(0.0, CAP_RIM - 0.062, CAP_CZ)
+    for j in range(n):
+        m.tri(c, ring[(j + 1) % n], ring[j])
+    return m
+
+
+def cap_bill(spread=0.98, reach=0.248, droop=0.044, curl=0.062, thick=0.058,
+             nu=16, nv=7):
+    """The bill: a sheet curved down its length and up across its width.
+
+    Both curves matter. Without the droop it is a shelf; without the curl the
+    sides sit level with the middle and the thing goes invisible the moment
+    the camera is anywhere near its plane — which, on a ball player, is most
+    of the time. `reach` tapers toward the corners, so the outline is a
+    rounded tongue rather than a rectangle with the ends sawn off.
+
+    `thick` has a floor that has nothing to do with caps: the outline pass
+    pushes every face out along its normal by A.ink, so a sheet thinner than
+    two of those is two black shells with no fill left between them. At a
+    realistic 34mm the bill came out a solid black band across the eyes.
+    """
+    def surf(u, v):
+        a = u * spread
+        L = reach * (1.0 - 0.40 * u * u)
+        r = 1.0 + L * v / max(CAP_RX, 1e-6)
+        w = max(0.0, v)
+        sa, ca = math.sin(a), math.cos(a)
+        x = sa * (CAP_RX * 0.995) * r
+        z = ca * (CAP_RZ * 0.995) * r + CAP_CZ
+        # off the lip, not off the bottom of the sweatband. Hung lower and
+        # drooped like a real one it crossed the eyes from any camera below
+        # the head, which is most of them, and a bear you cannot see the eyes
+        # of is not cute, it is a silhouette in a hat.
+        y = CAP_RIM + 0.026 - droop * (w ** 1.55) + curl * u * u * w
+        return (x, y, z)
+
+    m = Mesh()
+    top, bot = [], []
+    for i in range(nv + 1):
+        # the root starts inside the crown rather than flush against it: two
+        # surfaces that meet exactly z-fight, and along the sweatband that
+        # showed up as a row of dark dashes whenever the camera got under him
+        v = -0.20 + (i / float(nv)) * 1.20
+        rt, rb = [], []
+        for j in range(nu + 1):
+            u = (j / float(nu)) * 2 - 1
+            p = surf(u, v)
+            rt.append(m.vert(*p))
+            rb.append(m.vert(p[0], p[1] - thick, p[2]))
+        top.append(rt)
+        bot.append(rb)
+    for i in range(nv):
+        for j in range(nu):
+            m.quad(top[i][j], top[i][j + 1], top[i + 1][j + 1], top[i + 1][j])
+            m.quad(bot[i + 1][j], bot[i + 1][j + 1], bot[i][j + 1], bot[i][j])
+    for i in range(nv):                       # the two side edges
+        m.quad(top[i][0], top[i + 1][0], bot[i + 1][0], bot[i][0])
+        m.quad(bot[i][nu], bot[i + 1][nu], top[i + 1][nu], top[i][nu])
+    for j in range(nu):                       # the leading edge, and the root
+        m.quad(top[nv][j], top[nv][j + 1], bot[nv][j + 1], bot[nv][j])
+        m.quad(bot[0][j], bot[0][j + 1], top[0][j + 1], top[0][j])
+    return m
+
+
+def build_cap():
+    # Both are closed solids, so the winding is oriented()'s problem, not one
+    # for a human to reason about ring by ring. The bill came out inside-out
+    # on the first cut and rendered as a solid black band — the fill culled,
+    # the outline shell all that was left.
+    return {'cap_crown': oriented(cap_crown()), 'cap_bill': oriented(cap_bill())}
 
 
 # ------------------------------------------------------------------- beetle
@@ -1159,6 +1361,7 @@ def main():
     meshes = {}
     meshes.update(build_salmon())
     meshes.update(build_bear())
+    meshes.update(build_cap())
     meshes.update(build_beetle())
     meshes.update(build_rabbit())
 
