@@ -21,7 +21,7 @@
 |---|---|
 | ブランチ | `claude/bear-form-gfx2ge` |
 | 最新コミット | `e0a1b23` |
-| push | **未**（2026-09-19 時点。pushは指示があったときだけ） |
+| push | **済**（2026-09-19、`origin/claude/bear-form-gfx2ge`。以後もpushは指示があったときだけ） |
 | 公開URL | https://claude.ai/code/artifact/98937406-1626-4b82-b5ce-d3c0bcaf218d |
 | 作業ツリー | きれい |
 | 生成物 | 505,372 バイト＝**493.0 KiB**（512KiB まで19KB） |
