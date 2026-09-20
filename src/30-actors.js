@@ -86,7 +86,8 @@ const ANIMALS = {
   // surface and the jersey has shoulders. Everything else — arms, legs, cap,
   // the four expressions — still comes from the shared rig. The head numbers
   // the other mammals carry (hw/muz/earR/eyeX) are the mesh's business now.
-  bear:    { ink: 0.022, mesh: 'bear', tail: 'nub', tailZ: -0.235,
+  bear:    { ink: 0.022, mesh: 'bear', tail: 'nub', tailZ: -0.292,
+             legW: 0.138, footS: 0.365,
              fur: '#96683F', fur2: '#DFC49B' },
 
   // Drawn from the reference sketch: tall straight ears, round head, dot eyes.
@@ -586,8 +587,13 @@ function drawAnimal(x, z, ry, look, pose, y0) {
       part(f, 'rabbit_foot', e[0], e[1], e[2], 1, 1, 1, shoe, lr, s * 0.04);
     }
   } else if (!A.body) {             // the fish has none and the beetle has six
-    limb(f, -(0.155 * big + sp), y + 0.44, 0, p.legL || 0, -0.04, 0.36, 0.12, pant, shoe, 0.30, 1);
-    limb(f, 0.155 * big + sp, y + 0.44, 0, p.legR || 0, 0.04, 0.36, 0.12, pant, shoe, 0.30, 1);
+    // `legW` / `footS` let a species be stumpier without moving the hip: the
+    // rig hangs every leg off y+0.44 and running, sliding and falling are all
+    // built on that. How much leg you actually see is set by how low the
+    // jersey comes; thickness and foot size do the rest of the work.
+    const lw = A.legW || 0.12, fs = A.footS || 0.30;
+    limb(f, -(0.155 * big + sp), y + 0.44, 0, p.legL || 0, -0.04, 0.36, lw, pant, shoe, fs, 1);
+    limb(f, 0.155 * big + sp, y + 0.44, 0, p.legR || 0, 0.04, 0.36, lw, pant, shoe, fs, 1);
   }
 
   // torso
@@ -609,7 +615,7 @@ function drawAnimal(x, z, ry, look, pose, y0) {
     // and widening the whole ring only makes him square. A cap over the joint
     // is what a set-in sleeve looks like anyway.
     for (const s of [-1, 1])
-      part(f, 'sphere', s * 0.320 * big, y + 0.952, 0.004, 0.262, 0.240, 0.268, uni, ln);
+      part(f, 'sphere', s * 0.318 * big, y + 0.948, 0.004, 0.268, 0.248, 0.274, uni, ln);
   } else {
   part(f, 'sphere', 0, y + 0.74, 0, 0.66 * big, 0.70, 0.56 * big, uni, p.lean || 0);
   part(f, 'sphere', 0, y + 0.97, 0.01, 0.50, 0.14, 0.45, trim);   // jersey collar

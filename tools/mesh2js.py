@@ -411,24 +411,6 @@ def bump(q, amp):
     return amp * u * u * (3 - 2 * u)
 
 
-def mesa(q, amp, flat=0.46):
-    """A blob with a flat top and a steep flank — a muzzle, not a swelling.
-
-    `bump` falls away from its own centre, so the snout it makes is a dome:
-    broadest where it meets the skull and pointed where the nose is, which is
-    a mouse. A bear's muzzle is the other way round — it holds its width out
-    to the end and drops back to the skull down a short flank. That flank is
-    the stop, and the stop is what reads as "bear" in profile. `flat` is the
-    share of the footprint that keeps full height; the rest is the flank,
-    still smoothstep, so the rim keeps a radius the pale patch can clear.
-    """
-    if q <= flat * flat:
-        return amp
-    u = (1.0 - math.sqrt(max(0.0, q))) / (1.0 - flat)
-    u = max(0.0, min(1.0, u))
-    return amp * u * u * (3 - 2 * u)
-
-
 def bear_head_pt(az, el, out=0.0):
     """A point on the bear's skull. Star-shaped in (az, el) by construction."""
     dx = math.cos(el) * math.sin(az)
@@ -438,21 +420,21 @@ def bear_head_pt(az, el, out=0.0):
     k = (abs(dx) ** n + abs(dy) ** n + abs(dz) ** n) ** (-1.0 / n)
     x, y, z = dx * k * HEAD_X, dy * k * HEAD_Y, dz * k * HEAD_Z
 
-    # the muzzle: broad, shallow, and part of the same surface. Wider than it
-    # is tall is what stops it reading as a ball glued to the front, and a
-    # mesa rather than a bump is what gives it a stop to meet the skull at.
-    d = mesa((az / 0.70) ** 2 + ((el - SNOUT_EL) / 0.46) ** 2, 0.176, 0.44)
+    # The muzzle: broad, shallow, and part of the same surface. Wider than it
+    # is tall is what stops it reading as a ball glued to the front.
+    #
+    # It was once a mesa — flat on top with a steep flank, which is what a real
+    # bear's muzzle does and which puts a proper stop in the profile. It was
+    # also wrong for this game. Anatomy is not the target: a round face with a
+    # soft swelling on it is, and the stop turned the face into a snout. Do not
+    # reach for realism here again. `bump` is the decision, not the default.
+    d = bump((az / 0.64) ** 2 + ((el - SNOUT_EL) / 0.42) ** 2, 0.152)
 
-    # the lower jaw, carrying on behind the muzzle. Without it the chin cuts
-    # straight back to the throat and the profile is a dome with a peg on it.
-    d += bump((az / 0.64) ** 2 + ((el + 0.80) / 0.42) ** 2, 0.042)
-
-    # the brow ridge. More than anything else this is what separates a bear
-    # from a teddy, and it is exactly what a stack of spheres cannot do.
-    d += bump((az / 0.95) ** 2 + ((el - 0.19) / 0.24) ** 2, 0.032)
+    # the brow ridge, kept light — enough to catch the light above the eyes
+    d += bump((az / 0.95) ** 2 + ((el - 0.17) / 0.22) ** 2, 0.024)
 
     # jowls, low and wide, carrying the line from the muzzle back to the ears
-    d += bump(((abs(az) - 1.00) / 0.58) ** 2 + ((el + 0.20) / 0.44) ** 2, 0.034)
+    d += bump(((abs(az) - 1.00) / 0.58) ** 2 + ((el + 0.20) / 0.44) ** 2, 0.030)
 
     # and the flat of the crown, so the cap has something to sit on
     d -= 0.020 * max(0.0, (el - 0.95) / 0.62) ** 2
@@ -673,54 +655,59 @@ def bear_ear_inner(side):
     return m
 
 
-# ---- the body. A barrel with shoulders, which the sphere never had. --------
-BODY_W = [(0.00, 0.228), (0.05, 0.284), (0.15, 0.305), (0.30, 0.322),
-          (0.45, 0.338), (0.60, 0.352), (0.72, 0.356), (0.84, 0.330),
-          (0.92, 0.262), (1.00, 0.165)]
-# A bear is deep, not wide: seen side-on the old torso was a slab barely two
-# thirds the width it had front-on, which is a mascot suit, not an animal.
-# The chest now carries nearly as much depth as width and the waist gives
-# some back, so the silhouette changes when he turns.
-BODY_D = [(0.00, 0.206), (0.05, 0.252), (0.15, 0.268), (0.30, 0.286),
-          (0.45, 0.304), (0.60, 0.318), (0.72, 0.314), (0.84, 0.276),
-          (0.92, 0.214), (1.00, 0.142)]
-BODY_Z = [(0.00, 0.004), (0.25, 0.018), (0.50, 0.006), (0.72, -0.026),
-          (1.00, -0.042)]
+# ---- the body. A round one: this is a toy, not an animal. ------------------
+# Three goes at this. A sphere first, then a barrel with real shoulders and a
+# bear's shoulder hump, and now back to round on purpose.
+#
+# The middle one was anatomy, and anatomy was the wrong target. A hump over the
+# shoulder blades is the thing that says "bear" on a nature programme; on a
+# 1.5m toy with a head a third of its height it says "something is wrong with
+# his back". The reference for this game is a stuffed bear, and a stuffed bear
+# is an egg.
+#
+# So: widest low, a rounded bottom the legs come out from under, and nothing
+# sticking out behind. Depth stays close to width, because the one thing worth
+# keeping from the barrel is that he should not go flat when he turns.
+BODY_LO, BODY_HI = -0.430, 0.335      # about the torso anchor, so y+0.31 .. y+1.08
+
+# Widest low, and still wide at the top: a toy bear has no neck, the head sits
+# straight on the body. Tapering to a collar left a ring of jersey trim showing
+# under the chin like a bib.
+BODY_W = [(0.00, 0.128), (0.05, 0.216), (0.11, 0.282), (0.19, 0.331),
+          (0.28, 0.362), (0.36, 0.374), (0.48, 0.372), (0.60, 0.360),
+          (0.70, 0.344), (0.80, 0.320), (0.88, 0.292), (0.94, 0.262),
+          (1.00, 0.228)]
+# depth about nine tenths of width all the way up — the one thing worth keeping
+# from the barrel is that he should not go flat when he turns
+BODY_D = [(0.00, 0.115), (0.05, 0.196), (0.11, 0.256), (0.19, 0.302),
+          (0.28, 0.332), (0.36, 0.344), (0.48, 0.340), (0.60, 0.328),
+          (0.70, 0.312), (0.80, 0.290), (0.88, 0.264), (0.94, 0.238),
+          (1.00, 0.208)]
+# the belly leads and the shoulders sit back a little, which is all the
+# posture a shape like this needs
+BODY_Z = [(0.00, 0.004), (0.34, 0.022), (0.62, 0.012), (0.85, -0.012),
+          (1.00, -0.028)]
 
 
 def bear_body_pt(a, t, out=0.0):
     """A point on the torso. `a` runs from the centre of the chest (0) round
-    toward the character's left; `t` from the hem (0) to the collar (1)."""
-    y = -0.300 + t * 0.625
+    toward the character's left; `t` from the bottom (0) to the collar (1)."""
+    y = BODY_LO + t * (BODY_HI - BODY_LO)
     hw = lerp_profile(t, BODY_W) + out
     hd = lerp_profile(t, BODY_D) + out
     cz = lerp_profile(t, BODY_Z)
     sa, ca = math.sin(a), math.cos(a)
-    e = 2.05                            # barely off round; 2.45 was a packing case
+    e = 2.02                            # round; anything squarer reads as a box
     x = math.copysign(abs(sa) ** (2.0 / e), sa) * hw
     z = math.copysign(abs(ca) ** (2.0 / e), ca) * hd
 
     # Shoulder caps. The sleeve is a capped cylinder hung at x = +/-0.33 with a
-    # 0.112 radius, so its top is a flat disc reaching out to 0.44 — and at
-    # 0.022 the old cap left that cut end in plain sight from the front and the
-    # back, a pair of tabs on the shoulders. The jersey has to come out far
-    # enough to swallow it and roll over the top, which is also what makes an
-    # arm look like it is in a sleeve rather than parked beside one.
-    q = ((abs(x) - 0.310) / 0.190) ** 2 + ((y - 0.158) / 0.175) ** 2
+    # 0.112 radius, so its top is a flat disc reaching out to 0.44, and a round
+    # body is narrower up there than a barrel was. The jersey comes out to meet
+    # it; the rest of the join is the shoulder ball drawn over the joint.
+    q = ((abs(x) - 0.300) / 0.185) ** 2 + ((y - 0.180) / 0.195) ** 2
     if q < 1.0:
-        x += math.copysign(bump(q, 0.078), x)
-
-    # The shoulder hump. Bears carry a mass of muscle over the shoulder blades,
-    # and under a jersey it is the one line that says bear from fifty metres —
-    # but only if it shows in the outline. Lifting it alone put it inside the
-    # back's own curve, so it also pushes back: at 6cm of rise and nothing
-    # behind it the hump was invisible from every angle that mattered.
-    back = max(0.0, -z / hd)
-    up = max(0.0, min(1.0, (t - 0.40) / 0.24)) * max(0.0, min(1.0, (0.95 - t) / 0.15))
-    up = up * up * (3 - 2 * up)
-    hump = (back ** 1.6) * up
-    y += 0.082 * hump
-    z -= 0.056 * hump
+        x += math.copysign(bump(q, 0.058), x)
     return (x, y, z + cz)
 
 
@@ -798,12 +785,24 @@ def build_bear():
                 body.tri(c, ring[j], ring[k])
     out['bear_body'] = body
 
-    out['bear_collar'] = bear_band(0.93, 1.00, 0.008)
-    out['bear_belt'] = bear_band(0.055, 0.135, 0.008)
-    out['bear_placket'] = bear_strip(0.0, 0.072, 0.14, 0.93, 0.007)
+    # The collar rides high enough that the head hides most of it. With no
+    # neck to sit on there is nowhere for a jersey collar to go, and a full
+    # ring of pale trim below the chin reads as a bib, not a collar.
+    #
+    # The belt sits below the widest point, where the top of the trousers
+    # would be — on the waist of an egg it reads as a seam cutting him in half
+    # The collar rides high enough that the head hides most of it. With no
+    # neck to sit on there is nowhere for a jersey collar to go, and a full
+    # ring of pale trim below the chin reads as a bib, not a collar.
+    #
+    # The belt sits below the widest point, where the top of the trousers
+    # would be — on the waist of an egg it reads as a seam cutting him in half
+    out['bear_collar'] = bear_band(0.935, 0.995, 0.008)
+    out['bear_belt'] = bear_band(0.155, 0.235, 0.008)
+    out['bear_placket'] = bear_strip(0.0, 0.068, 0.24, 0.90, 0.007)
     stripes = Mesh()
     for a_c in (-0.80, -0.42, 0.42, 0.80):
-        stripes.merge(bear_strip(a_c, 0.030, 0.18, 0.88, 0.006, na=3))
+        stripes.merge(bear_strip(a_c, 0.030, 0.28, 0.86, 0.006, na=3))
     out['bear_stripe'] = stripes
     return out
 
