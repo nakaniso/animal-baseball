@@ -34,69 +34,41 @@ function togglePause() {
 }
 
 /* ============================================================
-   card art — 2D sketches so the menus show what you are picking
+   card art — so the menus show what you are picking
    ============================================================ */
-function faceCanvas(team, w, h) {
-  const c = document.createElement('canvas');
-  c.width = w * 2; c.height = h * 2;
-  const g = c.getContext('2d'); g.scale(2, 2);
-  const A = ANIMALS[team.animal];
-  g.fillStyle = '#20303F'; g.fillRect(0, 0, w, h);
-  // pennant stripes behind the face
-  g.fillStyle = team.uni;
-  for (let i = -2; i < 10; i++) { g.beginPath(); g.moveTo(i * 22, h); g.lineTo(i * 22 + 26, 0); g.lineTo(i * 22 + 38, 0); g.lineTo(i * 22 + 12, h); g.fill(); }
-  g.globalAlpha = 0.22; g.fillStyle = '#000'; g.fillRect(0, 0, w, h); g.globalAlpha = 1;
+/* The team's own player, drawn by the game's renderer into a corner of the
+   canvas and copied out. The 2D sketches these replace could not keep up with
+   the models: the salmon had ears, a nose and a cap. */
+const PORTRAIT = { salmon: { ty: 0.42, d: 2.6, ry: -1.45 }, beetle: { ty: 0.95, d: 2.6, ry: -1.0 },
+                   rabbit: { ty: 1.34, d: 2.6, ry: -0.28 } };
+function paintPortrait(c, team) {
+  const w = c.width, h = c.height;
+  R.resize();
+  if (!R.w || R.w < w || R.h < h) return;
+  const A = ANIMALS[team.animal], P = PORTRAIT[team.animal] || { ty: 1.2, d: 2.35, ry: -0.28 };
+  const cam = { ex: -1.15, ey: P.ty + 0.25, ez: P.d, tx: -0.30, ty: P.ty, tz: 0, fov: 34 };
+  R.begin(cam, { light: [0.45, 0.75, 0.50], skyTint: '#DDEBF5', gndTint: '#6A7A5C',
+                 fog: '#20303F', fogDist: 1000 }, w, h);
+  // pennant stripes behind him, in the uniform colour
+  R.unlit(true);
+  const back = shade(team.uni, 0.62);
+  for (let i = -6; i <= 6; i++)
+    R.d('box', i * 0.62, P.ty, -2.2, 0, 0, -0.45, 0.24, 7, 0.05, back);
+  R.unlit(false);
+  const look = { animal: team.animal, uni: team.uni, trim: team.trim, cap: team.cap };
+  // the rabbit's resting face is the one drawn by hand, so that is the one shown
+  const face = FACE_SCANS[team.animal + ':0'] ? EXPR.idle : EXPR.happy;
+  drawAnimal(0.18, 0, P.ry, look, { armL: 0.25, armR: -0.25, face }, 0);
+  SHADOWS.length = 0;
+  const g = c.getContext('2d');
+  g.drawImage(R.canvas, 0, R.canvas.height - h, w, h, 0, 0, w, h);
+}
 
-  const cx = w / 2, cy = h * 0.60, r = h * 0.34;
-  const ear = (dx, dy, rr) => { g.beginPath(); g.arc(cx + dx, cy + dy, rr, 0, 7); g.fill(); };
-  g.fillStyle = A.fur;
-  if (A.ear === 'round') { ear(-r * 0.82, -r * 0.72, r * 0.36); ear(r * 0.82, -r * 0.72, r * 0.36); }
-  if (A.ear === 'point') {
-    for (const s of [-1, 1]) { g.beginPath(); g.moveTo(cx + s * r * 0.3, cy - r * 0.8); g.lineTo(cx + s * r * 0.95, cy - r * 1.35); g.lineTo(cx + s * r * 1.0, cy - r * 0.5); g.fill(); }
+function paintPortraits() {
+  for (const el of $$('#team-grid canvas')) {
+    const t = teamById(el.dataset.team);
+    if (t) paintPortrait(el, t);
   }
-  if (A.ear === 'toad') { ear(-r * 0.72, -r * 0.66, r * 0.34); ear(r * 0.72, -r * 0.66, r * 0.34); }
-  g.beginPath(); g.arc(cx, cy, r, 0, 7); g.fill();
-  // cap
-  g.fillStyle = team.cap;
-  g.beginPath(); g.arc(cx, cy - r * 0.16, r * 1.0, Math.PI, 0); g.fill();
-  g.fillRect(cx - r * 1.05, cy - r * 0.2, r * 2.1, r * 0.16);
-  g.beginPath(); g.ellipse(cx, cy - r * 0.16, r * 1.25, r * 0.2, 0, Math.PI, 0); g.fill();
-  g.fillStyle = team.trim; g.beginPath(); g.arc(cx, cy - r * 1.1, r * 0.12, 0, 7); g.fill();
-  // long ears sit on top of the cap, not under it
-  if (A.ear === 'long') {
-    for (const s of [-1, 1]) {
-      g.save(); g.translate(cx + s * r * 0.46, cy - r * 1.16); g.rotate(s * 0.26);
-      g.fillStyle = A.fur; g.beginPath(); g.ellipse(0, 0, r * 0.23, r * 0.66, 0, 0, 7); g.fill();
-      g.fillStyle = A.fur2; g.beginPath(); g.ellipse(0, r * 0.06, r * 0.11, r * 0.44, 0, 0, 7); g.fill();
-      g.restore();
-    }
-  }
-  // muzzle + eyes
-  g.fillStyle = A.fur2;
-  g.beginPath(); g.ellipse(cx, cy + r * 0.36, r * 0.44, r * 0.32, 0, 0, 7); g.fill();
-  if (A.beak) {
-    g.fillStyle = A.beak;
-    g.beginPath(); g.moveTo(cx - r * 0.20, cy + r * 0.26); g.lineTo(cx + r * 0.20, cy + r * 0.26);
-    g.lineTo(cx, cy + r * 0.66); g.closePath(); g.fill();
-  }
-  g.fillStyle = '#22282F';
-  if (A.ear === 'toad') { g.fillStyle = A.fur; ear(-r * 0.72, -r * 0.66, r * 0.34); ear(r * 0.72, -r * 0.66, r * 0.34); g.fillStyle = '#22282F'; ear(-r * 0.72, -r * 0.72, r * 0.15); ear(r * 0.72, -r * 0.72, r * 0.15); }
-  g.beginPath(); g.ellipse(cx - r * 0.34, cy + r * 0.02, r * 0.11, r * 0.14, 0, 0, 7); g.fill();
-  g.beginPath(); g.ellipse(cx + r * 0.34, cy + r * 0.02, r * 0.11, r * 0.14, 0, 0, 7); g.fill();
-  if (!A.beak) { g.beginPath(); g.ellipse(cx, cy + r * 0.26, r * 0.13, r * 0.10, 0, 0, 7); g.fill(); }
-  g.fillStyle = '#fff';
-  g.beginPath(); g.arc(cx - r * 0.30, cy - r * 0.04, r * 0.045, 0, 7); g.fill();
-  g.beginPath(); g.arc(cx + r * 0.38, cy - r * 0.04, r * 0.045, 0, 7); g.fill();
-  if (A.brow) {                      // the drawn brow line, as on the model
-    g.strokeStyle = '#3A2A1A'; g.lineWidth = r * 0.11; g.lineCap = 'round';
-    for (const s of [-1, 1]) {
-      g.beginPath();
-      g.moveTo(cx + s * r * 0.16, cy - r * 0.30);
-      g.lineTo(cx + s * r * 0.52, cy - r * 0.24);
-      g.stroke();
-    }
-  }
-  return c;
 }
 
 function parkCanvas(st, w, h) {
@@ -187,7 +159,9 @@ function buildMenus() {
       <div class="ds">${t.desc}</div>
       <div class="stats">${statBar('パワー', t.pow)}${statBar('ミート', t.con)}${statBar('走力', t.spd)}${statBar('守備', t.def)}</div>
       <div class="statrow"><span>パワー</span><span>ミート</span><span>走力</span><span>守備</span></div></div>`;
-    b.querySelector('.art').appendChild(faceCanvas(t, 240, 104));
+    const art = document.createElement('canvas');
+    art.width = 480; art.height = 208; art.dataset.team = t.id;
+    b.querySelector('.art').appendChild(art);
     b.onclick = () => {
       Snd.boot();
       if (G.mode === 'vs' && teamPick === 0) { team1 = t.id; teamPick = 1; showTeamPick(); return; }
@@ -201,10 +175,11 @@ function buildMenus() {
     ['投げる', '守るイニングでは <b>1〜5</b> で球種、<b>矢印キー</b>でコース、<b>スペース</b>で投球。ストライクゾーンの外に外して振らせるのも手。'],
     ['バント', '<b>Shift＋スペース</b>でバント。転がして走者を進める。'],
     ['ルール', '4ボールで四球、3ストライクで三振、当たればデッドボール、3アウトでチェンジ。イニング数は球場選択の画面で<b>3回・6回・9回</b>から選べる（初期設定は6回）。同点ならさらに3イニングまで延長し、それでも決まらなければ引き分け。あなたは先攻。'],
-    ['球場のクセ', '球場ごとに重力・フェンス距離・障害物がちがう。月面は1/6重力、スーパーは天井直撃でエンタイトルツーベース。'],
+    ['審判はきびしい', '盗塁・ボーク・暴投・振り逃げ・インフィールドフライ・サヨナラの得点まで、すべて野球規則どおりに裁かれる。相手が鮭でもカブトムシでも例外はない。走者はCPUが自分の判断で走る。'],
+    ['球場のクセ', '球場ごとに重力・フェンス距離・障害物がちがう。月面は重力が地球の半分ほど、スーパーは天井直撃でエンタイトルツーベース。'],
     ['勝ち方', '打球の質は「タイミング」と「カーソルの位置」で決まる。芯を外すとファウルになって粘れるので、追い込まれても諦めないこと。'],
     ['ふたりで対戦', 'キーボードひとつを交代で使う。投手（<b>1〜5</b>で球種、<b>矢印</b>でコース、<b>スペース</b>で投球）が投げたら、そのまま打者（<b>矢印</b>でねらう、<b>スペース</b>でスイング）の番。1Pが先攻、2Pが後攻。'],
-    ['中断する', '右上の<b>やめる</b>、または<b>Escキー</b>でいつでも中断できる。そのまま続けるか、タイトルに戻るかを選べる。'],
+    ['中断する', '右上の<b>ポーズ</b>、または<b>Escキー</b>でいつでも中断できる。そのまま続けるか、タイトルに戻るかを選べる。'],
   ].map(([h, d]) => `<div class="card"><div class="bd"><div class="nm">${h}</div><div class="ds">${d}</div></div></div>`).join('');
 }
 
@@ -749,9 +724,20 @@ const SWING = [
   { t: 0.520, gx: 0.05, gy: 1.26, gz: 0.34, az: 45, tilt: 0.75, ry: 1.10, lean: 0.09, spread: 0.12, lgL: -0.02, lgR: 0.05, shift: 0.11, head: -0.15, px: 0.10, py: -0.75, pz: 0.45 },
 ];
 
-function batterRig(t, clk) {
+/* Squared round to bunt: chest to the pitcher, the bat level over the plate
+   and the top hand slid up the barrel to deaden it. */
+const BUNT = { gx: -0.36, gy: 1.02, gz: 0.30, az: -84, tilt: 0.10, ry: 1.25, lean: 0.20,
+               spread: 0.15, lgL: 0.16, lgR: -0.12, shift: 0.05, head: 0.30,
+               px: 0.05, py: -0.85, pz: -0.25 };
+
+function batterRig(t, clk, bunt) {
   let k;
-  if (t < 0) {
+  if (bunt) {                                  // from the stance into the bunt
+    const u = clamp(t / 0.18, 0, 1), e = u * u * (3 - 2 * u);
+    k = {};
+    for (const key in BUNT) k[key] = lerp(SWING[0][key], BUNT[key], e);
+    k.topAt = lerp(0.20, 0.46, e);
+  } else if (t < 0) {
     k = Object.assign({}, SWING[0]);           // waiting: a small bat waggle
     k.az += Math.sin(clk * 2.4) * 6.0;
     k.tilt += Math.sin(clk * 2.4 + 0.6) * 0.08;
@@ -775,7 +761,8 @@ function batterRig(t, clk) {
   k.grip = grip; k.dir = dir; k.bx = BAT_X; k.bz = BAT_Z + k.shift;
   // right-handed hitter: left hand at the knob, right hand above it. The
   // character's local +x side faces the pitcher, so that is the left arm.
-  k.topAt = 0.20; k.botAt = 0.06;
+  if (k.topAt === undefined) k.topAt = 0.20;
+  k.botAt = 0.06;
   k.handTop = on(k.topAt);
   k.handBot = on(k.botAt);
   k.pole = [k.px, k.py, k.pz];
@@ -844,6 +831,15 @@ function reachFrom(sx, sy, sz, tx, ty, tz, max) {
   return [sx + dx * k, sy + dy * k, sz + dz * k];
 }
 
+/* stars going round the head of somebody who has just been flattened */
+function dizzy(x, y, z) {
+  for (let i = 0; i < 3; i++) {
+    const a = clock * 5 + i * 2.1;
+    R.b('sphere', x + Math.cos(a) * 0.34, y + Math.sin(clock * 6 + i) * 0.05, z + Math.sin(a) * 0.34,
+        0.13, 0.13, 0.13, col('#FFE04A'));
+  }
+}
+
 function drawScene() {
   const st = G.st;
   const env = { light: st.light, skyTint: st.skyTint, gndTint: st.gndTint, fog: st.fog, fogDist: st.fogDist };
@@ -877,11 +873,7 @@ function drawScene() {
         fall: -1.45, spread: 0.18, legL: -0.5, legR: 0.4,
         armL: -1.1, armR: 1.1, bob: -0.30, face: EXPR.down,
       }, 0);
-      for (let s2 = 0; s2 < 3; s2++) {
-        const a2 = clock * 5 + s2 * 2.1;
-        R.b('sphere', f.x + Math.cos(a2) * 0.34, 0.92 + Math.sin(clock * 6 + s2) * 0.05,
-            f.z + Math.sin(a2) * 0.34, 0.13, 0.13, 0.13, col('#FFE04A'));
-      }
+      dizzy(f.x, 0.92, f.z);
       continue;
     }
     const isP = f.st.k === 'P', isC = f.st.k === 'C';
@@ -948,13 +940,11 @@ function drawScene() {
       drawAnimal(BAT_X + 0.25, BAT_Z - 0.2, -Math.PI / 2, b.look,
         { fall: -0.62, spread: 0.20, legL: -0.35, legR: 0.30,
           armL: -1.7, armR: -1.6, bob: -0.12, helmet: 1, face: EXPR.down }, 0);
-      for (let s2 = 0; s2 < 3; s2++) {
-        const a2 = clock * 5 + s2 * 2.1;
-        R.b('sphere', BAT_X + 0.25 + Math.cos(a2) * 0.34, 1.05 + Math.sin(clock * 6 + s2) * 0.05,
-            BAT_Z - 0.2 + Math.sin(a2) * 0.34, 0.13, 0.13, 0.13, col('#FFE04A'));
-      }
+      dizzy(BAT_X + 0.25, 1.05, BAT_Z - 0.2);
     } else {
-    const rig = batterRig(G.batSwingT, clock);
+    // a CPU bunter shows it as the pitcher lets go; a player, when he presses
+    const bunt = G.bunting && G.pitch && G.phase !== 'ready' && G.phase !== 'aim';
+    const rig = batterRig(bunt ? (humanBats() ? G.batSwingT : G.pitch.t) : G.batSwingT, clock, bunt);
     drawAnimal(rig.bx, rig.bz, -Math.PI / 2 + rig.ry, b.look, {
       handL: rig.handTop, handR: rig.handBot, pole: rig.pole,
       legL: rig.lgL, legR: rig.lgR, spread: rig.spread,
@@ -979,11 +969,7 @@ function drawScene() {
       drawAnimal(r.x, r.z, r.ry, m.p.look,
         { fall: -1.45, spread: 0.18, legL: -0.5, legR: 0.4, armL: -1.1, armR: 1.1,
           bob: -0.30, helmet: 1, face: EXPR.down }, 0);
-      for (let s2 = 0; s2 < 3; s2++) {
-        const a2 = clock * 5 + s2 * 2.1;
-        R.b('sphere', r.x + Math.cos(a2) * 0.34, 0.92 + Math.sin(clock * 6 + s2) * 0.05,
-            r.z + Math.sin(a2) * 0.34, 0.13, 0.13, 0.13, col('#FFE04A'));
-      }
+      dizzy(r.x, 0.92, r.z);
       continue;
     }
     if (m.slide && r.u > 0.80) {          // a throw is coming: get down
@@ -1105,8 +1091,10 @@ function boot() {
   }
   const faceAtlas = buildFaceAtlas();
   R.upload(faceAtlas);
-  applyFaceScans(faceAtlas, () => R.upload(faceAtlas));
   buildMenus();
+  paintPortraits();
+  // the hand-drawn face cells land a moment later; paint the cards again
+  applyFaceScans(faceAtlas, () => { R.upload(faceAtlas); paintPortraits(); });
   bindInput();
   $('#btn-start').onclick = () => { Snd.boot(); G.mode = 'cpu'; show('#s-stadium'); };
   $('#btn-vs').onclick = () => { Snd.boot(); G.mode = 'vs'; show('#s-stadium'); };

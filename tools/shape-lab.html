@@ -486,12 +486,16 @@ const R = {
     this.gl.viewport(0, 0, w, h);
   },
 
-  begin(cam, env) {
+  /* `vw`/`vh` draw into just the bottom-left corner of the canvas, so a
+     small picture (a menu card) can be rendered and copied out */
+  begin(cam, env, vw, vh) {
     const gl = this.gl;
     this.resize();
+    const w = vw || this.w, h = vh || this.h;
+    if (vw) { gl.viewport(0, 0, w, h); gl.enable(gl.SCISSOR_TEST); gl.scissor(0, 0, w, h); }
     // on a tall screen a fixed vertical fov leaves almost no horizontal view,
     // so widen it as the aspect ratio narrows
-    const aspect = this.w / this.h;
+    const aspect = w / h;
     const fov = (cam.fov || 46) * clamp(1.12 / aspect, 1, 1.75);
     const proj = mPerspective(m4(), fov * DEG, aspect, 0.35, 1100);
     const view = mLookAt(m4(), cam.ex, cam.ey, cam.ez, cam.tx, cam.ty, cam.tz);
@@ -500,6 +504,7 @@ const R = {
     const bg = col(env.fog);
     gl.clearColor(bg[0], bg[1], bg[2], 1);
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+    gl.disable(gl.SCISSOR_TEST);
     gl.disable(gl.BLEND);
     gl.depthMask(true);
     gl.uniformMatrix4fv(this.u.uVP, false, this.vp);
@@ -923,14 +928,14 @@ function armIK(sx, sy, sz, hx, hy, hz, L1, L2, pole, rad, c, handC) {
 }
 
 /* ---------- animal species ---------- */
-/* hw/hh/hd scale the head; muz is the size of the muzzle; brow adds the drawn
-   eyebrow strokes; earR/earX/earY place the ears. */
+/* hw/hh/hd scale the head; muz is the size of the muzzle; earR/earX/earY
+   place the ears. The face itself is art, in FACES below. */
 const ANIMALS = {
   // Stage 3. `mesh` swaps the head, the muzzle, the ears and the torso for
   // shells baked by tools/mesh2js.py, so the skull and the snout are one
   // surface and the jersey has shoulders. Everything else — arms, legs, cap,
   // the four expressions — still comes from the shared rig. The head numbers
-  // the other mammals carry (hw/muz/earR/eyeX) are the mesh's business now.
+  // the other mammals carry (hw/muz/earR) are the mesh's business now.
   bear:    { ink: 0.022, mesh: 'bear', tail: 'nub', tailZ: -0.292,
              legW: 0.138, footS: 0.365,
              fur: '#96683F', fur2: '#DFC49B' },
@@ -942,57 +947,47 @@ const ANIMALS = {
              head: 'sphere', hw: 1.08, hh: 1.06, hd: 0.98,
              buttons: 1,                   // no muzzle — the nose is drawn on
              legs: 'bunny', earX: 0.148, earY: 0.18, earTilt: 0.13,
-             earIn: '#F6D7DA',
-             dotEyes: 1, eyeX: 0.150, eyeW: 0.086, eyeH: 0.098 },
+             earIn: '#F6D7DA' },
 
   cat:     { ink: 0.022, ear: 'point', fur: '#E0A44F', fur2: '#F7EDDD', tail: 'long',
              head: 'rbox', hw: 1.10, hh: 0.98, hd: 0.94,
              muz: [0.46, 0.255, 0.26], muzY: -0.125, muzZ: 0.245,
-             noseR: 0.085, noseC: '#C2705E', whisk: 1,
-             earR: 0.255, earX: 0.235, earY: 0.36, earT: 0.26,
-             eyeX: 0.156, eyeW: 0.145, eyeH: 0.100, eyeTilt: 0.16 },
+             earR: 0.255, earX: 0.235, earY: 0.36, earT: 0.26 },
 
   frog:    { ink: 0.022, ear: 'toad', fur: '#7DC163', fur2: '#E8F0C8', tail: 'none',
              head: 'rbox', hw: 1.24, hh: 0.86, hd: 1.02,
-             noFaceEyes: 1, mouth: 1,
              earR: 0.285, earX: 0.275, earY: 0.13, earZ: 0.24 },
 
   penguin: { ink: 0.022, ear: 'none', fur: '#2E3B4A', fur2: '#F4F1E6', tail: 'nub',
              beak: '#F2A93B', head: 'sphere', hw: 1.02, hh: 1.08, hd: 0.98,
-             facePatch: [0.54, 0.58, 0.30],
-             eyeX: 0.138, eyeW: 0.104, eyeH: 0.104 },
+             facePatch: [0.54, 0.58, 0.30] },
 
   fox:     { ink: 0.022, ear: 'point', fur: '#D96F3A', fur2: '#F6EFE2', tail: 'bushy',
              head: 'rbox', hw: 1.04, hh: 0.96, hd: 1.08,
-             muz: [0.33, 0.235, 0.46], muzY: -0.115, muzZ: 0.30, noseR: 0.082,
+             muz: [0.33, 0.235, 0.46], muzY: -0.115, muzZ: 0.30,
              cheek: 0.21, cheekC: '#F6EFE2',
-             earR: 0.275, earX: 0.255, earY: 0.38, earT: 0.22, earTip: '#3C2A20',
-             eyeX: 0.156, eyeW: 0.140, eyeH: 0.098, eyeTilt: 0.20 },
+             earR: 0.275, earX: 0.255, earY: 0.38, earT: 0.22, earTip: '#3C2A20' },
 
   // Drawn as the real animal rather than a round cartoon of one, and given no
-  // face cell, so they never change expression.
+  // face cell, so they never change expression. Their eyes are in the mesh.
   salmon:  { ink: 0.013, body: 'fish', ear: 'none', tail: 'none', noHat: 1, shadow: 1.5,
              noGlove: 1, noBat: 1,
              fur: '#B4C2CB', fur2: '#EFF2F0', back: '#3C5E71', blush: '#B0524C',
-             fin: '#7F909B', spot: '#22323C', jaw: '#9DAAB2',
-             head: 'sphere', hw: 0.60, hh: 0.78, hd: 1.30 },
+             fin: '#7F909B', jaw: '#9DAAB2' },
 
   beetle:  { ink: 0.013, body: 'beetle', ear: 'none', tail: 'none', capY: -0.20, capS: 0.40,
              noGlove: 1, noBat: 1,
-             fur: '#3E2717', fur2: '#5C3C22', horn: '#20130A', leg: '#281A0E',
-             head: 'rbox', hw: 0.66, hh: 0.50, hd: 0.66 },
+             fur: '#3E2717', fur2: '#5C3C22', horn: '#20130A', leg: '#281A0E' },
 
   panda:   { ink: 0.022, ear: 'round', fur: '#F0EDE6', fur2: '#2C3138', tail: 'nub', patch: 1,
              head: 'rbox', hw: 1.12, hh: 1.04, hd: 0.98,
-             muz: [0.44, 0.28, 0.28], muzY: -0.13, muzZ: 0.24, noseR: 0.10,
-             earR: 0.25, earX: 0.32, earY: 0.315, earD: 0.60, earC: '#2C3138',
-             eyeX: 0.166, eyeW: 0.135, eyeH: 0.110 },
+             muz: [0.44, 0.28, 0.28], muzY: -0.13, muzZ: 0.24,
+             earR: 0.25, earX: 0.32, earY: 0.315, earD: 0.60, earC: '#2C3138' },
 
   hippo:   { ink: 0.022, ear: 'round', fur: '#9E86C4', fur2: '#D8C9EC', tail: 'nub', big: 1,
              head: 'rbox', hw: 1.18, hh: 0.92, hd: 1.02,
-             muz: [0.62, 0.36, 0.38], muzY: -0.115, muzZ: 0.24, noseR: 0.072, nostril: 1,
-             earR: 0.165, earX: 0.34, earY: 0.30, earD: 0.60,
-             eyeX: 0.186, eyeW: 0.115, eyeH: 0.095 },
+             muz: [0.62, 0.36, 0.38], muzY: -0.115, muzZ: 0.24,
+             earR: 0.165, earX: 0.34, earY: 0.30, earD: 0.60 },
 };
 
 const EYE = '#22282F', SHINE = '#FFFFFF';
@@ -1276,6 +1271,28 @@ function fishSwing(st) {
 }
 
 
+/* The beetle's swing. No bat and no arms, so he fights the way a rhinoceros
+   beetle fights: drops the whole shell forward until the horn is in the dirt,
+   heaves up on all six legs, scoops the ball off the tip and flings it back
+   over his shoulders.
+
+   It is a pitch of the body about BEE_PIVOT, carried on `f.t` so the legs and
+   the cap come along with the shell. The horn tip sits 1.31m from the pivot,
+   which is what fixes the numbers: 0.97 puts the tip in the dirt, and 0.50 —
+   the pitch at SWING_LAG, the moment of contact — puts it at the height of a
+   ball down the middle. Like fishSwing it settles back to 0 on its own,
+   because G.batSwingT keeps counting long after the swing is over. */
+const BEE_PIVOT = 0.50;
+function beetleSwing(st) {
+  const K = [[0, 0], [0.05, 0.97], [SWING_LAG, 0.50], [SWING_LAG + 0.20, -0.55],
+             [SWING_LAG + 0.48, 0.12], [SWING_LAG + 0.75, 0]];
+  if (!(st > 0) || st >= K[K.length - 1][0]) return 0;
+  let i = 0;
+  while (st > K[i + 1][0]) i++;
+  const u = (st - K[i][0]) / (K[i + 1][0] - K[i][0]), e = u * u * (3 - 2 * u);
+  return lerp(K[i][1], K[i + 1][1], e);
+}
+
 /* ---------- 鮭 ---------- */
 function drawSalmon(f, A, look, p, y, big) {
   const flank = col(A.fur), back = col(A.back), belly = col(A.fur2);
@@ -1412,6 +1429,10 @@ function drawAnimal(x, z, ry, look, pose, y0) {
   const f = yawFrame(x, z, ry);
   const y = (y0 || 0) + (p.bob || 0);
   if (p.fall) { f.t = p.fall; f.ct = Math.cos(p.fall); f.st = Math.sin(p.fall); f.pivot = y + 0.34; }
+  else if (A.body === 'beetle' && p.swingT > 0) {
+    const t = beetleSwing(p.swingT);
+    if (t) { f.t = t; f.ct = Math.cos(t); f.st = Math.sin(t); f.pivot = y + BEE_PIVOT; }
+  }
   const big = A.big ? 1.12 : 1;
   const fur = col(A.fur), fur2 = col(A.fur2);
   const uni = col(look.uni), trim = col(look.trim), cap = col(look.cap);
@@ -1505,8 +1526,10 @@ function drawAnimal(x, z, ry, look, pose, y0) {
               p.noPawR ? null : fur, 0.27);
   }
 
-  // head — may be turned independently of the body (a batter watching the ball)
-  const fh = p.headRy ? yawFrame(x, z, ry + p.headRy) : f;
+  // head — may be turned independently of the body (a batter watching the
+  // ball). The fish and the beetle have no neck to turn it on: taking the
+  // batter's head turn left the beetle's cap twisted 90 degrees on his shell.
+  const fh = p.headRy && !A.body ? yawFrame(x, z, ry + p.headRy) : f;
   const hy = y + 1.34;
   const HW = A.hw || 1, HH = A.hh || 1, HD = A.hd || 1;
   const hzF = 0.32 * HD + 0.02;                 // where the front of the face is
@@ -1566,54 +1589,10 @@ function drawAnimal(x, z, ry, look, pose, y0) {
       part(fh, 'facep', 0, my, mzz, mz[0] * 1.03, mz[1] * 1.03, mz[2] * 1.03, fur);
       R.decal(null);
     }
-    const nr = A.noseR || 0.11;
-    if (!FC && A.nostril) {
-      for (const s of [-1, 1])
-        part(fh, 'sphere', s * mz[0] * 0.24, my + mz[1] * 0.28, mzz + mz[2] * 0.40,
-             nr, nr * 0.90, nr * 0.60, col('#3A3040'));
-    } else if (!FC) {
-      part(fh, 'sphere', 0, my + mz[1] * 0.40, mzz + mz[2] * 0.40,
-           nr, nr * 0.74, nr * 0.72, col(A.noseC || '#33291F'));
-    }
-    if (!FC && A.whisk) for (const s of [-1, 1]) for (let i = 0; i < 3; i++)
-      part(fh, 'box', s * (mz[0] * 0.60 + 0.13), my + 0.02 + (i - 1) * 0.05, mzz + 0.03,
-           0.28, 0.017, 0.017, col('#6B5A48'), 0, s * ((i - 1) * 0.24 + 0.05));
   }
-  if (A.mouth && !FC) {                         // the frog's wide grin
-    for (const s of [-1, 1])
-      part(fh, 'box', s * 0.17, hy - 0.16, hzF - 0.02, 0.36, 0.036, 0.07,
-           shade(A.fur, 0.42), 0, s * -0.11);
-  }
-
-  // eyes, with the drawn brow line above them
-  if (A.smallMouth && !FC && R.inkW === 0) {    // a little mouth under the nose
-    const mz = A.muz || [0.2, 0.13, 0.16];
-    const my2 = hy + (A.muzY === undefined ? -0.09 : A.muzY) + mz[1] * 0.40 - 0.078;
-    for (const s of [-1, 1])
-      part(fh, 'box', s * 0.038, my2, hzF - 0.062, 0.074, 0.024, 0.05,
-           col('#4A3438'), 0, s * 0.30);
-  }
-  // a species with its own body draws its own eyes, in the mesh
-  if (FC || A.body) { /* the eyes live in the face cell, or in the mesh */ }
-  else if (!A.noFaceEyes && A.dotEyes) {         // simple dots, as drawn
-    const ex = A.eyeX || 0.150, ew = A.eyeW || 0.078, eh = A.eyeH || 0.086;
-    if (R.inkW === 0) for (const s of [-1, 1]) {
-      part(fh, 'sphere', s * ex, hy + 0.085, hzF - 0.028, ew, eh, 0.070, col(EYE));
-      part(fh, 'sphere', s * ex + 0.016, hy + 0.102, hzF - 0.006, 0.021, 0.021, 0.018, col(SHINE));
-    }
-  } else if (!A.noFaceEyes) {
-    const ex = A.eyeX || 0.150, ew = A.eyeW || 0.140, eh = A.eyeH || 0.115;
-    const et = A.eyeTilt || 0;
-    for (const s of [-1, 1]) {
-      part(fh, 'sphere', s * ex, hy + 0.098, hzF - 0.025, ew, eh, 0.085, col('#F6F1E6'), 0, s * et);
-      part(fh, 'sphere', s * ex - s * 0.008, hy + 0.094, hzF + 0.012,
-           ew * 0.60, eh * 0.74, 0.058, col(EYE), 0, s * et);
-      part(fh, 'sphere', s * ex + 0.024, hy + 0.118, hzF + 0.028, 0.034, 0.034, 0.028, col(SHINE));
-      if (A.brow)
-        part(fh, 'box', s * ex, hy + 0.205, hzF - 0.030, 0.215, 0.040, 0.085,
-             shade(A.fur, 0.34), 0, s * 0.16);
-    }
-  }
+  // Every mammal has a face cell, so its eyes, nose and mouth are art on the
+  // decals above rather than spheres; the fish and the beetle carry theirs in
+  // the mesh. (The frog's eyes are its ears, below.)
 
   // ears
   const earC = A.earC ? col(A.earC) : fur;
@@ -1662,7 +1641,6 @@ function drawAnimal(x, z, ry, look, pose, y0) {
     }
   }
   // tail
-  if (A.tail === 'puff') part(f, 'sphere', 0, y + 0.66, -0.30, 0.24, 0.24, 0.24, fur2);
   if (A.tail === 'cotton') part(f, 'rabbit_tail', 0, y + 0.66, -0.30, 1, 1, 1, fur2);
   // the baked torso has a shallower back than the sphere one, so the nub has
   // to be seated further in or it floats off the jersey
@@ -1787,7 +1765,7 @@ const TEAMS = [
   { id: 'rabbits',  name: 'はらっぱラビッツ', animal: 'rabbit',  uni: '#E8EDF2', trim: '#E86A8A', cap: '#D9527A',
     tag: 'SPEED',   desc: '足が速い。内野安打も盗塁もお手のもの。', pow: 2, con: 4, spd: 5, def: 4 },
   { id: 'salmons',  name: 'そじょうサーモンズ', animal: 'salmon', uni: '#2F5C7A', trim: '#F0B9A8', cap: '#22455C',
-    tag: 'CONTACT', desc: 'バットに当てるのがうまい。四球も選ぶ。', pow: 3, con: 5, spd: 3, def: 3 },
+    tag: 'CONTACT', desc: 'バットは持たないが、当てるのはうまい。四球も選ぶ。', pow: 3, con: 5, spd: 3, def: 3 },
   { id: 'frogs',    name: 'ぬまたフロッグス', animal: 'frog',    uni: '#4E8A4E', trim: '#E8F0C8', cap: '#2E5E34',
     tag: 'BALANCE', desc: 'すべてが平均的。クセがなく扱いやすい。', pow: 3, con: 3, spd: 3, def: 3 },
   { id: 'penguins', name: 'こおりやまペンギンズ', animal: 'penguin', uni: '#28405E', trim: '#F4F1E6', cap: '#1B2C42',

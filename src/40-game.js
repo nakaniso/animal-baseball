@@ -35,8 +35,8 @@ const G = {
   pitch: null, ball: { x: 0, y: 0, z: 0, vis: false }, trail: [],
   reticle: { x: 0, y: 0.88 }, swingT: -1, contactAt: -1, decided: null,
   batSwingT: -1, bunting: false, pitchType: 0,
-  fielders: [], movers: [], flight: null, chase: null,
-  camMode: 'bat', lastText: '', mode: 'cpu', paused: false, playScript: null, traffic: null, carStall: 0,
+  fielders: [], movers: [], flight: null, steal: null, pending: null, pendingCount: null,
+  camMode: 'bat', mode: 'cpu', paused: false, playScript: null, traffic: null, carStall: 0,
   firstPitch: false, ballBoost: 1,
   innings: 6, hbpT: 0,
 };
@@ -176,7 +176,9 @@ function throwPitch(ti, ax, ay) {
   const spd = P.spd * (0.90 + p.arm * 0.16) * (1 + gauss(0.040));
   const T = 18.15 / spd;
   const slip = (1 - p.arm) * 0.11;             // even his own aim drifts a little
-  const bx = P.bx * (1 + gauss(0.20)), by = P.by * (1 + gauss(0.20));
+  // a better arm puts more on it (0.78 is where an ordinary staff's ace is)
+  const bite = 1 + (p.arm - 0.78) * 0.6;
+  const bx = P.bx * (1 + gauss(0.20)) * bite, by = P.by * (1 + gauss(0.20)) * bite;
   const arrive = { x: clamp(ax + gauss(slip), -0.95, 0.95),
                    y: clamp(ay + gauss(slip), 0.22, 1.68) };
   const pf = G.fielders[0];
@@ -415,9 +417,9 @@ function fumble(play, P) {
 
 /* An outfielder never throws straight at the pitcher: the ball comes in
    through the cut-off man, who meets it on the line the ball came down on. */
-function relayIn(play, fl, P, arm, fidx) {
+function relayIn(play, fl, P, arm, fidx, at) {
   const d0 = Math.hypot(P.x, P.z) || 1;
-  const rr = clamp(d0 * 0.55, 20, 40);
+  const rr = at || clamp(d0 * 0.55, 20, 40);
   const rx = (P.x / d0) * rr, rz = (P.z / d0) * rr;
   let cutK = fl.ang > 0 ? 'SS' : '2B';
   if (stationIdx(cutK) === fidx) cutK = cutK === 'SS' ? '2B' : 'SS';
@@ -642,15 +644,7 @@ function fieldBall(fl) {
   } else {
     // never throw to the bag ahead of the runner from the outfield — a throw to
     // third on a triple only opens up the plate. It goes to the cut-off man.
-    const d0 = Math.hypot(P.x, P.z) || 1;
-    const rx = (P.x / d0) * 36, rz = (P.z / d0) * 36;
-    let cutK = fl.ang > 0 ? 'SS' : '2B';
-    if (stationIdx(cutK) === best.i) cutK = cutK === 'SS' ? '2B' : 'SS';
-    const ci = stationIdx(cutK);
-    play.throwTo = [rx, rz];
-    play.throwDur = throwTime(P, rx, rz, best.pl.arm);
-    if (ci >= 0 && ci !== best.i)
-      play.moves.push({ idx: ci, x: rx, z: rz, byT: play.cutT + play.throwDur });
+    relayIn(play, fl, P, best.pl.arm, best.i, 36);
   }
   if (st.fenceH === 0 && safeTo === 3 && bat.speed > 0.72 && chance(0.22))
     return { kind: 'ihr', bases: 4, hit: true, big: true, play, text: 'ランニングホームラン！' };
@@ -953,7 +947,6 @@ function applyOutcome(o) {
   const forBat = runs > 0 || outsAdded === 0;
   G.faceBat = forBat ? EXPR.happy : EXPR.down;
   G.faceFld = forBat ? EXPR.down : EXPR.happy;
-  G.lastText = o.text;
   uiScore();
 
   // hand the ball back to the fielders

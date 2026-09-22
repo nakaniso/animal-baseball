@@ -129,7 +129,8 @@ function stats(n, park) {
     // drawn with the menus out of the way and the page is photographed
     const src = require('fs').readFileSync(argv[2], 'utf8');
     const note = await page.evaluate(src);
-    await page.evaluate(() => { show(null); if (G.st) drawScene(); else drawIdle(); });
+    // a probe that returns 'ui' wants the menus photographed as they are
+    if (note !== 'ui') await page.evaluate(() => { show(null); if (G.st) drawScene(); else drawIdle(); });
     await page.screenshot({ path: argv[1] });
     console.log(argv[1] + (note !== undefined ? ' ' + JSON.stringify(note) : ''));
   } else if (argv[0] === '--eval') {          // node tools/sim.js --eval probe.js

@@ -479,12 +479,16 @@ const R = {
     this.gl.viewport(0, 0, w, h);
   },
 
-  begin(cam, env) {
+  /* `vw`/`vh` draw into just the bottom-left corner of the canvas, so a
+     small picture (a menu card) can be rendered and copied out */
+  begin(cam, env, vw, vh) {
     const gl = this.gl;
     this.resize();
+    const w = vw || this.w, h = vh || this.h;
+    if (vw) { gl.viewport(0, 0, w, h); gl.enable(gl.SCISSOR_TEST); gl.scissor(0, 0, w, h); }
     // on a tall screen a fixed vertical fov leaves almost no horizontal view,
     // so widen it as the aspect ratio narrows
-    const aspect = this.w / this.h;
+    const aspect = w / h;
     const fov = (cam.fov || 46) * clamp(1.12 / aspect, 1, 1.75);
     const proj = mPerspective(m4(), fov * DEG, aspect, 0.35, 1100);
     const view = mLookAt(m4(), cam.ex, cam.ey, cam.ez, cam.tx, cam.ty, cam.tz);
@@ -493,6 +497,7 @@ const R = {
     const bg = col(env.fog);
     gl.clearColor(bg[0], bg[1], bg[2], 1);
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+    gl.disable(gl.SCISSOR_TEST);
     gl.disable(gl.BLEND);
     gl.depthMask(true);
     gl.uniformMatrix4fv(this.u.uVP, false, this.vp);

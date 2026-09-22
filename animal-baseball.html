@@ -670,10 +670,12 @@ if (c.width !== w || c.height !== h) { c.width = w; c.height = h; }
 this.w = w; this.h = h; this.dpr = dpr;
 this.gl.viewport(0, 0, w, h);
 },
-begin(cam, env) {
+begin(cam, env, vw, vh) {
 const gl = this.gl;
 this.resize();
-const aspect = this.w / this.h;
+const w = vw || this.w, h = vh || this.h;
+if (vw) { gl.viewport(0, 0, w, h); gl.enable(gl.SCISSOR_TEST); gl.scissor(0, 0, w, h); }
+const aspect = w / h;
 const fov = (cam.fov || 46) * clamp(1.12 / aspect, 1, 1.75);
 const proj = mPerspective(m4(), fov * DEG, aspect, 0.35, 1100);
 const view = mLookAt(m4(), cam.ex, cam.ey, cam.ez, cam.tx, cam.ty, cam.tz);
@@ -682,6 +684,7 @@ this.eye = [cam.ex, cam.ey, cam.ez];
 const bg = col(env.fog);
 gl.clearColor(bg[0], bg[1], bg[2], 1);
 gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+gl.disable(gl.SCISSOR_TEST);
 gl.disable(gl.BLEND);
 gl.depthMask(true);
 gl.uniformMatrix4fv(this.u.uVP, false, this.vp);
@@ -1539,47 +1542,37 @@ rabbit:  { ink: 0.022, ear: 'bunny', fur: '#F4F0E8', fur2: '#F6D7DA', tail: 'cot
 head: 'sphere', hw: 1.08, hh: 1.06, hd: 0.98,
 buttons: 1,                   // no muzzle — the nose is drawn on
 legs: 'bunny', earX: 0.148, earY: 0.18, earTilt: 0.13,
-earIn: '#F6D7DA',
-dotEyes: 1, eyeX: 0.150, eyeW: 0.086, eyeH: 0.098 },
+earIn: '#F6D7DA' },
 cat:     { ink: 0.022, ear: 'point', fur: '#E0A44F', fur2: '#F7EDDD', tail: 'long',
 head: 'rbox', hw: 1.10, hh: 0.98, hd: 0.94,
 muz: [0.46, 0.255, 0.26], muzY: -0.125, muzZ: 0.245,
-noseR: 0.085, noseC: '#C2705E', whisk: 1,
-earR: 0.255, earX: 0.235, earY: 0.36, earT: 0.26,
-eyeX: 0.156, eyeW: 0.145, eyeH: 0.100, eyeTilt: 0.16 },
+earR: 0.255, earX: 0.235, earY: 0.36, earT: 0.26 },
 frog:    { ink: 0.022, ear: 'toad', fur: '#7DC163', fur2: '#E8F0C8', tail: 'none',
 head: 'rbox', hw: 1.24, hh: 0.86, hd: 1.02,
-noFaceEyes: 1, mouth: 1,
 earR: 0.285, earX: 0.275, earY: 0.13, earZ: 0.24 },
 penguin: { ink: 0.022, ear: 'none', fur: '#2E3B4A', fur2: '#F4F1E6', tail: 'nub',
 beak: '#F2A93B', head: 'sphere', hw: 1.02, hh: 1.08, hd: 0.98,
-facePatch: [0.54, 0.58, 0.30],
-eyeX: 0.138, eyeW: 0.104, eyeH: 0.104 },
+facePatch: [0.54, 0.58, 0.30] },
 fox:     { ink: 0.022, ear: 'point', fur: '#D96F3A', fur2: '#F6EFE2', tail: 'bushy',
 head: 'rbox', hw: 1.04, hh: 0.96, hd: 1.08,
-muz: [0.33, 0.235, 0.46], muzY: -0.115, muzZ: 0.30, noseR: 0.082,
+muz: [0.33, 0.235, 0.46], muzY: -0.115, muzZ: 0.30,
 cheek: 0.21, cheekC: '#F6EFE2',
-earR: 0.275, earX: 0.255, earY: 0.38, earT: 0.22, earTip: '#3C2A20',
-eyeX: 0.156, eyeW: 0.140, eyeH: 0.098, eyeTilt: 0.20 },
+earR: 0.275, earX: 0.255, earY: 0.38, earT: 0.22, earTip: '#3C2A20' },
 salmon:  { ink: 0.013, body: 'fish', ear: 'none', tail: 'none', noHat: 1, shadow: 1.5,
 noGlove: 1, noBat: 1,
 fur: '#B4C2CB', fur2: '#EFF2F0', back: '#3C5E71', blush: '#B0524C',
-fin: '#7F909B', spot: '#22323C', jaw: '#9DAAB2',
-head: 'sphere', hw: 0.60, hh: 0.78, hd: 1.30 },
+fin: '#7F909B', jaw: '#9DAAB2' },
 beetle:  { ink: 0.013, body: 'beetle', ear: 'none', tail: 'none', capY: -0.20, capS: 0.40,
 noGlove: 1, noBat: 1,
-fur: '#3E2717', fur2: '#5C3C22', horn: '#20130A', leg: '#281A0E',
-head: 'rbox', hw: 0.66, hh: 0.50, hd: 0.66 },
+fur: '#3E2717', fur2: '#5C3C22', horn: '#20130A', leg: '#281A0E' },
 panda:   { ink: 0.022, ear: 'round', fur: '#F0EDE6', fur2: '#2C3138', tail: 'nub', patch: 1,
 head: 'rbox', hw: 1.12, hh: 1.04, hd: 0.98,
-muz: [0.44, 0.28, 0.28], muzY: -0.13, muzZ: 0.24, noseR: 0.10,
-earR: 0.25, earX: 0.32, earY: 0.315, earD: 0.60, earC: '#2C3138',
-eyeX: 0.166, eyeW: 0.135, eyeH: 0.110 },
+muz: [0.44, 0.28, 0.28], muzY: -0.13, muzZ: 0.24,
+earR: 0.25, earX: 0.32, earY: 0.315, earD: 0.60, earC: '#2C3138' },
 hippo:   { ink: 0.022, ear: 'round', fur: '#9E86C4', fur2: '#D8C9EC', tail: 'nub', big: 1,
 head: 'rbox', hw: 1.18, hh: 0.92, hd: 1.02,
-muz: [0.62, 0.36, 0.38], muzY: -0.115, muzZ: 0.24, noseR: 0.072, nostril: 1,
-earR: 0.165, earX: 0.34, earY: 0.30, earD: 0.60,
-eyeX: 0.186, eyeW: 0.115, eyeH: 0.095 },
+muz: [0.62, 0.36, 0.38], muzY: -0.115, muzZ: 0.24,
+earR: 0.165, earX: 0.34, earY: 0.30, earD: 0.60 },
 };
 const EYE = '#22282F', SHINE = '#FFFFFF';
 const FACE_N = 8, FACE_PX = 128;
@@ -1794,6 +1787,16 @@ up: 0.06 + fire * 0.66 * (1 - w),
 fwd: -rear * 0.32 + fire * 0.92 * (1 - w),
 };
 }
+const BEE_PIVOT = 0.50;
+function beetleSwing(st) {
+const K = [[0, 0], [0.05, 0.97], [SWING_LAG, 0.50], [SWING_LAG + 0.20, -0.55],
+[SWING_LAG + 0.48, 0.12], [SWING_LAG + 0.75, 0]];
+if (!(st > 0) || st >= K[K.length - 1][0]) return 0;
+let i = 0;
+while (st > K[i + 1][0]) i++;
+const u = (st - K[i][0]) / (K[i + 1][0] - K[i][0]), e = u * u * (3 - 2 * u);
+return lerp(K[i][1], K[i + 1][1], e);
+}
 function drawSalmon(f, A, look, p, y, big) {
 const flank = col(A.fur), back = col(A.back), belly = col(A.fur2);
 const finC = col(A.fin), jaw = col(A.jaw);
@@ -1882,6 +1885,10 @@ const FC = FACES[look.animal] || null;
 const f = yawFrame(x, z, ry);
 const y = (y0 || 0) + (p.bob || 0);
 if (p.fall) { f.t = p.fall; f.ct = Math.cos(p.fall); f.st = Math.sin(p.fall); f.pivot = y + 0.34; }
+else if (A.body === 'beetle' && p.swingT > 0) {
+const t = beetleSwing(p.swingT);
+if (t) { f.t = t; f.ct = Math.cos(t); f.st = Math.sin(t); f.pivot = y + BEE_PIVOT; }
+}
 const big = A.big ? 1.12 : 1;
 const fur = col(A.fur), fur2 = col(A.fur2);
 const uni = col(look.uni), trim = col(look.trim), cap = col(look.cap);
@@ -1950,7 +1957,7 @@ p.noPawL ? null : fur, 0.27);
 hr = limb(f, 0.33 * big, shY, 0, p.armR || 0, 0.30, 0.34, 0.112, uni,
 p.noPawR ? null : fur, 0.27);
 }
-const fh = p.headRy ? yawFrame(x, z, ry + p.headRy) : f;
+const fh = p.headRy && !A.body ? yawFrame(x, z, ry + p.headRy) : f;
 const hy = y + 1.34;
 const HW = A.hw || 1, HH = A.hh || 1, HD = A.hd || 1;
 const hzF = 0.32 * HD + 0.02;                 // where the front of the face is
@@ -2005,50 +2012,6 @@ R.decal(faceRect(look.animal, p.face || 0, 1));
 part(fh, 'facep', 0, my, mzz, mz[0] * 1.03, mz[1] * 1.03, mz[2] * 1.03, fur);
 R.decal(null);
 }
-const nr = A.noseR || 0.11;
-if (!FC && A.nostril) {
-for (const s of [-1, 1])
-part(fh, 'sphere', s * mz[0] * 0.24, my + mz[1] * 0.28, mzz + mz[2] * 0.40,
-nr, nr * 0.90, nr * 0.60, col('#3A3040'));
-} else if (!FC) {
-part(fh, 'sphere', 0, my + mz[1] * 0.40, mzz + mz[2] * 0.40,
-nr, nr * 0.74, nr * 0.72, col(A.noseC || '#33291F'));
-}
-if (!FC && A.whisk) for (const s of [-1, 1]) for (let i = 0; i < 3; i++)
-part(fh, 'box', s * (mz[0] * 0.60 + 0.13), my + 0.02 + (i - 1) * 0.05, mzz + 0.03,
-0.28, 0.017, 0.017, col('#6B5A48'), 0, s * ((i - 1) * 0.24 + 0.05));
-}
-if (A.mouth && !FC) {                         // the frog's wide grin
-for (const s of [-1, 1])
-part(fh, 'box', s * 0.17, hy - 0.16, hzF - 0.02, 0.36, 0.036, 0.07,
-shade(A.fur, 0.42), 0, s * -0.11);
-}
-if (A.smallMouth && !FC && R.inkW === 0) {    // a little mouth under the nose
-const mz = A.muz || [0.2, 0.13, 0.16];
-const my2 = hy + (A.muzY === undefined ? -0.09 : A.muzY) + mz[1] * 0.40 - 0.078;
-for (const s of [-1, 1])
-part(fh, 'box', s * 0.038, my2, hzF - 0.062, 0.074, 0.024, 0.05,
-col('#4A3438'), 0, s * 0.30);
-}
-if (FC || A.body) { /* the eyes live in the face cell, or in the mesh */ }
-else if (!A.noFaceEyes && A.dotEyes) {         // simple dots, as drawn
-const ex = A.eyeX || 0.150, ew = A.eyeW || 0.078, eh = A.eyeH || 0.086;
-if (R.inkW === 0) for (const s of [-1, 1]) {
-part(fh, 'sphere', s * ex, hy + 0.085, hzF - 0.028, ew, eh, 0.070, col(EYE));
-part(fh, 'sphere', s * ex + 0.016, hy + 0.102, hzF - 0.006, 0.021, 0.021, 0.018, col(SHINE));
-}
-} else if (!A.noFaceEyes) {
-const ex = A.eyeX || 0.150, ew = A.eyeW || 0.140, eh = A.eyeH || 0.115;
-const et = A.eyeTilt || 0;
-for (const s of [-1, 1]) {
-part(fh, 'sphere', s * ex, hy + 0.098, hzF - 0.025, ew, eh, 0.085, col('#F6F1E6'), 0, s * et);
-part(fh, 'sphere', s * ex - s * 0.008, hy + 0.094, hzF + 0.012,
-ew * 0.60, eh * 0.74, 0.058, col(EYE), 0, s * et);
-part(fh, 'sphere', s * ex + 0.024, hy + 0.118, hzF + 0.028, 0.034, 0.034, 0.028, col(SHINE));
-if (A.brow)
-part(fh, 'box', s * ex, hy + 0.205, hzF - 0.030, 0.215, 0.040, 0.085,
-shade(A.fur, 0.34), 0, s * 0.16);
-}
 }
 const earC = A.earC ? col(A.earC) : fur;
 if (A.ear === 'round') {
@@ -2089,7 +2052,6 @@ er * 0.34, er * 0.42, er * 0.28, col(EYE));
 part(fh, 'sphere', s * exx + 0.05, hy + eyy + 0.09, ez + 0.17, 0.036, 0.036, 0.030, col(SHINE));
 }
 }
-if (A.tail === 'puff') part(f, 'sphere', 0, y + 0.66, -0.30, 0.24, 0.24, 0.24, fur2);
 if (A.tail === 'cotton') part(f, 'rabbit_tail', 0, y + 0.66, -0.30, 1, 1, 1, fur2);
 if (A.tail === 'nub') part(f, 'sphere', 0, y + 0.60, A.tailZ || -0.30, 0.16, 0.16, 0.16, fur);
 if (A.tail === 'long') part(f, 'sphere', 0, y + 0.78, -0.36, 0.14, 0.44, 0.14, fur, 0.5);
@@ -2182,7 +2144,7 @@ tag: 'POWER',   desc: 'とにかく長打。当たれば飛ぶが、確実性は
 { id: 'rabbits',  name: 'はらっぱラビッツ', animal: 'rabbit',  uni: '#E8EDF2', trim: '#E86A8A', cap: '#D9527A',
 tag: 'SPEED',   desc: '足が速い。内野安打も盗塁もお手のもの。', pow: 2, con: 4, spd: 5, def: 4 },
 { id: 'salmons',  name: 'そじょうサーモンズ', animal: 'salmon', uni: '#2F5C7A', trim: '#F0B9A8', cap: '#22455C',
-tag: 'CONTACT', desc: 'バットに当てるのがうまい。四球も選ぶ。', pow: 3, con: 5, spd: 3, def: 3 },
+tag: 'CONTACT', desc: 'バットは持たないが、当てるのはうまい。四球も選ぶ。', pow: 3, con: 5, spd: 3, def: 3 },
 { id: 'frogs',    name: 'ぬまたフロッグス', animal: 'frog',    uni: '#4E8A4E', trim: '#E8F0C8', cap: '#2E5E34',
 tag: 'BALANCE', desc: 'すべてが平均的。クセがなく扱いやすい。', pow: 3, con: 3, spd: 3, def: 3 },
 { id: 'penguins', name: 'こおりやまペンギンズ', animal: 'penguin', uni: '#28405E', trim: '#F4F1E6', cap: '#1B2C42',
@@ -2238,8 +2200,8 @@ phase: 'idle', pt: 0, phaseLen: 0,
 pitch: null, ball: { x: 0, y: 0, z: 0, vis: false }, trail: [],
 reticle: { x: 0, y: 0.88 }, swingT: -1, contactAt: -1, decided: null,
 batSwingT: -1, bunting: false, pitchType: 0,
-fielders: [], movers: [], flight: null, chase: null,
-camMode: 'bat', lastText: '', mode: 'cpu', paused: false, playScript: null, traffic: null, carStall: 0,
+fielders: [], movers: [], flight: null, steal: null, pending: null, pendingCount: null,
+camMode: 'bat', mode: 'cpu', paused: false, playScript: null, traffic: null, carStall: 0,
 firstPitch: false, ballBoost: 1,
 innings: 6, hbpT: 0,
 };
@@ -2356,7 +2318,8 @@ const P = PITCHES[ti];
 const spd = P.spd * (0.90 + p.arm * 0.16) * (1 + gauss(0.040));
 const T = 18.15 / spd;
 const slip = (1 - p.arm) * 0.11;             // even his own aim drifts a little
-const bx = P.bx * (1 + gauss(0.20)), by = P.by * (1 + gauss(0.20));
+const bite = 1 + (p.arm - 0.78) * 0.6;
+const bx = P.bx * (1 + gauss(0.20)) * bite, by = P.by * (1 + gauss(0.20)) * bite;
 const arrive = { x: clamp(ax + gauss(slip), -0.95, 0.95),
 y: clamp(ay + gauss(slip), 0.22, 1.68) };
 const pf = G.fielders[0];
@@ -2553,9 +2516,9 @@ const a = rnd(0, Math.PI * 2), d = rnd(2.2, 3.6);
 play.fumble = 1;
 play.fumbleTo = [P.x + Math.cos(a) * d, P.z + Math.sin(a) * d];
 }
-function relayIn(play, fl, P, arm, fidx) {
+function relayIn(play, fl, P, arm, fidx, at) {
 const d0 = Math.hypot(P.x, P.z) || 1;
-const rr = clamp(d0 * 0.55, 20, 40);
+const rr = at || clamp(d0 * 0.55, 20, 40);
 const rx = (P.x / d0) * rr, rz = (P.z / d0) * rr;
 let cutK = fl.ang > 0 ? 'SS' : '2B';
 if (stationIdx(cutK) === fidx) cutK = cutK === 'SS' ? '2B' : 'SS';
@@ -2746,15 +2709,7 @@ aimAt(HOME_POS[0], HOME_POS[1]);        // a runner is coming round: back home
 } else if (safeTo === 2) {
 aimAt(BASE_POS[1][0], BASE_POS[1][1]);  // he is pulling into second: throw there
 } else {
-const d0 = Math.hypot(P.x, P.z) || 1;
-const rx = (P.x / d0) * 36, rz = (P.z / d0) * 36;
-let cutK = fl.ang > 0 ? 'SS' : '2B';
-if (stationIdx(cutK) === best.i) cutK = cutK === 'SS' ? '2B' : 'SS';
-const ci = stationIdx(cutK);
-play.throwTo = [rx, rz];
-play.throwDur = throwTime(P, rx, rz, best.pl.arm);
-if (ci >= 0 && ci !== best.i)
-play.moves.push({ idx: ci, x: rx, z: rz, byT: play.cutT + play.throwDur });
+relayIn(play, fl, P, best.pl.arm, best.i, 36);
 }
 if (st.fenceH === 0 && safeTo === 3 && bat.speed > 0.72 && chance(0.22))
 return { kind: 'ihr', bases: 4, hit: true, big: true, play, text: 'ランニングホームラン！' };
@@ -3002,7 +2957,6 @@ G.inningRuns += runs;
 const forBat = runs > 0 || outsAdded === 0;
 G.faceBat = forBat ? EXPR.happy : EXPR.down;
 G.faceFld = forBat ? EXPR.down : EXPR.happy;
-G.lastText = o.text;
 uiScore();
 placeFielders();
 return runs;
@@ -3306,62 +3260,33 @@ $('#pause-score').textContent =
 show('#s-pause');
 } else show(null);
 }
-function faceCanvas(team, w, h) {
-const c = document.createElement('canvas');
-c.width = w * 2; c.height = h * 2;
-const g = c.getContext('2d'); g.scale(2, 2);
-const A = ANIMALS[team.animal];
-g.fillStyle = '#20303F'; g.fillRect(0, 0, w, h);
-g.fillStyle = team.uni;
-for (let i = -2; i < 10; i++) { g.beginPath(); g.moveTo(i * 22, h); g.lineTo(i * 22 + 26, 0); g.lineTo(i * 22 + 38, 0); g.lineTo(i * 22 + 12, h); g.fill(); }
-g.globalAlpha = 0.22; g.fillStyle = '#000'; g.fillRect(0, 0, w, h); g.globalAlpha = 1;
-const cx = w / 2, cy = h * 0.60, r = h * 0.34;
-const ear = (dx, dy, rr) => { g.beginPath(); g.arc(cx + dx, cy + dy, rr, 0, 7); g.fill(); };
-g.fillStyle = A.fur;
-if (A.ear === 'round') { ear(-r * 0.82, -r * 0.72, r * 0.36); ear(r * 0.82, -r * 0.72, r * 0.36); }
-if (A.ear === 'point') {
-for (const s of [-1, 1]) { g.beginPath(); g.moveTo(cx + s * r * 0.3, cy - r * 0.8); g.lineTo(cx + s * r * 0.95, cy - r * 1.35); g.lineTo(cx + s * r * 1.0, cy - r * 0.5); g.fill(); }
+const PORTRAIT = { salmon: { ty: 0.42, d: 2.6, ry: -1.45 }, beetle: { ty: 0.95, d: 2.6, ry: -1.0 },
+rabbit: { ty: 1.34, d: 2.6, ry: -0.28 } };
+function paintPortrait(c, team) {
+const w = c.width, h = c.height;
+R.resize();
+if (!R.w || R.w < w || R.h < h) return;
+const A = ANIMALS[team.animal], P = PORTRAIT[team.animal] || { ty: 1.2, d: 2.35, ry: -0.28 };
+const cam = { ex: -1.15, ey: P.ty + 0.25, ez: P.d, tx: -0.30, ty: P.ty, tz: 0, fov: 34 };
+R.begin(cam, { light: [0.45, 0.75, 0.50], skyTint: '#DDEBF5', gndTint: '#6A7A5C',
+fog: '#20303F', fogDist: 1000 }, w, h);
+R.unlit(true);
+const back = shade(team.uni, 0.62);
+for (let i = -6; i <= 6; i++)
+R.d('box', i * 0.62, P.ty, -2.2, 0, 0, -0.45, 0.24, 7, 0.05, back);
+R.unlit(false);
+const look = { animal: team.animal, uni: team.uni, trim: team.trim, cap: team.cap };
+const face = FACE_SCANS[team.animal + ':0'] ? EXPR.idle : EXPR.happy;
+drawAnimal(0.18, 0, P.ry, look, { armL: 0.25, armR: -0.25, face }, 0);
+SHADOWS.length = 0;
+const g = c.getContext('2d');
+g.drawImage(R.canvas, 0, R.canvas.height - h, w, h, 0, 0, w, h);
 }
-if (A.ear === 'toad') { ear(-r * 0.72, -r * 0.66, r * 0.34); ear(r * 0.72, -r * 0.66, r * 0.34); }
-g.beginPath(); g.arc(cx, cy, r, 0, 7); g.fill();
-g.fillStyle = team.cap;
-g.beginPath(); g.arc(cx, cy - r * 0.16, r * 1.0, Math.PI, 0); g.fill();
-g.fillRect(cx - r * 1.05, cy - r * 0.2, r * 2.1, r * 0.16);
-g.beginPath(); g.ellipse(cx, cy - r * 0.16, r * 1.25, r * 0.2, 0, Math.PI, 0); g.fill();
-g.fillStyle = team.trim; g.beginPath(); g.arc(cx, cy - r * 1.1, r * 0.12, 0, 7); g.fill();
-if (A.ear === 'long') {
-for (const s of [-1, 1]) {
-g.save(); g.translate(cx + s * r * 0.46, cy - r * 1.16); g.rotate(s * 0.26);
-g.fillStyle = A.fur; g.beginPath(); g.ellipse(0, 0, r * 0.23, r * 0.66, 0, 0, 7); g.fill();
-g.fillStyle = A.fur2; g.beginPath(); g.ellipse(0, r * 0.06, r * 0.11, r * 0.44, 0, 0, 7); g.fill();
-g.restore();
+function paintPortraits() {
+for (const el of $$('#team-grid canvas')) {
+const t = teamById(el.dataset.team);
+if (t) paintPortrait(el, t);
 }
-}
-g.fillStyle = A.fur2;
-g.beginPath(); g.ellipse(cx, cy + r * 0.36, r * 0.44, r * 0.32, 0, 0, 7); g.fill();
-if (A.beak) {
-g.fillStyle = A.beak;
-g.beginPath(); g.moveTo(cx - r * 0.20, cy + r * 0.26); g.lineTo(cx + r * 0.20, cy + r * 0.26);
-g.lineTo(cx, cy + r * 0.66); g.closePath(); g.fill();
-}
-g.fillStyle = '#22282F';
-if (A.ear === 'toad') { g.fillStyle = A.fur; ear(-r * 0.72, -r * 0.66, r * 0.34); ear(r * 0.72, -r * 0.66, r * 0.34); g.fillStyle = '#22282F'; ear(-r * 0.72, -r * 0.72, r * 0.15); ear(r * 0.72, -r * 0.72, r * 0.15); }
-g.beginPath(); g.ellipse(cx - r * 0.34, cy + r * 0.02, r * 0.11, r * 0.14, 0, 0, 7); g.fill();
-g.beginPath(); g.ellipse(cx + r * 0.34, cy + r * 0.02, r * 0.11, r * 0.14, 0, 0, 7); g.fill();
-if (!A.beak) { g.beginPath(); g.ellipse(cx, cy + r * 0.26, r * 0.13, r * 0.10, 0, 0, 7); g.fill(); }
-g.fillStyle = '#fff';
-g.beginPath(); g.arc(cx - r * 0.30, cy - r * 0.04, r * 0.045, 0, 7); g.fill();
-g.beginPath(); g.arc(cx + r * 0.38, cy - r * 0.04, r * 0.045, 0, 7); g.fill();
-if (A.brow) {                      // the drawn brow line, as on the model
-g.strokeStyle = '#3A2A1A'; g.lineWidth = r * 0.11; g.lineCap = 'round';
-for (const s of [-1, 1]) {
-g.beginPath();
-g.moveTo(cx + s * r * 0.16, cy - r * 0.30);
-g.lineTo(cx + s * r * 0.52, cy - r * 0.24);
-g.stroke();
-}
-}
-return c;
 }
 function parkCanvas(st, w, h) {
 const c = document.createElement('canvas');
@@ -3444,7 +3369,9 @@ b.innerHTML = `<div class="art"></div><div class="bd">
 <div class="ds">${t.desc}</div>
 <div class="stats">${statBar('パワー', t.pow)}${statBar('ミート', t.con)}${statBar('走力', t.spd)}${statBar('守備', t.def)}</div>
 <div class="statrow"><span>パワー</span><span>ミート</span><span>走力</span><span>守備</span></div></div>`;
-b.querySelector('.art').appendChild(faceCanvas(t, 240, 104));
+const art = document.createElement('canvas');
+art.width = 480; art.height = 208; art.dataset.team = t.id;
+b.querySelector('.art').appendChild(art);
 b.onclick = () => {
 Snd.boot();
 if (G.mode === 'vs' && teamPick === 0) { team1 = t.id; teamPick = 1; showTeamPick(); return; }
@@ -3458,10 +3385,11 @@ $('#rules-grid').innerHTML = [
 ['投げる', '守るイニングでは <b>1〜5</b> で球種、<b>矢印キー</b>でコース、<b>スペース</b>で投球。ストライクゾーンの外に外して振らせるのも手。'],
 ['バント', '<b>Shift＋スペース</b>でバント。転がして走者を進める。'],
 ['ルール', '4ボールで四球、3ストライクで三振、当たればデッドボール、3アウトでチェンジ。イニング数は球場選択の画面で<b>3回・6回・9回</b>から選べる（初期設定は6回）。同点ならさらに3イニングまで延長し、それでも決まらなければ引き分け。あなたは先攻。'],
-['球場のクセ', '球場ごとに重力・フェンス距離・障害物がちがう。月面は1/6重力、スーパーは天井直撃でエンタイトルツーベース。'],
+['審判はきびしい', '盗塁・ボーク・暴投・振り逃げ・インフィールドフライ・サヨナラの得点まで、すべて野球規則どおりに裁かれる。相手が鮭でもカブトムシでも例外はない。走者はCPUが自分の判断で走る。'],
+['球場のクセ', '球場ごとに重力・フェンス距離・障害物がちがう。月面は重力が地球の半分ほど、スーパーは天井直撃でエンタイトルツーベース。'],
 ['勝ち方', '打球の質は「タイミング」と「カーソルの位置」で決まる。芯を外すとファウルになって粘れるので、追い込まれても諦めないこと。'],
 ['ふたりで対戦', 'キーボードひとつを交代で使う。投手（<b>1〜5</b>で球種、<b>矢印</b>でコース、<b>スペース</b>で投球）が投げたら、そのまま打者（<b>矢印</b>でねらう、<b>スペース</b>でスイング）の番。1Pが先攻、2Pが後攻。'],
-['中断する', '右上の<b>やめる</b>、または<b>Escキー</b>でいつでも中断できる。そのまま続けるか、タイトルに戻るかを選べる。'],
+['中断する', '右上の<b>ポーズ</b>、または<b>Escキー</b>でいつでも中断できる。そのまま続けるか、タイトルに戻るかを選べる。'],
 ].map(([h, d]) => `<div class="card"><div class="bd"><div class="nm">${h}</div><div class="ds">${d}</div></div></div>`).join('');
 }
 function uiTeams() {
@@ -3917,9 +3845,17 @@ const SWING = [
 { t: 0.200, gx: -0.20, gy: 1.06, gz: 0.30, az: -40, tilt: -0.15, ry: 0.70, lean: 0.17, spread: 0.16, lgL: -0.05, lgR: 0.09, shift: 0.13, head: 0.15, px: 0.10, py: -0.90, pz: 0.30 },
 { t: 0.520, gx: 0.05, gy: 1.26, gz: 0.34, az: 45, tilt: 0.75, ry: 1.10, lean: 0.09, spread: 0.12, lgL: -0.02, lgR: 0.05, shift: 0.11, head: -0.15, px: 0.10, py: -0.75, pz: 0.45 },
 ];
-function batterRig(t, clk) {
+const BUNT = { gx: -0.36, gy: 1.02, gz: 0.30, az: -84, tilt: 0.10, ry: 1.25, lean: 0.20,
+spread: 0.15, lgL: 0.16, lgR: -0.12, shift: 0.05, head: 0.30,
+px: 0.05, py: -0.85, pz: -0.25 };
+function batterRig(t, clk, bunt) {
 let k;
-if (t < 0) {
+if (bunt) {                                  // from the stance into the bunt
+const u = clamp(t / 0.18, 0, 1), e = u * u * (3 - 2 * u);
+k = {};
+for (const key in BUNT) k[key] = lerp(SWING[0][key], BUNT[key], e);
+k.topAt = lerp(0.20, 0.46, e);
+} else if (t < 0) {
 k = Object.assign({}, SWING[0]);           // waiting: a small bat waggle
 k.az += Math.sin(clk * 2.4) * 6.0;
 k.tilt += Math.sin(clk * 2.4 + 0.6) * 0.08;
@@ -3941,7 +3877,8 @@ const grip = [BAT_X + k.gx, k.gy, BAT_Z + k.gz];
 const dir = [Math.sin(az) * ct, st, Math.cos(az) * ct];
 const on = (d) => [grip[0] + dir[0] * d, grip[1] + dir[1] * d, grip[2] + dir[2] * d];
 k.grip = grip; k.dir = dir; k.bx = BAT_X; k.bz = BAT_Z + k.shift;
-k.topAt = 0.20; k.botAt = 0.06;
+if (k.topAt === undefined) k.topAt = 0.20;
+k.botAt = 0.06;
 k.handTop = on(k.topAt);
 k.handBot = on(k.botAt);
 k.pole = [k.px, k.py, k.pz];
@@ -3998,6 +3935,13 @@ const d = Math.hypot(dx, dy, dz) || 1;
 const k = Math.min(1, max / d);
 return [sx + dx * k, sy + dy * k, sz + dz * k];
 }
+function dizzy(x, y, z) {
+for (let i = 0; i < 3; i++) {
+const a = clock * 5 + i * 2.1;
+R.b('sphere', x + Math.cos(a) * 0.34, y + Math.sin(clock * 6 + i) * 0.05, z + Math.sin(a) * 0.34,
+0.13, 0.13, 0.13, col('#FFE04A'));
+}
+}
 function drawScene() {
 const st = G.st;
 const env = { light: st.light, skyTint: st.skyTint, gndTint: st.gndTint, fog: st.fog, fogDist: st.fogDist };
@@ -4026,11 +3970,7 @@ drawAnimal(f.x, f.z, f.ry, pl.look, {
 fall: -1.45, spread: 0.18, legL: -0.5, legR: 0.4,
 armL: -1.1, armR: 1.1, bob: -0.30, face: EXPR.down,
 }, 0);
-for (let s2 = 0; s2 < 3; s2++) {
-const a2 = clock * 5 + s2 * 2.1;
-R.b('sphere', f.x + Math.cos(a2) * 0.34, 0.92 + Math.sin(clock * 6 + s2) * 0.05,
-f.z + Math.sin(a2) * 0.34, 0.13, 0.13, 0.13, col('#FFE04A'));
-}
+dizzy(f.x, 0.92, f.z);
 continue;
 }
 const isP = f.st.k === 'P', isC = f.st.k === 'C';
@@ -4088,13 +4028,10 @@ if (G.hbpT > 0) {                       // just wore one — no bat, on the deck
 drawAnimal(BAT_X + 0.25, BAT_Z - 0.2, -Math.PI / 2, b.look,
 { fall: -0.62, spread: 0.20, legL: -0.35, legR: 0.30,
 armL: -1.7, armR: -1.6, bob: -0.12, helmet: 1, face: EXPR.down }, 0);
-for (let s2 = 0; s2 < 3; s2++) {
-const a2 = clock * 5 + s2 * 2.1;
-R.b('sphere', BAT_X + 0.25 + Math.cos(a2) * 0.34, 1.05 + Math.sin(clock * 6 + s2) * 0.05,
-BAT_Z - 0.2 + Math.sin(a2) * 0.34, 0.13, 0.13, 0.13, col('#FFE04A'));
-}
+dizzy(BAT_X + 0.25, 1.05, BAT_Z - 0.2);
 } else {
-const rig = batterRig(G.batSwingT, clock);
+const bunt = G.bunting && G.pitch && G.phase !== 'ready' && G.phase !== 'aim';
+const rig = batterRig(bunt ? (humanBats() ? G.batSwingT : G.pitch.t) : G.batSwingT, clock, bunt);
 drawAnimal(rig.bx, rig.bz, -Math.PI / 2 + rig.ry, b.look, {
 handL: rig.handTop, handR: rig.handBot, pole: rig.pole,
 legL: rig.lgL, legR: rig.lgR, spread: rig.spread,
@@ -4117,11 +4054,7 @@ if (m.down > 0) {
 drawAnimal(r.x, r.z, r.ry, m.p.look,
 { fall: -1.45, spread: 0.18, legL: -0.5, legR: 0.4, armL: -1.1, armR: 1.1,
 bob: -0.30, helmet: 1, face: EXPR.down }, 0);
-for (let s2 = 0; s2 < 3; s2++) {
-const a2 = clock * 5 + s2 * 2.1;
-R.b('sphere', r.x + Math.cos(a2) * 0.34, 0.92 + Math.sin(clock * 6 + s2) * 0.05,
-r.z + Math.sin(a2) * 0.34, 0.13, 0.13, 0.13, col('#FFE04A'));
-}
+dizzy(r.x, 0.92, r.z);
 continue;
 }
 if (m.slide && r.u > 0.80) {          // a throw is coming: get down
@@ -4223,8 +4156,9 @@ return;
 }
 const faceAtlas = buildFaceAtlas();
 R.upload(faceAtlas);
-applyFaceScans(faceAtlas, () => R.upload(faceAtlas));
 buildMenus();
+paintPortraits();
+applyFaceScans(faceAtlas, () => { R.upload(faceAtlas); paintPortraits(); });
 bindInput();
 $('#btn-start').onclick = () => { Snd.boot(); G.mode = 'cpu'; show('#s-stadium'); };
 $('#btn-vs').onclick = () => { Snd.boot(); G.mode = 'vs'; show('#s-stadium'); };
