@@ -160,8 +160,8 @@ function cpuPitchChoice() {
   else ti = rint(0, 4);
   // aim: ahead in the count -> chase pitch just off the plate
   const wide = ahead && chance(0.55);
-  const ax = clamp(gauss(wide ? 0.44 : 0.36) + (wide ? (chance(0.5) ? 0.34 : -0.34) : 0), -0.85, 0.85);
-  const ay = clamp(0.88 + gauss(wide ? 0.40 : 0.34) + (wide ? -0.18 : 0), 0.20, 1.66);
+  const ax = clamp(gauss(wide ? 0.44 : 0.335) + (wide ? (chance(0.5) ? 0.34 : -0.34) : 0), -0.85, 0.85);
+  const ay = clamp(0.88 + gauss(wide ? 0.40 : 0.32) + (wide ? -0.18 : 0), 0.20, 1.66);
   const acc = 0.62 + p.arm * 0.38;
   let fx = ax + gauss((1 - acc) * 0.30), fy = ay + gauss((1 - acc) * 0.28);
   if (chance(0.10)) { fx += gauss(0.40); fy += gauss(0.38); }   // he misses his spot
