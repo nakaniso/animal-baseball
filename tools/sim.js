@@ -7,6 +7,8 @@
  *   node tools/sim.js                 3・6・9回 × 5球場 × 3カードの完走チェック
  *   node tools/sim.js --stats 60      9回の試合を60本回して成績を出す（較正用）
  *   node tools/sim.js --stats 60 dome 球場を指定
+ *   node tools/sim.js --eval probe.js ページ内で任意のコードを評価して結果を出す
+ *   node tools/sim.js --shot a.png probe.js  probe で場面を作り、その1フレームを撮る
  *
  * 出力は失敗項目と集計だけ。成績は9イニング換算・1チームあたり。
  * 1回の計測で判断しないこと（CLAUDE.md）。60本でも得点は±0.4ほど揺れる。
@@ -60,6 +62,17 @@ function stats(n, park) {
   // count every pitch and whether it went for a strike (called, swung at, fouled
   // or put in play), by wrapping the functions the game already calls
   const _throw = throwPitch, _after = afterPitch, _contact = doContact;
+  // and how often the rarer plays come up, per game
+  const ev = {};
+  const tally = (k) => { ev[k] = (ev[k] || 0) + 1; };
+  const _fin = finishAtBat, _balk = callBalk, _wp = wildPitch, _st = resolveSteal;
+  finishAtBat = function (o) { tally(o.kind); return _fin.apply(this, arguments); };
+  callBalk = function () { tally('balk'); return _balk.apply(this, arguments); };
+  wildPitch = function () { tally('wp'); return _wp.apply(this, arguments); };
+  resolveSteal = function () {
+    const o = G.outs, r = _st.apply(this, arguments);
+    tally(G.outs > o ? 'cs' : 'sb'); return r;
+  };
   throwPitch = function () { tot.pitches++; return _throw.apply(this, arguments); };
   afterPitch = function (k) { if (k === 'strike' || k === 'whiff' || k === 'foul') tot.strikes++; return _after.apply(this, arguments); };
   doContact = function () {
@@ -82,6 +95,10 @@ function stats(n, park) {
     tot.inn += G.lines[0].length + G.lines[1].filter((v) => v !== null).length;
   }
   throwPitch = _throw; afterPitch = _after; doContact = _contact;
+  finishAtBat = _fin; callBalk = _balk; wildPitch = _wp; resolveSteal = _st;
+  const events = {};
+  for (const k of ['sb', 'cs', 'balk', 'wp', 'k_reach', 'k_thrown', 'iff', 'sac', 'dp', 'fc', 'error', 'ihr'])
+    events[k] = +((ev[k] || 0) / n).toFixed(2);
   G.innings = 6; G.mode = 'cpu'; G.active = false; G.st = null;
   tot.pa = tot.ab + tot.bb + tot.hbp;
   const per9 = (v) => +(v / tot.inn * 9).toFixed(2);   // per team per 9 innings
@@ -91,6 +108,7 @@ function stats(n, park) {
     E: per9(tot.err),
     'P/PA': +(tot.pitches / tot.pa).toFixed(2),
     'STR%': +(tot.strikes / tot.pitches * 100).toFixed(1),
+    perGame: events,
   };
 }
 
@@ -106,7 +124,18 @@ function stats(n, park) {
   // the frame loop would advance the game underneath us; keep it out of the way
   await page.evaluate(() => { window.requestAnimationFrame = () => 0; });
   await page.waitForTimeout(200);
-  if (argv[0] === '--stats') {
+  if (argv[0] === '--shot') {                 // node tools/sim.js --shot out.png probe.js
+    // the probe sets the scene up (and may return a note); then one frame is
+    // drawn with the menus out of the way and the page is photographed
+    const src = require('fs').readFileSync(argv[2], 'utf8');
+    const note = await page.evaluate(src);
+    await page.evaluate(() => { show(null); if (G.st) drawScene(); else drawIdle(); });
+    await page.screenshot({ path: argv[1] });
+    console.log(argv[1] + (note !== undefined ? ' ' + JSON.stringify(note) : ''));
+  } else if (argv[0] === '--eval') {          // node tools/sim.js --eval probe.js
+    const src = require('fs').readFileSync(argv[1], 'utf8');
+    console.log(JSON.stringify(await page.evaluate(src)));
+  } else if (argv[0] === '--stats') {
     const n = +(argv[1] || 60);
     await page.addScriptTag({ content: 'window.__stats = ' + stats.toString() });
     console.log(JSON.stringify(await page.evaluate(([n, p]) => __stats(n, p), [n, argv[2] || null])));

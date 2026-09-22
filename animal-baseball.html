@@ -971,16 +971,25 @@ const t = clamp(Math.abs(aDeg) / 45, 0, 1);
 return lerp(st.fenceCenter, st.fenceLine, t * t * 0.55 + t * 0.45);
 }
 class Scene {
-constructor() { this.items = []; }
+constructor() { this.items = []; this.flat = []; }
 add(p, x, y, z, rx, ry, rz, sx, sy, sz, c) {
-this.items.push({ p, m: mTRS(m4(), x, y, z, rx, ry, rz, sx, sy, sz), c: typeof c === 'string' ? col(c) : c });
+const it = { p, m: mTRS(m4(), x, y, z, rx, ry, rz, sx, sy, sz), c: typeof c === 'string' ? col(c) : c };
+const lie = (p === 'quad' || p === 'disc') && Math.abs(y) < 0.05 && !rx && !rz;
+(lie ? this.flat : this.items).push(it);
 }
 box(x, y, z, sx, sy, sz, c, ry) { this.add('box', x, y, z, 0, ry || 0, 0, sx, sy, sz, c); }
 cyl(x, y, z, r, h, c, ry) { this.add('cyl', x, y, z, 0, ry || 0, 0, r * 2, h, r * 2, c); }
 sph(x, y, z, r, c) { this.add('sphere', x, y, z, 0, 0, 0, r * 2, r * 2, r * 2, c); }
 plate(x, y, z, sx, sz, c, ry) { this.add('quad', x, y, z, 0, ry || 0, 0, sx, 1, sz, c); }
 ring(x, y, z, r, c) { this.add('disc', x, y, z, 0, 0, 0, r * 2, 1, r * 2, c); }
-draw() { for (const it of this.items) R.m(it.p, it.m, it.c); }
+draw() {
+const gl = R.gl;
+if (!this.sorted) { this.flat.sort((a, b) => a.m[13] - b.m[13]); this.sorted = true; }
+gl.depthFunc(gl.ALWAYS);
+for (const it of this.flat) R.m(it.p, it.m, it.c);
+gl.depthFunc(gl.LESS);
+for (const it of this.items) R.m(it.p, it.m, it.c);
+}
 }
 const PLATE_W = 0.4318;      // 17in across the front edge
 const BASE_SZ = 0.40;        // 15in bag (a hair oversized so it reads)
@@ -2277,6 +2286,7 @@ G.phase = p; G.pt = 0; G.phaseLen = len || 0;
 function nextBatter() {
 G.balls = 0; G.strikes = 0;
 G.swingT = -1; G.contactAt = -1; G.decided = null; G.batSwingT = -1; G.bunting = false;
+G.steal = null;
 G.reticle.x = 0; G.reticle.y = 0.88;
 G.ball.vis = false; G.trail.length = 0;
 G.camMode = 'bat';
@@ -2340,6 +2350,7 @@ if (chance(0.10)) { fx += gauss(0.40); fy += gauss(0.38); }   // he misses his s
 return { ti, ax: fx, ay: fy };
 }
 function throwPitch(ti, ax, ay) {
+if (runnersOn() && chance(balkRate())) { callBalk(); return; }
 const p = curPitcher();
 const P = PITCHES[ti];
 const spd = P.spd * (0.90 + p.arm * 0.16) * (1 + gauss(0.040));
@@ -2360,6 +2371,7 @@ hbp: arrive.x > 0.80 && arrive.y > 0.18 && arrive.y < 1.58 && chance(0.12),
 G.swingT = -1; G.contactAt = -1; G.decided = null; G.batSwingT = -1;
 G.ball.vis = true; G.trail.length = 0; G.firstPitch = false;
 if (G.mode === 'vs') { G.reticle.x = 0; G.reticle.y = 0.88; }
+maybeSteal();
 if (!humanBats()) cpuBatterDecide();
 Snd.blip();
 setPhase('pitch');
@@ -2377,13 +2389,15 @@ z: lerp(pc.z0, 0.15, u),
 function cpuBatterDecide() {
 const b = curBatter(), pc = G.pitch;
 const eye = 0.34 + b.contact * 0.5;
+G.bunting = G.outs === 0 && !!G.bases[0] && !G.bases[2] && G.strikes < 2 && !G.steal
+&& (b === batTeam().roster[8] || b.power < 0.3) && chance(0.7);
 let sw;
 if (pc.inZone) sw = chance(0.42 + eye * 0.32 + G.strikes * 0.09);
 else {
 const close = Math.abs(pc.ax) < ZX + 0.28 && pc.ay > ZY0 - 0.28 && pc.ay < ZY1 + 0.28;
 sw = chance((close ? 0.34 : 0.09) + (G.strikes === 2 ? (close ? 0.40 : 0.14) : 0) - eye * 0.12);
 }
-if (!sw) return;
+if (!sw) { G.bunting = false; return; }
 const jitter = 1.75 - b.contact * 0.65;
 G.swingT = pc.T - SWING_LAG + gauss(0.062 * jitter);
 G.cpuAim = {
@@ -2507,10 +2521,10 @@ const d = Math.hypot(from.x - tx, from.z - tz);
 return 0.55 + d / (27 + (arm || 0.6) * 13) + (d > 42 ? 1.05 : 0);
 }
 const LEAD_OFF = 2.6;              // how far a runner edges off the bag
+const firstLeg = (p) => 27.43 / (5.6 + p.speed * 1.7);
+const restLeg = (p) => 27.43 / (7.6 + p.speed * 2.2);
 function baseTime(p, n) {
-const first = 27.43 / (5.6 + p.speed * 1.7);   // 4.9s slow .. 3.8s quick
-const rest = 27.43 / (7.6 + p.speed * 2.2);
-return first + (n - 1) * rest + (n > 1 ? 0.25 : 0);
+return firstLeg(p) + (n - 1) * restLeg(p) + (n > 1 ? 0.25 : 0);
 }
 const BACKUP = { '1B': 'P', '2B': 'SS', '3B': 'P', C: 'P', SS: '2B' };
 function coverFor(tx, tz, busy) {
@@ -2645,6 +2659,19 @@ play.throwTo = [bx, bz];
 play.throwDur = sendTo(bx, bz, P, best.pl.arm);
 };
 if (best.it.air) {
+const liner = fl.la < 24 && fl.hang < 1.7;
+if (best.s.infield && !liner && !G.bunting && fl.la >= 30
+&& G.outs < 2 && G.bases[0] && G.bases[1]) {
+play.throwTo = null; play.throwDur = 0;
+if (chance(errP * 1.6)) {
+fumble(play, P);
+return { kind: 'iff', outs: 1, fielder: best.s, play, err: true,
+text: `${best.s.sn}が落とした！\nでもインフィールドフライでアウト`,
+rule: '規則5.09(a)(5)：インフィールドフライが宣告されたので、落球しても打者はアウト' };
+}
+return { kind: 'iff', outs: 1, fielder: best.s, play,
+text: 'インフィールドフライ\nバッターアウト' };
+}
 if (chance(errP * 0.55)) {
 G.errs[1 - G.half]++;
 fumble(play, P);
@@ -2652,7 +2679,6 @@ aimAt(BASE_POS[1][0], BASE_POS[1][1]);
 return { kind: 'error', bases: fl.dist > 62 ? 2 : 1, err: true, play,
 text: `${best.s.sn}が落球！\nエラー` };
 }
-const liner = fl.la < 24 && fl.hang < 1.7;
 const tight = best.it.t > fl.hang - 0.45;
 if (best.s.infield) { play.throwTo = null; play.throwDur = 0; }
 else relayIn(play, fl, P, best.pl.arm, best.i);
@@ -2678,7 +2704,7 @@ return { kind: 'error', bases: Math.max(1, safeTo), err: true, play,
 text: `${best.s.sn}がはじいた！\nエラー` };
 }
 if (safeTo === 0) {
-if (G.bases[0] && G.outs < 2 && infield && fl.v0 > 17
+if (G.bases[0] && G.outs < 2 && infield && fl.v0 > 17 && !G.steal
 && chance(0.34 + best.pl.defense * 0.28)) {
 const leftSide = fl.ang > 0;
 let pivotK = leftSide ? '2B' : 'SS', backK = leftSide ? 'SS' : '2B';
@@ -2707,6 +2733,9 @@ return { kind: 'fc', outs: 1, fielder: best.s, play,
 text: `${best.s.sn}\nフィルダースチョイス` };
 }
 aimAt(BASE_POS[0][0], BASE_POS[0][1]);
+if (G.bunting && G.outs < 2 && runnersOn())
+return { kind: 'sac', outs: 1, fielder: best.s, play,
+text: G.bases[2] ? 'スクイズ成功！' : '送りバント成功' };
 return { kind: 'groundout', outs: 1, fielder: best.s, play,
 text: `${best.s.sn}ゴロ\nアウト` };
 }
@@ -2741,9 +2770,13 @@ const pts = [];
 for (let b = from; b <= to; b++) {
 let q = basePt(b);
 if (b === from && b >= 0 && b <= 2) {      // he was already off the bag
+const s = G.steal;
+if (s && s.p === p && s.from === b) { const r = runnerAt(s.mv); q = [r.x, r.z]; }
+else {
 const n2 = basePt(b + 1);
 const ux = n2[0] - q[0], uz = n2[1] - q[1], ul = Math.hypot(ux, uz) || 1;
 q = [q[0] + (ux / ul) * LEAD_OFF, q[1] + (uz / ul) * LEAD_OFF];
+}
 }
 if (b > from && b < to && b >= 0 && b <= 2) {
 const ox = q[0] - 0, oz = q[1] - 19.4, l = Math.hypot(ox, oz) || 1;
@@ -2758,46 +2791,53 @@ const d = Math.hypot(pts[i + 1][0] - pts[i][0], pts[i + 1][1] - pts[i][1]);
 segs.push(d); total += d;
 }
 const legs = Math.max(1, to - from);
-const first = 27.43 / (5.6 + p.speed * 1.7);
-const rest = 27.43 / (7.6 + p.speed * 2.2);
-let dur = first * (legs === 1 ? 1 : 0.72) + (legs - 1) * rest * 0.48;
+let dur = firstLeg(p) * (legs === 1 ? 1 : 0.72) + (legs - 1) * restLeg(p) * 0.48;
 if (legs >= 4) dur = Math.min(dur, 6.0);
-const mv = {
-p, from, to, pts, segs, total, t: -(delay || 0), dur,
-scored: to >= 3, retired: !!retired,
-rbiOwner: to >= 3 ? curBatter() : null,
-};
+const mv = { p, from, to, pts, segs, total, t: -(delay || 0), dur,
+scored: to >= 3, retired: !!retired, rbiOwner: null };
 G.movers.push(mv);
 return mv;
 }
-function scoreRun(p, batter) {
+function scoreRun(r, from, rbi, delay) {
 G.score[G.half]++;
-if (batter) batter.rbi++;
+if (rbi) rbi.rbi++;
+const mv = moveRunner(r, from, 3, delay);
+mv.rbiOwner = rbi || null;
+return mv;
 }
-function advanceOnHit(nb, batter) {
-let runs = 0, block = null;
+function advanceOnHit(nb, batter, opt) {
+opt = opt || {};
+const cap = opt.cap === undefined ? 99 : opt.cap;
+const rbi = opt.rbi === false ? null : batter;
+let runs = 0, block = null, credit = nb;
 for (let i = 2; i >= 0; i--) {
 const r = G.bases[i];
 if (!r) continue;
 let adv = nb;
-if (nb < 3 && r.speed > 0.5 && chance(0.22 + r.speed * 0.34)) adv++;
+if (!opt.exact && nb < 3) {
+if (G.steal && G.steal.p === r) adv++;          // he was off with the pitch
+else if (r.speed > 0.5 && chance(0.22 + r.speed * 0.34)) adv++;
+}
 let t = i + adv;
 if (block !== null) t = Math.min(t, block - 1);
+if (runs >= cap) t = Math.min(t, 2);               // it is already over
 G.bases[i] = null;
-if (t >= 3) { runs++; scoreRun(r, batter); moveRunner(r, i, 3); }
-else { G.bases[t] = r; block = t; moveRunner(r, i, t); }
+if (t >= 3) {
+runs++; scoreRun(r, i, rbi);
+if (runs === cap) credit = Math.min(nb, 3 - i);  // he was the winning run
+} else { G.bases[t] = r; block = t; moveRunner(r, i, t); }
 }
-let bt = nb - 1;
+let bt = credit - 1;
 if (block !== null) bt = Math.min(bt, block - 1);
-if (bt >= 3) { runs++; scoreRun(batter, batter); moveRunner(batter, -1, 3); }
+if (bt >= 3) { runs++; scoreRun(batter, -1, rbi); }
 else { G.bases[bt] = batter; moveRunner(batter, -1, bt); }
-return runs;
+return { runs, credit };
 }
-function advanceOnWalk(batter) {
+function advanceOnWalk(batter, rbi) {
 let runs = 0;
 if (G.bases[0]) {
 if (G.bases[1]) {
-if (G.bases[2]) { runs++; scoreRun(G.bases[2], batter); moveRunner(G.bases[2], 2, 3); G.bases[2] = null; }
+if (G.bases[2]) { runs++; scoreRun(G.bases[2], 2, rbi ? batter : null); G.bases[2] = null; }
 G.bases[2] = G.bases[1]; moveRunner(G.bases[1], 1, 2); G.bases[1] = null;
 }
 G.bases[1] = G.bases[0]; moveRunner(G.bases[0], 0, 1); G.bases[0] = null;
@@ -2805,13 +2845,43 @@ G.bases[1] = G.bases[0]; moveRunner(G.bases[0], 0, 1); G.bases[0] = null;
 G.bases[0] = batter; moveRunner(batter, -1, 0);
 return runs;
 }
+function advanceOnOut(batter, canScore, dare, rbi, outAt) {
+const B = G.bases;
+const forced = [!!B[0], !!(B[0] && B[1]), !!(B[0] && B[1] && B[2])];
+let runs = 0;
+if (outAt !== undefined && B[outAt]) {
+moveRunner(B[outAt], outAt, outAt + 1, 0, true);
+B[outAt] = null;
+}
+for (let i = 2; i >= 0; i--) {
+const r = B[i];
+if (!r || (!forced[i] && !chance(dare))) continue;
+if (i === 2) {
+if (!canScore) continue;
+B[2] = null; runs++; scoreRun(r, 2, rbi ? batter : null);
+} else if (!B[i + 1]) {
+B[i + 1] = r; B[i] = null; moveRunner(r, i, i + 1);
+}
+}
+return runs;
+}
+function stealReturn() {
+const s = G.steal;
+if (!s) return;
+G.steal = null;
+const r = runnerAt(s.mv), b = basePt(s.from);
+const d = Math.hypot(b[0] - r.x, b[1] - r.z);
+G.movers = G.movers.filter((m) => m !== s.mv);
+G.movers.push({ p: s.p, from: s.from, to: s.from, pts: [[r.x, r.z], b], segs: [d], total: d,
+t: 0, dur: 0.4 + d / 7, scored: false, retired: false, rbiOwner: null });
+}
 function styleBaseRunning(o) {
 const pl = o.play;
 const targets = [];
 if (pl && pl.throwTo) targets.push(pl.throwTo);
 if (pl && pl.via) targets.push(pl.via);
 for (const mv of G.movers) {
-if (mv.from === -1 && mv.to === 0 && o.kind !== 'flyout') {
+if (mv.from === -1 && mv.to === 0 && o.kind !== 'flyout' && o.kind !== 'iff') {
 const b = basePt(0);
 if (!mv.retired && pl && !pl.infield) {  // rounding, looking at second
 const n = basePt(1);
@@ -2831,103 +2901,103 @@ if (Math.hypot(t[0] - b[0], t[1] - b[1]) < 5.0) { mv.slide = 1; break; }
 }
 }
 }
-function advanceOneAll(batter, allowScore) {
-let runs = 0;
-for (let i = 2; i >= 0; i--) {
-const r = G.bases[i];
-if (!r) continue;
-G.bases[i] = null;
-if (i === 2) {
-if (allowScore) { runs++; scoreRun(r, batter); moveRunner(r, 2, 3); }
-else G.bases[2] = r;
-} else { G.bases[i + 1] = r; moveRunner(r, i, i + 1); }
-}
-return runs;
-}
+const BASES_JP = ['', 'シングルヒット', 'ツーベースヒット', 'スリーベースヒット', 'ホームラン'];
 function applyOutcome(o) {
 const bat = curBatter();
 let runs = 0, outsAdded = 0;
 G.movers = [];
+const cap = G.half === 1 && G.inning >= G.innings && G.score[1] <= G.score[0]
+? G.score[0] - G.score[1] + 1 : 99;
 switch (o.kind) {
-case 'hr': case 'ihr':
-bat.ab++; bat.h++; bat.hr++; G.hits[G.half]++;
-runs = advanceOnHit(4, bat);
-o.snd = 'cheer';
-break;
-case 'hit': case 'ground_rule':
+case 'hr': case 'ihr': case 'hit': case 'ground_rule': {
+const nb = o.kind === 'hit' || o.kind === 'ground_rule' ? o.bases : 4;
+const r = advanceOnHit(nb, bat, { exact: o.kind === 'ground_rule',
+cap: o.kind === 'hr' ? 99 : cap });
+runs = r.runs;
 bat.ab++; bat.h++; G.hits[G.half]++;
-runs = advanceOnHit(o.bases, bat);
-o.snd = 'good';
+if (r.credit >= 4) bat.hr++;
+if (r.credit < nb) {
+o.text = `サヨナラ！\n記録は${BASES_JP[r.credit]}`;
+o.rule = `規則9.06(f)：サヨナラの場面では、打者には決勝点の走者が進んだぶんの塁打しか記録されない。${BASES_JP[nb]}は${BASES_JP[r.credit]}になった`;
+}
+o.snd = r.credit >= 4 ? 'cheer' : 'good';
 break;
+}
 case 'error':
 bat.ab++;
-runs = advanceOnHit(o.bases, bat);
+runs = advanceOnHit(o.bases, bat, { cap, rbi: false }).runs;
 o.snd = 'bad';
 break;
-case 'flyout': {
-bat.ab++; outsAdded = 1; moveRunner(bat, -1, 0, 0, true);
+case 'flyout': case 'iff': {
+outsAdded = 1; moveRunner(bat, -1, 0, 0, true);
+stealReturn();
 const held = o.play ? o.play.cutT + 0.12 : 1.2;
-if (o.canSac && G.outs < 2 && G.bases[2]) {
-runs++; scoreRun(G.bases[2], bat); moveRunner(G.bases[2], 2, 3, held); G.bases[2] = null;
+if (o.kind === 'flyout' && o.canSac && G.outs < 2 && G.bases[2]) {
+runs++; scoreRun(G.bases[2], 2, bat, held); G.bases[2] = null;
 o.text = '犠牲フライ！\n1点';
-} else if (G.outs < 2 && G.bases[1] && o.canSac && chance(0.62)) {
+} else if (o.kind === 'flyout' && G.outs < 2 && G.bases[1] && !G.bases[2] && o.canSac && chance(0.62)) {
 G.bases[2] = G.bases[1]; moveRunner(G.bases[1], 1, 2, held); G.bases[1] = null;
 } else if (G.outs >= 2) {
 for (let i = 2; i >= 0; i--)
 if (G.bases[i]) moveRunner(G.bases[i], i, i + 1, 0, true);
 }
+if (!runs) bat.ab++;                     // a sacrifice fly is not an at-bat
 o.snd = 'mitt';
 break;
 }
 case 'groundout':
 bat.ab++; outsAdded = 1; moveRunner(bat, -1, 0, 0, true);
-if (chance(0.86)) runs += advanceOneAll(bat, G.outs < 2 && chance(0.85));
+runs += advanceOnOut(bat, G.outs < 2, 0.72, true);
+o.snd = 'mitt';
+break;
+case 'sac':                                 // nor is a sacrifice bunt
+outsAdded = 1; moveRunner(bat, -1, 0, 0, true);
+runs += advanceOnOut(bat, G.outs < 2, 1, true);
 o.snd = 'mitt';
 break;
 case 'fc':
 bat.ab++; outsAdded = 1;
-if (G.bases[2]) { runs++; scoreRun(G.bases[2], bat); moveRunner(G.bases[2], 2, 3); G.bases[2] = null; }
-if (G.bases[1]) { G.bases[2] = G.bases[1]; moveRunner(G.bases[1], 1, 2); G.bases[1] = null; }
+runs += advanceOnOut(bat, true, 0.8, true, 0);
 G.bases[0] = bat; moveRunner(bat, -1, 0);
 o.snd = 'mitt';
 break;
-case 'dp': {
+case 'dp':
 bat.ab++; outsAdded = Math.min(2, 3 - G.outs);
-const forced = G.bases[0];
-G.bases[0] = null;
 moveRunner(bat, -1, 0, 0, true);
-if (forced) moveRunner(forced, 0, 1, 0, true);
-runs += advanceOneAll(bat, G.outs < 2);
-if (G.bases[1]) { G.bases[2] = G.bases[1]; moveRunner(G.bases[1], 1, 2); G.bases[1] = null; }
+runs += advanceOnOut(bat, G.outs === 0, 0.7, false, 0);
 o.snd = 'mitt';
 break;
-}
-case 'strikeout':
+case 'strikeout': case 'k_thrown':
 bat.ab++; bat.k++; outsAdded = 1;
+if (o.kind === 'k_thrown') moveRunner(bat, -1, 0, 0.25, true);
 o.snd = 'miss';
+break;
+case 'k_reach':                             // a strikeout, and on first
+bat.ab++; bat.k++;
+runs = advanceOnWalk(bat, false);
+for (const mv of G.movers) mv.t = -0.25;
+o.snd = 'good';
 break;
 case 'walk':
 bat.bb++;
-runs = advanceOnWalk(bat);
+runs = advanceOnWalk(bat, true);
 break;
 case 'hbp':
 bat.hbp++;
-runs = advanceOnWalk(bat);
+runs = advanceOnWalk(bat, true);
 for (const mv of G.movers) mv.t = -0.65;
 G.hbpT = 1.05;
 o.snd = 'crash';
 logLine(`${bat.name}にデッドボール！`, true);
 break;
-case 'bunt_out':
-bat.ab++; outsAdded = 1; moveRunner(bat, -1, 0, 0, true);
-runs += advanceOneAll(bat, G.outs < 2);
-break;
 }
+G.steal = null;
 styleBaseRunning(o);
 G.outs += outsAdded;
 if (runs > 0) {
 logLine(`${bat.name}の${o.kind === 'walk' ? '押し出し' : (o.text.split('\n')[0])} — ${runs}点`, true);
 }
+if (o.rule) logLine(o.rule, true);
 G.inningRuns += runs;
 const forBat = runs > 0 || outsAdded === 0;
 G.faceBat = forBat ? EXPR.happy : EXPR.down;
@@ -2937,9 +3007,10 @@ uiScore();
 placeFielders();
 return runs;
 }
-function afterPitch(kind) {
-const bat = curBatter();
+function afterPitch(kind, quiet) {
+const say = (t) => { if (!quiet) banner(t); };
 G.faceBat = G.faceFld = EXPR.idle;   // finishAtBat overrides if the PA ends
+if (kind === 'balk') { uiScore(); setPhase('ready', 0.6); return; }   // no pitch
 if (kind === 'hbp') {
 finishAtBat({ kind: 'hbp', text: 'デッドボール！' });
 return;
@@ -2947,19 +3018,26 @@ return;
 if (kind === 'ball') {
 G.balls++;
 if (G.balls >= 4) { finishAtBat({ kind: 'walk', text: 'フォアボール' }); return; }
-banner('ボール');
+say('ボール');
 uiScore(); setPhase('result', 0.70);
 return;
 }
 if (kind === 'strike' || kind === 'whiff' || kind === 'foul') {
-if (kind === 'foul' && G.strikes >= 2) { banner('ファウル'); uiScore(); setPhase('result', 0.70); return; }
+if (kind === 'foul' && G.strikes >= 2) {
+if (G.bunting) {
+finishAtBat({ kind: 'strikeout', text: 'スリーバント失敗\n三振',
+rule: '規則5.09(a)(4)：2ストライク後のバントがファウルになれば三振' });
+return;
+}
+say('ファウル'); uiScore(); setPhase('result', 0.70); return;
+}
 G.strikes++;
 if (G.strikes >= 3) {
 finishAtBat({ kind: 'strikeout', text: kind === 'whiff' ? '空振り三振！' : '見逃し三振！' });
 return;
 }
-banner(kind === 'whiff' ? '空振り' : kind === 'foul' ? 'ファウル' : 'ストライク');
-if (kind === 'whiff') Snd.miss();
+say(kind === 'whiff' ? '空振り' : kind === 'foul' ? 'ファウル' : 'ストライク');
+if (kind === 'whiff' && !quiet) Snd.miss();
 uiScore(); setPhase('result', 0.70);
 }
 }
@@ -2968,13 +3046,13 @@ const pl = o.play;
 if (!pl) return G.flight ? Math.min(G.flight.total * 0.72, 2.4) : 0;
 const caught = pl.cutT;
 if (o.err) return caught + (pl.air ? 0.16 : 0.26);
-if (o.kind === 'flyout') {
+if (o.kind === 'flyout' || o.kind === 'iff') {
 let home = 0;
 for (const mv of G.movers)
 if (mv.to === 3 && !mv.retired) home = Math.max(home, mv.dur - mv.t);
 return Math.max(caught + 0.10, home ? home + 0.06 : 0);
 }
-if (o.kind === 'groundout' || o.kind === 'dp' || o.kind === 'fc' || o.kind === 'bunt_out')
+if (['groundout', 'dp', 'fc', 'sac', 'k_reach', 'k_thrown'].includes(o.kind))
 return caught + (pl.viaDur || 0) + (pl.throwDur || 0) + 0.06;
 return caught + 0.14;                       // a base hit, as it is played
 }
@@ -3004,6 +3082,157 @@ if (pl) m = Math.max(m, pl.cutT + (pl.fumble ? FUMBLE_T + 0.45 : 0)
 + (pl.throwDur || 0) + 0.7);
 else if (G.flight) m = Math.max(m, Math.min(G.flight.total, 5.0) + 0.8);
 return m;
+}
+const runnersOn = () => G.bases.some(Boolean);
+function loosePath(from, to, dur) {
+const path = [], n = Math.max(2, Math.round(dur * 90));
+for (let i = 0; i <= n; i++) {
+const u = i / n, e = 1 - (1 - u) * (1 - u);
+const hop = Math.abs(Math.sin(u * Math.PI * 3)) * 0.42 * (1 - u);
+path.push({ x: lerp(from.x, to[0], e), z: lerp(from.z, to[1], e), t: i / 90,
+y: Math.max(BALL_R, lerp(from.y, BALL_R, Math.min(1, u * 4)) + hop) });
+}
+for (let i = 1; i <= 360; i++) path.push({ x: to[0], y: BALL_R, z: to[1], t: (n + i) / 90 });
+return { path, groundIdx: 0, total: path[path.length - 1].t, hang: 0, carHit: 0, land: to, ang: 180 };
+}
+function catcherChase(fl) {
+const ci = stationIdx('C'), f = G.fielders[ci], pl = fielderOf(fldTeam(), 'C');
+const spd = 6.0 * G.st.fielderSpeed * (0.86 + pl.defense * 0.28);
+const k = Math.max(0, fl.path.findIndex((q) => q.t >= 0.3));
+const it = interceptOn({ path: fl.path.slice(k), groundIdx: 0 }, f.x, f.z, spd);
+it.i += k;
+return { play: { fidx: ci, cutIdx: it.i, cutT: it.t, pt: { x: it.p.x, y: it.p.y, z: it.p.z },
+air: false, infield: true, moves: [], throwTo: null, throwDur: 0 }, pl };
+}
+function loosePlay(fl, play, cam, text, at, count, snd, big) {
+G.flight = fl; G.playScript = play; G.flightT = 0;
+G.ball.vis = !!fl; G.trail.length = 0;
+G.camMode = cam; G.ballBoost = cam === 'foul' ? 1.7 : 1;
+G.pendingCount = count;
+G.pending = { text, big, snd, at };
+uiScore();
+setPhase('play', Math.max(1.6, playLength()));
+}
+function everyoneUp() {
+let runs = 0;
+for (let i = 2; i >= 0; i--) {
+const r = G.bases[i];
+if (!r) continue;
+G.bases[i] = null;
+if (i === 2) { runs++; scoreRun(r, 2, null); } else { G.bases[i + 1] = r; moveRunner(r, i, i + 1); }
+}
+G.inningRuns += runs;
+return runs;
+}
+function balkRate() {
+const A = ANIMALS[curPitcher().look.animal];
+return A.body === 'fish' ? 0.010 : 0.0025;
+}
+function callBalk() {
+const p = curPitcher();
+const runs = everyoneUp();
+const fish = ANIMALS[p.look.animal].body === 'fish';
+logLine(`${p.name}のボーク${runs ? ` — ${runs}点` : ''}`, true);
+logLine(fish ? '規則6.02(a)(13)：セットポジションで完全に静止しなかった。鮭は一度も静止していない'
+: '規則6.02(a)：投球動作を途中でやめた', true);
+loosePlay(null, null, 'field', 'ボーク！\n走者はひとつずつ進塁', 0.25, 'balk', 'bad');
+}
+function wildPitch(count) {
+const from = { x: G.ball.x, y: 0.5, z: G.ball.z };
+const a = rnd(-1.1, 1.1), d = rnd(7, 15);
+const fl = loosePath(from, [from.x + Math.sin(a) * d, from.z - Math.cos(a) * d], 1.0);
+const { play } = catcherChase(fl);
+const runs = everyoneUp();
+const word = count === 'ball' ? 'ボール' : 'ストライク';
+logLine(`ワイルドピッチ${runs ? ` — ${runs}点` : ''}`, true);
+loosePlay(fl, play, 'foul', `${word}\nワイルドピッチ！`, 0.35, count, 'bad');
+}
+function droppedThird(kind) {
+if (G.bases[0] && G.outs < 2) return false;
+const bat = curBatter();
+const from = { x: G.ball.x, y: 0.5, z: G.ball.z };
+const far = chance(0.4);
+const a = rnd(-1.3, 1.3), d = far ? rnd(9, 16) : rnd(1.2, 3.0);
+const fl = loosePath(from, [from.x + Math.sin(a) * d, from.z - Math.cos(a) * d], far ? 1.1 : 0.5);
+const { play, pl } = catcherChase(fl);
+const bag = BASE_POS[0];
+play.throwTo = bag;
+play.throwDur = throwTime(play.pt, bag[0], bag[1], pl.arm);
+const fb = coverFor(bag[0], bag[1], play.fidx);
+if (fb >= 0) play.moves.push({ idx: fb, x: bag[0], z: bag[1], byT: play.cutT + play.throwDur });
+const safe = play.cutT + play.throwDur > firstLeg(bat) + 0.25 + 0.12;
+G.flight = fl; G.playScript = play; G.flightT = 0;
+G.ball.vis = true; G.trail.length = 0;
+G.camMode = 'foul'; G.ballBoost = 1.7;
+const how = kind === 'whiff' ? '空振り' : '見逃し';
+finishAtBat(safe
+? { kind: 'k_reach', play, text: `${how}三振！\n振り逃げ成功`,
+rule: '規則5.09(a)(2)：捕手が第3ストライクを捕らえなかったので、打者は一塁へ走れる' }
+: { kind: 'k_thrown', play, text: `${how}三振！\n振り逃げはアウト` });
+return true;
+}
+function maybeSteal() {
+G.steal = null;
+const pc = G.pitch;
+if (pc.hbp || G.strikes === 2 || G.balls === 3) return;
+let from = -1;
+if (G.bases[0] && !G.bases[1]) from = 0;
+else if (G.bases[1] && !G.bases[2] && !G.bases[0] && G.outs < 2) from = 1;
+if (from < 0) return;
+const r = G.bases[from];
+const C = fielderOf(fldTeam(), 'C'), bag = basePt(from + 1);
+const cz = G.stations[stationIdx('C')];
+const ballAt = pc.T + 0.42 + throwTime({ x: cz.x, z: cz.z + 0.6 }, bag[0], bag[1], C.arm) - 0.12;
+const legs = (27.43 - LEAD_OFF) / (5.8 + r.speed * 2.4);   // 3.9s slow .. 3.0s quick
+const edge = ballAt - (legs - STEAL_JUMP) + gauss(0.16);
+if (edge < 0.08 || !chance(clamp((edge - 0.08) * 0.8, 0, from === 0 ? 0.22 : 0.06))) return;
+const mv = moveRunner(r, from, from + 1);
+mv.dur = legs; mv.t = STEAL_JUMP + gauss(0.20);
+G.steal = { p: r, from, mv };
+}
+const STEAL_JUMP = 0.85;
+function resolveSteal(count) {
+const s = G.steal;
+G.steal = null;
+const word = count === 'ball' ? 'ボール' : 'ストライク';
+if (s.mv.retired) { loosePlay(null, null, 'field', word, 0.1, count); return; }
+const ci = stationIdx('C'), C = fielderOf(fldTeam(), 'C'), cf = G.fielders[ci];
+const to = s.from + 1, bag = basePt(to);
+const pt = { x: cf.x, y: 1.1, z: cf.z + 0.62 };
+const play = { fidx: ci, cutIdx: 0, cutT: 0, pt, air: false, infield: true, moves: [],
+throwTo: bag, throwDur: throwTime(pt, bag[0], bag[1], C.arm) - 0.12 + gauss(0.12) };
+const cov = to === 1 ? stationIdx(chance(0.5) ? 'SS' : '2B') : coverFor(bag[0], bag[1], ci);
+if (cov >= 0) play.moves.push({ idx: cov, x: bag[0], z: bag[1], byT: play.throwDur - 0.1 });
+const fl = { path: [{ x: pt.x, y: pt.y, z: pt.z, t: 0 }], groundIdx: 1, total: 0, hang: 0, carHit: 0 };
+const there = s.mv.dur - s.mv.t;             // when he touches the bag, on the play clock
+const safe = there < play.throwDur + 0.05;
+s.mv.slide = 1;
+G.bases[s.from] = null;
+if (safe) {
+G.bases[to] = s.p;
+logLine(`${s.p.name}が${to === 1 ? '二' : '三'}盗`, true);
+} else {
+s.mv.retired = true;
+G.outs++;
+logLine(`${s.p.name}、盗塁失敗`, true);
+}
+G.faceBat = safe ? EXPR.happy : EXPR.down;
+G.faceFld = safe ? EXPR.down : EXPR.happy;
+loosePlay(fl, play, 'field', `${word}\n${safe ? '盗塁成功！' : '盗塁失敗 アウト'}`,
+play.throwDur + 0.06, count, safe ? 'good' : 'mitt');
+}
+function pitchPast(kind) {
+const pc = G.pitch;
+const C = fielderOf(fldTeam(), 'C');
+const dirt = pc.ay < 0.36;
+const third = (kind === 'strike' || kind === 'whiff') && G.strikes === 2;
+const fourth = kind === 'ball' && G.balls === 3;
+if (G.steal) { resolveSteal(kind); return; }
+if (third && dirt && chance(0.26 + (1 - C.defense) * 0.22) && droppedThird(kind)) return;
+if (!third && !fourth && dirt && runnersOn() && chance(0.05 + (1 - C.defense) * 0.05)) {
+wildPitch(kind); return;
+}
+afterPitch(kind);
 }
 function endHalfInning() {
 let onBase = 0;
@@ -3429,6 +3658,7 @@ const q = fl2.path[gi];
 G.playScript = { fidx: -1, coverIdx: -1, cutIdx: gi, cutT: q.t,
 pt: { x: q.x, y: q.y, z: q.z }, air: false, throwTo: null, throwDur: 0 };
 G.pendingCount = 'foul';
+stealReturn();
 setPhase('play', Math.min(q.t, 1.5) + 0.45);
 banner('ファウル');
 return;
@@ -3473,10 +3703,8 @@ afterPitch('hbp');
 break;
 }
 if (pc.t > pc.T + 0.42) {
-if (G.decided && G.decided.miss) afterPitch('whiff');
-else if (G.swingT >= 0) afterPitch('whiff');
-else afterPitch(pc.inZone ? 'strike' : 'ball');
 G.ball.vis = false;
+pitchPast(G.swingT >= 0 ? 'whiff' : pc.inZone ? 'strike' : 'ball');
 }
 break;
 }
@@ -3629,7 +3857,8 @@ G.playScript = null;
 for (const f of G.fielders) f.scripted = false;
 G.movers = [];
 G.trail.length = 0;
-if (G.pendingCount) { const c = G.pendingCount; G.pendingCount = null; afterPitch(c); return; }
+const count = G.pendingCount;
+G.pendingCount = null;
 if (checkWalkoff()) return;
 if (G.outs >= 3) {
 G.camMode = 'field';
@@ -3638,7 +3867,8 @@ Snd.good();
 setPhase('change', 1.9);
 return;
 }
-nextBatter();
+if (count) afterPitch(count, true);
+else nextBatter();
 }
 const camSettled = () =>
 CAM.wx === undefined ||

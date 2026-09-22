@@ -434,6 +434,7 @@ function doContact() {
     G.playScript = { fidx: -1, coverIdx: -1, cutIdx: gi, cutT: q.t,
                      pt: { x: q.x, y: q.y, z: q.z }, air: false, throwTo: null, throwDur: 0 };
     G.pendingCount = 'foul';
+    stealReturn();
     setPhase('play', Math.min(q.t, 1.5) + 0.45);
     banner('ファウル');
     return;
@@ -488,10 +489,8 @@ function update(dt) {
         break;
       }
       if (pc.t > pc.T + 0.42) {
-        if (G.decided && G.decided.miss) afterPitch('whiff');
-        else if (G.swingT >= 0) afterPitch('whiff');
-        else afterPitch(pc.inZone ? 'strike' : 'ball');
         G.ball.vis = false;
+        pitchPast(G.swingT >= 0 ? 'whiff' : pc.inZone ? 'strike' : 'ball');
       }
       break;
     }
@@ -658,7 +657,11 @@ function endPlay() {
   for (const f of G.fielders) f.scripted = false;
   G.movers = [];
   G.trail.length = 0;
-  if (G.pendingCount) { const c = G.pendingCount; G.pendingCount = null; afterPitch(c); return; }
+  // a run can come in on a wild pitch or a balk too, and the third out can be
+  // made on the bases in the middle of an at-bat — so both are asked before
+  // the count carries on
+  const count = G.pendingCount;
+  G.pendingCount = null;
   if (checkWalkoff()) return;
   if (G.outs >= 3) {
     // the half-inning does not just cut away: it gets called, and they run in
@@ -668,7 +671,8 @@ function endPlay() {
     setPhase('change', 1.9);
     return;
   }
-  nextBatter();
+  if (count) afterPitch(count, true);
+  else nextBatter();
 }
 
 /* ============================================================

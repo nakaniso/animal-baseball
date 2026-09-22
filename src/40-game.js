@@ -93,6 +93,7 @@ function setPhase(p, len) {
 function nextBatter() {
   G.balls = 0; G.strikes = 0;
   G.swingT = -1; G.contactAt = -1; G.decided = null; G.batSwingT = -1; G.bunting = false;
+  G.steal = null;
   G.reticle.x = 0; G.reticle.y = 0.88;
   G.ball.vis = false; G.trail.length = 0;
   G.camMode = 'bat';
@@ -168,6 +169,7 @@ function cpuPitchChoice() {
 }
 
 function throwPitch(ti, ax, ay) {
+  if (runnersOn() && chance(balkRate())) { callBalk(); return; }
   const p = curPitcher();
   const P = PITCHES[ti];
   // no two pitches come out quite the same
@@ -191,6 +193,7 @@ function throwPitch(ti, ax, ay) {
   G.ball.vis = true; G.trail.length = 0; G.firstPitch = false;
   // in two-player games the hitter re-aims from scratch each pitch
   if (G.mode === 'vs') { G.reticle.x = 0; G.reticle.y = 0.88; }
+  maybeSteal();
   if (!humanBats()) cpuBatterDecide();
   Snd.blip();
   setPhase('pitch');
@@ -210,13 +213,16 @@ function pitchPos(pc, t) {
 function cpuBatterDecide() {
   const b = curBatter(), pc = G.pitch;
   const eye = 0.34 + b.contact * 0.5;
+  // nobody out, a man on first and a weak bat: give himself up
+  G.bunting = G.outs === 0 && !!G.bases[0] && !G.bases[2] && G.strikes < 2 && !G.steal
+    && (b === batTeam().roster[8] || b.power < 0.3) && chance(0.7);
   let sw;
   if (pc.inZone) sw = chance(0.42 + eye * 0.32 + G.strikes * 0.09);
   else {
     const close = Math.abs(pc.ax) < ZX + 0.28 && pc.ay > ZY0 - 0.28 && pc.ay < ZY1 + 0.28;
     sw = chance((close ? 0.34 : 0.09) + (G.strikes === 2 ? (close ? 0.40 : 0.14) : 0) - eye * 0.12);
   }
-  if (!sw) return;
+  if (!sw) { G.bunting = false; return; }
   const jitter = 1.75 - b.contact * 0.65;
   G.swingT = pc.T - SWING_LAG + gauss(0.062 * jitter);
   G.cpuAim = {
@@ -364,11 +370,13 @@ function throwTime(from, tx, tz, arm) {
 
 const LEAD_OFF = 2.6;              // how far a runner edges off the bag
 
+/* 90 feet out of the box (4.9s slow .. 3.8s quick), and 90 feet at speed */
+const firstLeg = (p) => 27.43 / (5.6 + p.speed * 1.7);
+const restLeg = (p) => 27.43 / (7.6 + p.speed * 2.2);
+
 /* seconds from contact for a runner to reach base n (1 = first) */
 function baseTime(p, n) {
-  const first = 27.43 / (5.6 + p.speed * 1.7);   // 4.9s slow .. 3.8s quick
-  const rest = 27.43 / (7.6 + p.speed * 2.2);
-  return first + (n - 1) * rest + (n > 1 ? 0.25 : 0);
+  return firstLeg(p) + (n - 1) * restLeg(p) + (n > 1 ? 0.25 : 0);
 }
 
 /* which fielder covers a bag for the throw; if he is the one who fielded the
@@ -529,6 +537,22 @@ function fieldBall(fl) {
 
   /* ---- caught on the fly ---- */
   if (best.it.air) {
+    const liner = fl.la < 24 && fl.hang < 1.7;
+    // The infield fly: men on first and second, fewer than two out, and a pop
+    // an infielder can camp under. The batter is out the moment the umpire
+    // says so — catch it, drop it, it does not matter (規則 5.09(a)(5)).
+    if (best.s.infield && !liner && !G.bunting && fl.la >= 30
+        && G.outs < 2 && G.bases[0] && G.bases[1]) {
+      play.throwTo = null; play.throwDur = 0;
+      if (chance(errP * 1.6)) {
+        fumble(play, P);
+        return { kind: 'iff', outs: 1, fielder: best.s, play, err: true,
+                 text: `${best.s.sn}が落とした！\nでもインフィールドフライでアウト`,
+                 rule: '規則5.09(a)(5)：インフィールドフライが宣告されたので、落球しても打者はアウト' };
+      }
+      return { kind: 'iff', outs: 1, fielder: best.s, play,
+               text: 'インフィールドフライ\nバッターアウト' };
+    }
     if (chance(errP * 0.55)) {
       G.errs[1 - G.half]++;
       fumble(play, P);
@@ -536,7 +560,6 @@ function fieldBall(fl) {
       return { kind: 'error', bases: fl.dist > 62 ? 2 : 1, err: true, play,
                text: `${best.s.sn}が落球！\nエラー` };
     }
-    const liner = fl.la < 24 && fl.hang < 1.7;
     const tight = best.it.t > fl.hang - 0.45;
     // an infielder just holds it; only an outfielder lobs the ball back in
     if (best.s.infield) { play.throwTo = null; play.throwDur = 0; }
@@ -569,7 +592,7 @@ function fieldBall(fl) {
   }
 
   if (safeTo === 0) {
-    if (G.bases[0] && G.outs < 2 && infield && fl.v0 > 17
+    if (G.bases[0] && G.outs < 2 && infield && fl.v0 > 17 && !G.steal
         && chance(0.34 + best.pl.defense * 0.28)) {
       // ball to the third-base side: the second baseman takes the bag and the
       // shortstop backs him up; to the first-base side it is the other way round
@@ -601,6 +624,10 @@ function fieldBall(fl) {
                text: `${best.s.sn}\nフィルダースチョイス` };
     }
     aimAt(BASE_POS[0][0], BASE_POS[0][1]);
+    // a bunt that gives himself up to move the runners is not an at-bat
+    if (G.bunting && G.outs < 2 && runnersOn())
+      return { kind: 'sac', outs: 1, fielder: best.s, play,
+               text: G.bases[2] ? 'スクイズ成功！' : '送りバント成功' };
     return { kind: 'groundout', outs: 1, fielder: best.s, play,
              text: `${best.s.sn}ゴロ\nアウト` };
   }
@@ -639,15 +666,20 @@ function fieldBall(fl) {
    base running
    ============================================================ */
 /* A runner follows the base paths and touches every bag on the way, so a man
-   on first going to third rounds second instead of cutting the corner. */
+   on first going to third rounds second instead of cutting the corner. A man
+   who was already running on the pitch starts from wherever he has got to. */
 function moveRunner(p, from, to, delay, retired) {
   const pts = [];
   for (let b = from; b <= to; b++) {
     let q = basePt(b);
     if (b === from && b >= 0 && b <= 2) {      // he was already off the bag
-      const n2 = basePt(b + 1);
-      const ux = n2[0] - q[0], uz = n2[1] - q[1], ul = Math.hypot(ux, uz) || 1;
-      q = [q[0] + (ux / ul) * LEAD_OFF, q[1] + (uz / ul) * LEAD_OFF];
+      const s = G.steal;
+      if (s && s.p === p && s.from === b) { const r = runnerAt(s.mv); q = [r.x, r.z]; }
+      else {
+        const n2 = basePt(b + 1);
+        const ux = n2[0] - q[0], uz = n2[1] - q[1], ul = Math.hypot(ux, uz) || 1;
+        q = [q[0] + (ux / ul) * LEAD_OFF, q[1] + (uz / ul) * LEAD_OFF];
+      }
     }
     // bags he only rounds are taken a little wide, as a runner actually does
     if (b > from && b < to && b >= 0 && b <= 2) {
@@ -665,55 +697,110 @@ function moveRunner(p, from, to, delay, retired) {
   const legs = Math.max(1, to - from);
   // the first 90 feet take exactly as long as the ruling gives him, so a throw
   // that beats him is seen to beat him; later bases are compressed a little
-  const first = 27.43 / (5.6 + p.speed * 1.7);
-  const rest = 27.43 / (7.6 + p.speed * 2.2);
-  let dur = first * (legs === 1 ? 1 : 0.72) + (legs - 1) * rest * 0.48;
+  let dur = firstLeg(p) * (legs === 1 ? 1 : 0.72) + (legs - 1) * restLeg(p) * 0.48;
   if (legs >= 4) dur = Math.min(dur, 6.0);
-  const mv = {
-    p, from, to, pts, segs, total, t: -(delay || 0), dur,
-    scored: to >= 3, retired: !!retired,
-    rbiOwner: to >= 3 ? curBatter() : null,
-  };
+  const mv = { p, from, to, pts, segs, total, t: -(delay || 0), dur,
+               scored: to >= 3, retired: !!retired, rbiOwner: null };
   G.movers.push(mv);
   return mv;
 }
 
-function scoreRun(p, batter) {
+/* a run in. `rbi` is the batter who gets it, or null when the rules give it to
+   nobody (a double play, an error, a wild pitch) */
+function scoreRun(r, from, rbi, delay) {
   G.score[G.half]++;
-  if (batter) batter.rbi++;
+  if (rbi) rbi.rbi++;
+  const mv = moveRunner(r, from, 3, delay);
+  mv.rbiOwner = rbi || null;
+  return mv;
 }
 
-function advanceOnHit(nb, batter) {
-  let runs = 0, block = null;
+/* Everybody on a ball in play.
+     exact  a ground-rule award: exactly `nb` bases each, nobody takes one more
+     cap    the walk-off rule. Once the winning run is home the game is over, so
+            nobody behind him scores and the batter is credited with only as
+            many bases as that runner advanced (規則 9.06(f))
+   Returns the runs and the bases the batter is actually credited with. */
+function advanceOnHit(nb, batter, opt) {
+  opt = opt || {};
+  const cap = opt.cap === undefined ? 99 : opt.cap;
+  const rbi = opt.rbi === false ? null : batter;
+  let runs = 0, block = null, credit = nb;
   for (let i = 2; i >= 0; i--) {
     const r = G.bases[i];
     if (!r) continue;
     let adv = nb;
-    if (nb < 3 && r.speed > 0.5 && chance(0.22 + r.speed * 0.34)) adv++;
+    if (!opt.exact && nb < 3) {
+      if (G.steal && G.steal.p === r) adv++;          // he was off with the pitch
+      else if (r.speed > 0.5 && chance(0.22 + r.speed * 0.34)) adv++;
+    }
     let t = i + adv;
     if (block !== null) t = Math.min(t, block - 1);
+    if (runs >= cap) t = Math.min(t, 2);               // it is already over
     G.bases[i] = null;
-    if (t >= 3) { runs++; scoreRun(r, batter); moveRunner(r, i, 3); }
-    else { G.bases[t] = r; block = t; moveRunner(r, i, t); }
+    if (t >= 3) {
+      runs++; scoreRun(r, i, rbi);
+      if (runs === cap) credit = Math.min(nb, 3 - i);  // he was the winning run
+    } else { G.bases[t] = r; block = t; moveRunner(r, i, t); }
   }
-  let bt = nb - 1;
+  let bt = credit - 1;
   if (block !== null) bt = Math.min(bt, block - 1);
-  if (bt >= 3) { runs++; scoreRun(batter, batter); moveRunner(batter, -1, 3); }
+  if (bt >= 3) { runs++; scoreRun(batter, -1, rbi); }
   else { G.bases[bt] = batter; moveRunner(batter, -1, bt); }
-  return runs;
+  return { runs, credit };
 }
 
-function advanceOnWalk(batter) {
+/* Only the men who have to move: the batter takes first and pushes whoever
+   is standing in the way, and nobody else budges. */
+function advanceOnWalk(batter, rbi) {
   let runs = 0;
   if (G.bases[0]) {
     if (G.bases[1]) {
-      if (G.bases[2]) { runs++; scoreRun(G.bases[2], batter); moveRunner(G.bases[2], 2, 3); G.bases[2] = null; }
+      if (G.bases[2]) { runs++; scoreRun(G.bases[2], 2, rbi ? batter : null); G.bases[2] = null; }
       G.bases[2] = G.bases[1]; moveRunner(G.bases[1], 1, 2); G.bases[1] = null;
     }
     G.bases[1] = G.bases[0]; moveRunner(G.bases[0], 0, 1); G.bases[0] = null;
   }
   G.bases[0] = batter; moveRunner(batter, -1, 0);
   return runs;
+}
+
+/* The batter is out at first, or the lead man is forced at `outAt`, and the
+   rest move on the throw. A forced man always goes; one who is not picks his
+   moment (`dare`). Nobody passes a man who stays put, and nobody scores when
+   the out that is being made is the third one (規則 5.08). */
+function advanceOnOut(batter, canScore, dare, rbi, outAt) {
+  const B = G.bases;
+  const forced = [!!B[0], !!(B[0] && B[1]), !!(B[0] && B[1] && B[2])];
+  let runs = 0;
+  if (outAt !== undefined && B[outAt]) {
+    moveRunner(B[outAt], outAt, outAt + 1, 0, true);
+    B[outAt] = null;
+  }
+  for (let i = 2; i >= 0; i--) {
+    const r = B[i];
+    if (!r || (!forced[i] && !chance(dare))) continue;
+    if (i === 2) {
+      if (!canScore) continue;
+      B[2] = null; runs++; scoreRun(r, 2, rbi ? batter : null);
+    } else if (!B[i + 1]) {
+      B[i + 1] = r; B[i] = null; moveRunner(r, i, i + 1);
+    }
+  }
+  return runs;
+}
+
+/* a man who was off with the pitch has to get back: the ball was fouled off,
+   or it was caught */
+function stealReturn() {
+  const s = G.steal;
+  if (!s) return;
+  G.steal = null;
+  const r = runnerAt(s.mv), b = basePt(s.from);
+  const d = Math.hypot(b[0] - r.x, b[1] - r.z);
+  G.movers = G.movers.filter((m) => m !== s.mv);
+  G.movers.push({ p: s.p, from: s.from, to: s.from, pts: [[r.x, r.z], b], segs: [d], total: d,
+                  t: 0, dur: 0.4 + d / 7, scored: false, retired: false, rbiOwner: null });
 }
 
 /* How the runners finish. The batter-runner never stops on first: on a play
@@ -727,7 +814,7 @@ function styleBaseRunning(o) {
   if (pl && pl.via) targets.push(pl.via);
   for (const mv of G.movers) {
     // on a caught fly he peels off rather than running it out
-    if (mv.from === -1 && mv.to === 0 && o.kind !== 'flyout') {
+    if (mv.from === -1 && mv.to === 0 && o.kind !== 'flyout' && o.kind !== 'iff') {
       const b = basePt(0);
       if (!mv.retired && pl && !pl.infield) {  // rounding, looking at second
         const n = basePt(1);
@@ -748,53 +835,50 @@ function styleBaseRunning(o) {
   }
 }
 
-/* everyone still on base moves up one, lead runner first */
-function advanceOneAll(batter, allowScore) {
-  let runs = 0;
-  for (let i = 2; i >= 0; i--) {
-    const r = G.bases[i];
-    if (!r) continue;
-    G.bases[i] = null;
-    if (i === 2) {
-      if (allowScore) { runs++; scoreRun(r, batter); moveRunner(r, 2, 3); }
-      else G.bases[2] = r;
-    } else { G.bases[i + 1] = r; moveRunner(r, i, i + 1); }
-  }
-  return runs;
-}
-
 /* ============================================================
    applying an outcome
    ============================================================ */
+const BASES_JP = ['', 'シングルヒット', 'ツーベースヒット', 'スリーベースヒット', 'ホームラン'];
+
 function applyOutcome(o) {
   const bat = curBatter();
   let runs = 0, outsAdded = 0;
   G.movers = [];
+  // the bottom of the last inning (or later), still level or behind: the game
+  // ends the moment the winning run touches the plate. A ball hit out of the
+  // park is the one exception — everybody gets to trot round (規則 7.01(g)).
+  const cap = G.half === 1 && G.inning >= G.innings && G.score[1] <= G.score[0]
+    ? G.score[0] - G.score[1] + 1 : 99;
 
   switch (o.kind) {
-    case 'hr': case 'ihr':
-      bat.ab++; bat.h++; bat.hr++; G.hits[G.half]++;
-      runs = advanceOnHit(4, bat);
-      o.snd = 'cheer';
-      break;
-    case 'hit': case 'ground_rule':
+    case 'hr': case 'ihr': case 'hit': case 'ground_rule': {
+      const nb = o.kind === 'hit' || o.kind === 'ground_rule' ? o.bases : 4;
+      const r = advanceOnHit(nb, bat, { exact: o.kind === 'ground_rule',
+                                        cap: o.kind === 'hr' ? 99 : cap });
+      runs = r.runs;
       bat.ab++; bat.h++; G.hits[G.half]++;
-      runs = advanceOnHit(o.bases, bat);
-      o.snd = 'good';
+      if (r.credit >= 4) bat.hr++;
+      if (r.credit < nb) {
+        o.text = `サヨナラ！\n記録は${BASES_JP[r.credit]}`;
+        o.rule = `規則9.06(f)：サヨナラの場面では、打者には決勝点の走者が進んだぶんの塁打しか記録されない。${BASES_JP[nb]}は${BASES_JP[r.credit]}になった`;
+      }
+      o.snd = r.credit >= 4 ? 'cheer' : 'good';
       break;
+    }
     case 'error':
       bat.ab++;
-      runs = advanceOnHit(o.bases, bat);
+      runs = advanceOnHit(o.bases, bat, { cap, rbi: false }).runs;
       o.snd = 'bad';
       break;
-    case 'flyout': {
-      bat.ab++; outsAdded = 1; moveRunner(bat, -1, 0, 0, true);
+    case 'flyout': case 'iff': {
+      outsAdded = 1; moveRunner(bat, -1, 0, 0, true);
+      stealReturn();
       // a runner tagging up cannot leave until the ball is caught
       const held = o.play ? o.play.cutT + 0.12 : 1.2;
-      if (o.canSac && G.outs < 2 && G.bases[2]) {
-        runs++; scoreRun(G.bases[2], bat); moveRunner(G.bases[2], 2, 3, held); G.bases[2] = null;
+      if (o.kind === 'flyout' && o.canSac && G.outs < 2 && G.bases[2]) {
+        runs++; scoreRun(G.bases[2], 2, bat, held); G.bases[2] = null;
         o.text = '犠牲フライ！\n1点';
-      } else if (G.outs < 2 && G.bases[1] && o.canSac && chance(0.62)) {
+      } else if (o.kind === 'flyout' && G.outs < 2 && G.bases[1] && !G.bases[2] && o.canSac && chance(0.62)) {
         G.bases[2] = G.bases[1]; moveRunner(G.bases[1], 1, 2, held); G.bases[1] = null;
       } else if (G.outs >= 2) {
         // two out — he is running on contact, and the catch ends the inning
@@ -802,61 +886,67 @@ function applyOutcome(o) {
         for (let i = 2; i >= 0; i--)
           if (G.bases[i]) moveRunner(G.bases[i], i, i + 1, 0, true);
       }
+      if (!runs) bat.ab++;                     // a sacrifice fly is not an at-bat
       o.snd = 'mitt';
       break;
     }
     case 'groundout':
       bat.ab++; outsAdded = 1; moveRunner(bat, -1, 0, 0, true);
-      // with the play going to first, everyone else moves up
-      if (chance(0.86)) runs += advanceOneAll(bat, G.outs < 2 && chance(0.85));
+      runs += advanceOnOut(bat, G.outs < 2, 0.72, true);
+      o.snd = 'mitt';
+      break;
+    case 'sac':                                 // nor is a sacrifice bunt
+      outsAdded = 1; moveRunner(bat, -1, 0, 0, true);
+      runs += advanceOnOut(bat, G.outs < 2, 1, true);
       o.snd = 'mitt';
       break;
     case 'fc':
       bat.ab++; outsAdded = 1;
-      if (G.bases[2]) { runs++; scoreRun(G.bases[2], bat); moveRunner(G.bases[2], 2, 3); G.bases[2] = null; }
-      if (G.bases[1]) { G.bases[2] = G.bases[1]; moveRunner(G.bases[1], 1, 2); G.bases[1] = null; }
+      runs += advanceOnOut(bat, true, 0.8, true, 0);
       G.bases[0] = bat; moveRunner(bat, -1, 0);
       o.snd = 'mitt';
       break;
-    case 'dp': {
+    case 'dp':
+      // the run only counts if the double play is not the third out, and even
+      // then nobody drives in a run by hitting into one (規則 9.04(b))
       bat.ab++; outsAdded = Math.min(2, 3 - G.outs);
-      const forced = G.bases[0];
-      G.bases[0] = null;
       moveRunner(bat, -1, 0, 0, true);
-      if (forced) moveRunner(forced, 0, 1, 0, true);
-      runs += advanceOneAll(bat, G.outs < 2);
-      if (G.bases[1]) { G.bases[2] = G.bases[1]; moveRunner(G.bases[1], 1, 2); G.bases[1] = null; }
+      runs += advanceOnOut(bat, G.outs === 0, 0.7, false, 0);
       o.snd = 'mitt';
       break;
-    }
-    case 'strikeout':
+    case 'strikeout': case 'k_thrown':
       bat.ab++; bat.k++; outsAdded = 1;
+      if (o.kind === 'k_thrown') moveRunner(bat, -1, 0, 0.25, true);
       o.snd = 'miss';
+      break;
+    case 'k_reach':                             // a strikeout, and on first
+      bat.ab++; bat.k++;
+      runs = advanceOnWalk(bat, false);
+      for (const mv of G.movers) mv.t = -0.25;
+      o.snd = 'good';
       break;
     case 'walk':
       bat.bb++;
-      runs = advanceOnWalk(bat);
+      runs = advanceOnWalk(bat, true);
       break;
     case 'hbp':
       bat.hbp++;
-      runs = advanceOnWalk(bat);
+      runs = advanceOnWalk(bat, true);
       // he takes a moment to shake it off before trotting down
       for (const mv of G.movers) mv.t = -0.65;
       G.hbpT = 1.05;
       o.snd = 'crash';
       logLine(`${bat.name}にデッドボール！`, true);
       break;
-    case 'bunt_out':
-      bat.ab++; outsAdded = 1; moveRunner(bat, -1, 0, 0, true);
-      runs += advanceOneAll(bat, G.outs < 2);
-      break;
   }
+  G.steal = null;
 
   styleBaseRunning(o);
   G.outs += outsAdded;
   if (runs > 0) {
     logLine(`${bat.name}の${o.kind === 'walk' ? '押し出し' : (o.text.split('\n')[0])} — ${runs}点`, true);
   }
+  if (o.rule) logLine(o.rule, true);
   G.inningRuns += runs;
   // whoever got something out of the play wears it on their face until the
   // next pitch. Runs, or the batter reaching, counts as the batting side's.
@@ -874,9 +964,12 @@ function applyOutcome(o) {
 /* ============================================================
    count handling
    ============================================================ */
-function afterPitch(kind) {
-  const bat = curBatter();
+/* `quiet` when the pitch has already been read out as part of a play on the
+   bases (a steal, a wild pitch) */
+function afterPitch(kind, quiet) {
+  const say = (t) => { if (!quiet) banner(t); };
   G.faceBat = G.faceFld = EXPR.idle;   // finishAtBat overrides if the PA ends
+  if (kind === 'balk') { uiScore(); setPhase('ready', 0.6); return; }   // no pitch
   if (kind === 'hbp') {
     finishAtBat({ kind: 'hbp', text: 'デッドボール！' });
     return;
@@ -884,19 +977,27 @@ function afterPitch(kind) {
   if (kind === 'ball') {
     G.balls++;
     if (G.balls >= 4) { finishAtBat({ kind: 'walk', text: 'フォアボール' }); return; }
-    banner('ボール');
+    say('ボール');
     uiScore(); setPhase('result', 0.70);
     return;
   }
   if (kind === 'strike' || kind === 'whiff' || kind === 'foul') {
-    if (kind === 'foul' && G.strikes >= 2) { banner('ファウル'); uiScore(); setPhase('result', 0.70); return; }
+    if (kind === 'foul' && G.strikes >= 2) {
+      // a bunt fouled off with two strikes is strike three (規則 5.09(a)(4))
+      if (G.bunting) {
+        finishAtBat({ kind: 'strikeout', text: 'スリーバント失敗\n三振',
+                      rule: '規則5.09(a)(4)：2ストライク後のバントがファウルになれば三振' });
+        return;
+      }
+      say('ファウル'); uiScore(); setPhase('result', 0.70); return;
+    }
     G.strikes++;
     if (G.strikes >= 3) {
       finishAtBat({ kind: 'strikeout', text: kind === 'whiff' ? '空振り三振！' : '見逃し三振！' });
       return;
     }
-    banner(kind === 'whiff' ? '空振り' : kind === 'foul' ? 'ファウル' : 'ストライク');
-    if (kind === 'whiff') Snd.miss();
+    say(kind === 'whiff' ? '空振り' : kind === 'foul' ? 'ファウル' : 'ストライク');
+    if (kind === 'whiff' && !quiet) Snd.miss();
     uiScore(); setPhase('result', 0.70);
   }
 }
@@ -909,7 +1010,7 @@ function resultDelay(o) {
   if (!pl) return G.flight ? Math.min(G.flight.total * 0.72, 2.4) : 0;
   const caught = pl.cutT;
   if (o.err) return caught + (pl.air ? 0.16 : 0.26);
-  if (o.kind === 'flyout') {
+  if (o.kind === 'flyout' || o.kind === 'iff') {
     // on a sacrifice fly the words belong to the run, not to the catch. The
     // mover clock and G.flightT share an origin, and `t` still holds its
     // creation value here, so `dur - t` is when he touches the plate.
@@ -918,7 +1019,7 @@ function resultDelay(o) {
       if (mv.to === 3 && !mv.retired) home = Math.max(home, mv.dur - mv.t);
     return Math.max(caught + 0.10, home ? home + 0.06 : 0);
   }
-  if (o.kind === 'groundout' || o.kind === 'dp' || o.kind === 'fc' || o.kind === 'bunt_out')
+  if (['groundout', 'dp', 'fc', 'sac', 'k_reach', 'k_thrown'].includes(o.kind))
     return caught + (pl.viaDur || 0) + (pl.throwDur || 0) + 0.06;
   return caught + 0.14;                       // a base hit, as it is played
 }
@@ -951,6 +1052,208 @@ function playLength() {
                           + (pl.throwDur || 0) + 0.7);
   else if (G.flight) m = Math.max(m, Math.min(G.flight.total, 5.0) + 0.8);
   return m;
+}
+
+/* ============================================================
+   plays with no batted ball in them: the balk, the ball that gets
+   away from the catcher, the steal, and the third strike he drops
+   ============================================================ */
+const runnersOn = () => G.bases.some(Boolean);
+
+/* A made-up flight, so a loose ball goes through exactly the machinery a hit
+   does: the play script reads it, the fielder runs to where it is, and the
+   throw leaves from there. It skips off the mitt and dies. */
+function loosePath(from, to, dur) {
+  const path = [], n = Math.max(2, Math.round(dur * 90));
+  for (let i = 0; i <= n; i++) {
+    const u = i / n, e = 1 - (1 - u) * (1 - u);
+    const hop = Math.abs(Math.sin(u * Math.PI * 3)) * 0.42 * (1 - u);
+    path.push({ x: lerp(from.x, to[0], e), z: lerp(from.z, to[1], e), t: i / 90,
+                y: Math.max(BALL_R, lerp(from.y, BALL_R, Math.min(1, u * 4)) + hop) });
+  }
+  // and then it sits there until somebody comes for it
+  for (let i = 1; i <= 360; i++) path.push({ x: to[0], y: BALL_R, z: to[1], t: (n + i) / 90 });
+  return { path, groundIdx: 0, total: path[path.length - 1].t, hang: 0, carHit: 0, land: to, ang: 180 };
+}
+
+/* the catcher goes and gets it */
+function catcherChase(fl) {
+  const ci = stationIdx('C'), f = G.fielders[ci], pl = fielderOf(fldTeam(), 'C');
+  const spd = 6.0 * G.st.fielderSpeed * (0.86 + pl.defense * 0.28);
+  // it went through him, so he cannot have it straight back out of the mitt
+  const k = Math.max(0, fl.path.findIndex((q) => q.t >= 0.3));
+  const it = interceptOn({ path: fl.path.slice(k), groundIdx: 0 }, f.x, f.z, spd);
+  it.i += k;
+  return { play: { fidx: ci, cutIdx: it.i, cutT: it.t, pt: { x: it.p.x, y: it.p.y, z: it.p.z },
+                   air: false, infield: true, moves: [], throwTo: null, throwDur: 0 }, pl };
+}
+
+/* Run a play with no batted ball. `count` is what the pitch still counts as
+   once the dust settles (a ball, a strike), or 'balk' when there was none. */
+function loosePlay(fl, play, cam, text, at, count, snd, big) {
+  G.flight = fl; G.playScript = play; G.flightT = 0;
+  G.ball.vis = !!fl; G.trail.length = 0;
+  G.camMode = cam; G.ballBoost = cam === 'foul' ? 1.7 : 1;
+  G.pendingCount = count;
+  G.pending = { text, big, snd, at };
+  uiScore();
+  setPhase('play', Math.max(1.6, playLength()));
+}
+
+/* Every man on base moves up one, and nobody drives anything in. */
+function everyoneUp() {
+  let runs = 0;
+  for (let i = 2; i >= 0; i--) {
+    const r = G.bases[i];
+    if (!r) continue;
+    G.bases[i] = null;
+    if (i === 2) { runs++; scoreRun(r, 2, null); } else { G.bases[i + 1] = r; moveRunner(r, i, i + 1); }
+  }
+  G.inningRuns += runs;
+  return runs;
+}
+
+/* ---- the balk ----
+   With a man on base the pitcher has to come to a complete stop in the set
+   position before he delivers. A salmon out of water never stops moving, and
+   the umpire is not going to pretend otherwise. */
+function balkRate() {
+  const A = ANIMALS[curPitcher().look.animal];
+  return A.body === 'fish' ? 0.010 : 0.0025;
+}
+function callBalk() {
+  const p = curPitcher();
+  const runs = everyoneUp();
+  const fish = ANIMALS[p.look.animal].body === 'fish';
+  logLine(`${p.name}のボーク${runs ? ` — ${runs}点` : ''}`, true);
+  logLine(fish ? '規則6.02(a)(13)：セットポジションで完全に静止しなかった。鮭は一度も静止していない'
+               : '規則6.02(a)：投球動作を途中でやめた', true);
+  loosePlay(null, null, 'field', 'ボーク！\n走者はひとつずつ進塁', 0.25, 'balk', 'bad');
+}
+
+/* ---- the ball in the dirt ----
+   It skips past him and everybody moves up. */
+function wildPitch(count) {
+  const from = { x: G.ball.x, y: 0.5, z: G.ball.z };
+  const a = rnd(-1.1, 1.1), d = rnd(7, 15);
+  const fl = loosePath(from, [from.x + Math.sin(a) * d, from.z - Math.cos(a) * d], 1.0);
+  const { play } = catcherChase(fl);
+  const runs = everyoneUp();
+  const word = count === 'ball' ? 'ボール' : 'ストライク';
+  logLine(`ワイルドピッチ${runs ? ` — ${runs}点` : ''}`, true);
+  loosePlay(fl, play, 'foul', `${word}\nワイルドピッチ！`, 0.35, count, 'bad');
+}
+
+/* ---- the third strike he does not hold ----
+   The batter may run for it, but only with first base open or two out;
+   otherwise he is out whatever happens to the ball (規則 5.09(a)(2)(3)). */
+function droppedThird(kind) {
+  if (G.bases[0] && G.outs < 2) return false;
+  const bat = curBatter();
+  const from = { x: G.ball.x, y: 0.5, z: G.ball.z };
+  // usually it only rolls a step away; now and then it goes to the screen
+  const far = chance(0.4);
+  const a = rnd(-1.3, 1.3), d = far ? rnd(9, 16) : rnd(1.2, 3.0);
+  const fl = loosePath(from, [from.x + Math.sin(a) * d, from.z - Math.cos(a) * d], far ? 1.1 : 0.5);
+  const { play, pl } = catcherChase(fl);
+  const bag = BASE_POS[0];
+  play.throwTo = bag;
+  play.throwDur = throwTime(play.pt, bag[0], bag[1], pl.arm);
+  const fb = coverFor(bag[0], bag[1], play.fidx);
+  if (fb >= 0) play.moves.push({ idx: fb, x: bag[0], z: bag[1], byT: play.cutT + play.throwDur });
+  // he is a beat late out of the box — he was busy missing it
+  const safe = play.cutT + play.throwDur > firstLeg(bat) + 0.25 + 0.12;
+  G.flight = fl; G.playScript = play; G.flightT = 0;
+  G.ball.vis = true; G.trail.length = 0;
+  G.camMode = 'foul'; G.ballBoost = 1.7;
+  const how = kind === 'whiff' ? '空振り' : '見逃し';
+  finishAtBat(safe
+    ? { kind: 'k_reach', play, text: `${how}三振！\n振り逃げ成功`,
+        rule: '規則5.09(a)(2)：捕手が第3ストライクを捕らえなかったので、打者は一塁へ走れる' }
+    : { kind: 'k_thrown', play, text: `${how}三振！\n振り逃げはアウト` });
+  return true;
+}
+
+/* ---- the steal ----
+   Decided at the release, by whoever is on the bases (the runners are never
+   the player's to control). He is off with the pitcher's first move, so by
+   the time the ball is out of the hand he is already a stride or two down
+   the line. Not with two strikes or three balls, where the pitch itself
+   ends the at-bat and would have to be sorted out first. */
+function maybeSteal() {
+  G.steal = null;
+  const pc = G.pitch;
+  if (pc.hbp || G.strikes === 2 || G.balls === 3) return;
+  let from = -1;
+  if (G.bases[0] && !G.bases[1]) from = 0;
+  else if (G.bases[1] && !G.bases[2] && !G.bases[0] && G.outs < 2) from = 1;
+  if (from < 0) return;
+  const r = G.bases[from];
+  // he only goes when he thinks he makes it: his legs against the catcher's
+  // arm and how long this pitch takes to get there
+  const C = fielderOf(fldTeam(), 'C'), bag = basePt(from + 1);
+  const cz = G.stations[stationIdx('C')];
+  const ballAt = pc.T + 0.42 + throwTime({ x: cz.x, z: cz.z + 0.6 }, bag[0], bag[1], C.arm) - 0.12;
+  const legs = (27.43 - LEAD_OFF) / (5.8 + r.speed * 2.4);   // 3.9s slow .. 3.0s quick
+  // he reads it himself, and he is not always right about it
+  const edge = ballAt - (legs - STEAL_JUMP) + gauss(0.16);
+  if (edge < 0.08 || !chance(clamp((edge - 0.08) * 0.8, 0, from === 0 ? 0.22 : 0.06))) return;
+  const mv = moveRunner(r, from, from + 1);
+  // what he thought he had, and the jump he actually got
+  mv.dur = legs; mv.t = STEAL_JUMP + gauss(0.20);
+  G.steal = { p: r, from, mv };
+}
+/* how long he has been running when the ball leaves the pitcher's hand */
+const STEAL_JUMP = 0.85;
+
+/* The pitch was not put in play: the catcher comes up throwing. The ruling is
+   read off the runner's own clock, so what you see is what was called. */
+function resolveSteal(count) {
+  const s = G.steal;
+  G.steal = null;
+  const word = count === 'ball' ? 'ボール' : 'ストライク';
+  // flattened by a car on the way: already out, and nothing left to throw at
+  if (s.mv.retired) { loosePlay(null, null, 'field', word, 0.1, count); return; }
+  const ci = stationIdx('C'), C = fielderOf(fldTeam(), 'C'), cf = G.fielders[ci];
+  const to = s.from + 1, bag = basePt(to);
+  const pt = { x: cf.x, y: 1.1, z: cf.z + 0.62 };
+  const play = { fidx: ci, cutIdx: 0, cutT: 0, pt, air: false, infield: true, moves: [],
+                 throwTo: bag, throwDur: throwTime(pt, bag[0], bag[1], C.arm) - 0.12 + gauss(0.12) };
+  const cov = to === 1 ? stationIdx(chance(0.5) ? 'SS' : '2B') : coverFor(bag[0], bag[1], ci);
+  if (cov >= 0) play.moves.push({ idx: cov, x: bag[0], z: bag[1], byT: play.throwDur - 0.1 });
+  const fl = { path: [{ x: pt.x, y: pt.y, z: pt.z, t: 0 }], groundIdx: 1, total: 0, hang: 0, carHit: 0 };
+  const there = s.mv.dur - s.mv.t;             // when he touches the bag, on the play clock
+  const safe = there < play.throwDur + 0.05;
+  s.mv.slide = 1;
+  G.bases[s.from] = null;
+  if (safe) {
+    G.bases[to] = s.p;
+    logLine(`${s.p.name}が${to === 1 ? '二' : '三'}盗`, true);
+  } else {
+    s.mv.retired = true;
+    G.outs++;
+    logLine(`${s.p.name}、盗塁失敗`, true);
+  }
+  G.faceBat = safe ? EXPR.happy : EXPR.down;
+  G.faceFld = safe ? EXPR.down : EXPR.happy;
+  loosePlay(fl, play, 'field', `${word}\n${safe ? '盗塁成功！' : '盗塁失敗 アウト'}`,
+            play.throwDur + 0.06, count, safe ? 'good' : 'mitt');
+}
+
+/* The pitch is by the batter and nobody hit it. Anything that can go on
+   behind the plate goes on here; otherwise it is just counted. */
+function pitchPast(kind) {
+  const pc = G.pitch;
+  const C = fielderOf(fldTeam(), 'C');
+  const dirt = pc.ay < 0.36;
+  const third = (kind === 'strike' || kind === 'whiff') && G.strikes === 2;
+  const fourth = kind === 'ball' && G.balls === 3;
+  if (G.steal) { resolveSteal(kind); return; }
+  if (third && dirt && chance(0.26 + (1 - C.defense) * 0.22) && droppedThird(kind)) return;
+  if (!third && !fourth && dirt && runnersOn() && chance(0.05 + (1 - C.defense) * 0.05)) {
+    wildPitch(kind); return;
+  }
+  afterPitch(kind);
 }
 
 /* ============================================================

@@ -19,18 +19,33 @@ function fenceAt(st, aDeg) {
   return lerp(st.fenceCenter, st.fenceLine, t * t * 0.55 + t * 0.45);
 }
 
-/* ---------- scene builder: bakes static props into matrices ---------- */
+/* ---------- scene builder: bakes static props into matrices ----------
+   The ground is a stack of flat layers a few millimetres apart — turf, the
+   skinned infield, foul ground, the paths, chalk. Seen from the far end of a
+   field those gaps are below what the depth buffer can tell apart across a
+   triangle hundreds of metres wide, and the layers fight in a staircase. So
+   they are painted bottom layer first, with no depth test, before anything
+   that stands up off the ground is drawn. The heights still say the order. */
 class Scene {
-  constructor() { this.items = []; }
+  constructor() { this.items = []; this.flat = []; }
   add(p, x, y, z, rx, ry, rz, sx, sy, sz, c) {
-    this.items.push({ p, m: mTRS(m4(), x, y, z, rx, ry, rz, sx, sy, sz), c: typeof c === 'string' ? col(c) : c });
+    const it = { p, m: mTRS(m4(), x, y, z, rx, ry, rz, sx, sy, sz), c: typeof c === 'string' ? col(c) : c };
+    const lie = (p === 'quad' || p === 'disc') && Math.abs(y) < 0.05 && !rx && !rz;
+    (lie ? this.flat : this.items).push(it);
   }
   box(x, y, z, sx, sy, sz, c, ry) { this.add('box', x, y, z, 0, ry || 0, 0, sx, sy, sz, c); }
   cyl(x, y, z, r, h, c, ry) { this.add('cyl', x, y, z, 0, ry || 0, 0, r * 2, h, r * 2, c); }
   sph(x, y, z, r, c) { this.add('sphere', x, y, z, 0, 0, 0, r * 2, r * 2, r * 2, c); }
   plate(x, y, z, sx, sz, c, ry) { this.add('quad', x, y, z, 0, ry || 0, 0, sx, 1, sz, c); }
   ring(x, y, z, r, c) { this.add('disc', x, y, z, 0, 0, 0, r * 2, 1, r * 2, c); }
-  draw() { for (const it of this.items) R.m(it.p, it.m, it.c); }
+  draw() {
+    const gl = R.gl;
+    if (!this.sorted) { this.flat.sort((a, b) => a.m[13] - b.m[13]); this.sorted = true; }
+    gl.depthFunc(gl.ALWAYS);
+    for (const it of this.flat) R.m(it.p, it.m, it.c);
+    gl.depthFunc(gl.LESS);
+    for (const it of this.items) R.m(it.p, it.m, it.c);
+  }
 }
 
 /* ---------- shared field furniture ---------- */
