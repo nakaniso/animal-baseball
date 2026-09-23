@@ -42,7 +42,7 @@ function togglePause() {
 const PORTRAIT = { salmon: { ty: 0.42, d: 2.6, ry: -1.45 }, beetle: { ty: 0.95, d: 2.6, ry: -1.0 },
                    rabbit: { ty: 1.34, d: 2.6, ry: -0.28 },
                    // the bear's resting face is the one in the sketch
-                   bear: { ty: 1.32, d: 2.5, ry: -0.28, face: EXPR.idle } };
+                   bear: { ty: 1.42, d: 2.6, ry: -0.28, face: EXPR.idle } };
 function paintPortrait(c, team) {
   const w = c.width, h = c.height;
   R.resize();

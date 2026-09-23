@@ -393,14 +393,72 @@ def build_salmon():
 # rectangles of that same domain, so they sit on the surface by construction
 # instead of being fitted to it by hand. Any mammal can be baked this way.
 
-# The owner's pencil sketch (2026-09-23) is the reference now: a big wide head
-# with no cap on it, small round ears on the top corners, and a muzzle that
-# takes up the lower half of the face. The bear no longer wears a cap, so the
-# head is free of the envelope the cap was sized against and has grown into
-# the sketch's proportions — as wide as the body, a little squarer.
-HEAD_X, HEAD_Y, HEAD_Z = 0.420, 0.362, 0.328
+# The owner's pencil sketch (2026-09-23) is the reference now, and it is read
+# off the paper, not guessed at. In the standing figure the head is 46% of his
+# height and very nearly square (1.03 wide to 1 tall); the muzzle is an oval
+# 49% of the head wide that starts 57% of the way down and nearly reaches the
+# chin; the eyes are 40% down, 0.43 of the half-width out, and a little under a
+# fifth of the head wide; the brows are 27% down. SKETCH holds those numbers
+# as fractions of the head — y from the top, x from the centre line — and the
+# (az, el) that put each thing there are solved off the skull below, so the
+# face moves with the head instead of being typed in twice.
+HEAD_X, HEAD_Y, HEAD_Z = 0.420, 0.400, 0.350
+HEAD_UP = 0.070                 # sits on the body, not in it; the rig's anchor stays
 HEAD_FWD = 0.02                 # the head primitive sat this far forward
-SNOUT_EL = -0.385               # a bear's muzzle points down as well as out
+HEAD_N = 3.0                    # a rounded box: the sketch's face is broad and flat
+SKETCH = {
+    'muz_top': 0.55, 'muz_bot': 0.86, 'muz_w': 0.49,
+    'eye_y': 0.40, 'eye_x': 0.43, 'eye_w': 0.19, 'brow_y': 0.27,
+}
+
+
+def _skull(az, el):
+    """The bare rounded box, before any swelling is added to it."""
+    dx = math.cos(el) * math.sin(az)
+    dy = math.sin(el)
+    dz = math.cos(el) * math.cos(az)
+    k = (abs(dx) ** HEAD_N + abs(dy) ** HEAD_N + abs(dz) ** HEAD_N) ** (-1.0 / HEAD_N)
+    return dx * k * HEAD_X, dy * k * HEAD_Y, dz * k * HEAD_Z
+
+
+def _solve(f, target, lo, hi):
+    """Bisection on a monotone f."""
+    flo = f(lo) - target
+    for _ in range(60):
+        mid = (lo + hi) / 2
+        fm = f(mid) - target
+        if (fm < 0) == (flo < 0):
+            lo, flo = mid, fm
+        else:
+            hi = mid
+    return (lo + hi) / 2
+
+
+def el_at(down):
+    """Elevation of the front centre line `down` of the way from crown to chin."""
+    return _solve(lambda e: _skull(0.0, e)[1] / HEAD_Y, 1 - 2 * down, -1.5, 1.5)
+
+
+def az_at(across, el):
+    """Azimuth `across` of the half-width out from the centre line, at `el`."""
+    return _solve(lambda a: _skull(a, el)[0] / HEAD_X, across, 0.0, 1.5)
+
+
+_mt, _mb = el_at(SKETCH['muz_top']), el_at(SKETCH['muz_bot'])
+SNOUT_EL = (_mt + _mb) / 2      # a bear's muzzle points down as well as out
+MUZ_EL_R = (_mt - _mb) / 2
+MUZ_AZ_R = az_at(SKETCH['muz_w'], SNOUT_EL)
+EYE_EL = el_at(SKETCH['eye_y'])
+EYE_AZ = az_at(SKETCH['eye_x'], EYE_EL)
+EYE_AZ_R = (az_at(SKETCH['eye_x'] + SKETCH['eye_w'], EYE_EL)
+            - az_at(SKETCH['eye_x'] - SKETCH['eye_w'], EYE_EL)) / 2
+BROW_EL = el_at(SKETCH['brow_y'])
+
+# the two decal patches, in (az, el): the face over the eyes and brows, the
+# snout a little larger than the pale oval so its outline and the nose on its
+# top edge both land inside it
+FACE_AZ_R, FACE_EL_R = 60 * math.pi / 180, 50 * math.pi / 180
+SNOUT_AZ_R, SNOUT_EL_R = MUZ_AZ_R * 1.16, MUZ_EL_R * 1.34
 
 
 def bump(q, amp):
@@ -417,12 +475,7 @@ def bump(q, amp):
 
 def bear_head_pt(az, el, out=0.0):
     """A point on the bear's skull. Star-shaped in (az, el) by construction."""
-    dx = math.cos(el) * math.sin(az)
-    dy = math.sin(el)
-    dz = math.cos(el) * math.cos(az)
-    n = 2.6                     # rounded, with just a hint of the sketch's corners
-    k = (abs(dx) ** n + abs(dy) ** n + abs(dz) ** n) ** (-1.0 / n)
-    x, y, z = dx * k * HEAD_X, dy * k * HEAD_Y, dz * k * HEAD_Z
+    x, y, z = _skull(az, el)
 
     # The muzzle: broad, shallow, and part of the same surface. Wider than it
     # is tall is what stops it reading as a ball glued to the front.
@@ -436,10 +489,14 @@ def bear_head_pt(az, el, out=0.0):
     # The sketch's muzzle is the biggest thing on the face — nearly half its
     # width and height — and it stands well out from it. Bigger and further
     # out, but still a bump: it is the size that changed, not the profile.
-    d = bump((az / 0.70) ** 2 + ((el - SNOUT_EL) / 0.50) ** 2, 0.200)
+    #
+    # In the sketch it is drawn as an outline on a flat face, but every
+    # three-quarter figure shows it standing out, so it swells — and the
+    # swelling reaches a little past the pale oval so the rim is a slope.
+    d = bump((az / (MUZ_AZ_R * 1.22)) ** 2 + ((el - SNOUT_EL) / (MUZ_EL_R * 1.25)) ** 2, 0.105)
 
     # the brow ridge, kept light — enough to catch the light above the eyes
-    d += bump((az / 0.95) ** 2 + ((el - 0.17) / 0.22) ** 2, 0.024)
+    d += bump((az / 0.95) ** 2 + ((el - BROW_EL) / 0.22) ** 2, 0.018)
 
     # jowls, low and wide, carrying the line from the muzzle back to the ears
     d += bump(((abs(az) - 1.00) / 0.58) ** 2 + ((el + 0.20) / 0.44) ** 2, 0.030)
@@ -449,7 +506,7 @@ def bear_head_pt(az, el, out=0.0):
     d -= 0.020 * max(0.0, (el - 0.95) / 0.62) ** 2
 
     L = math.sqrt(x * x + y * y + z * z) or 1.0
-    return (x + x / L * d, y + y / L * d, z + z / L * d + HEAD_FWD)
+    return (x + x / L * d, y + y / L * d + HEAD_UP, z + z / L * d + HEAD_FWD)
 
 
 def lifted(fn, az, el, out):
@@ -542,7 +599,7 @@ def oval_patch(fn, az_c, el_c, az_r, el_r, out, nr=6, nt=22):
     return m
 
 
-EAR_AZ, EAR_EL = 1.62, 0.80      # where on the skull the ear is rooted
+EAR_AZ, EAR_EL = 1.50, 0.86      # on the top corners, half off the outline
 EAR_LIFT = 0.062                 # and how far out of it the disc's centre sits
 
 
@@ -575,7 +632,7 @@ def _ear_frame(side):
     return c, ax, u, v
 
 
-EAR_R = 0.122                     # the sketch's ears are small
+EAR_R = 0.104                     # a quarter of the head's width, as drawn
 EAR_IN = 0.54                     # the inner ear's share of the radius
 
 
@@ -677,7 +734,9 @@ def bear_ear_inner(side):
 # So: widest low, a rounded bottom the legs come out from under, and nothing
 # sticking out behind. Depth stays close to width, because the one thing worth
 # keeping from the barrel is that he should not go flat when he turns.
-BODY_LO, BODY_HI = -0.430, 0.335      # about the torso anchor, so y+0.31 .. y+1.08
+# The sketch's shirt and trousers are one sack that comes down to 12% of his
+# height, with only stubs of leg below it; the hips stay where the rig has them
+BODY_LO, BODY_HI = -0.525, 0.300      # about the torso anchor, so y+0.22 .. y+1.04
 
 # Widest low, and still wide at the top: a toy bear has no neck, the head sits
 # straight on the body. Tapering to a collar left a ring of jersey trim showing
@@ -764,11 +823,24 @@ def build_bear():
     out['bear_earin'] = inner
 
     # the pale mask over the muzzle, and the two decal patches
-    out['bear_muz'] = oval_patch(bear_head_pt, 0.0, SNOUT_EL - 0.008, 0.60, 0.38, 0.008)
-    out['bear_face'] = uv_patch(bear_head_pt, 0.0, 60 * math.pi / 180,
-                                0.0, 50 * math.pi / 180, 0.009)
-    out['bear_snout'] = uv_patch(bear_head_pt, 0.0, 38 * math.pi / 180,
-                                 SNOUT_EL - 0.015, 23 * math.pi / 180, 0.011)
+    out['bear_muz'] = oval_patch(bear_head_pt, 0.0, SNOUT_EL, MUZ_AZ_R, MUZ_EL_R, 0.008)
+    out['bear_face'] = uv_patch(bear_head_pt, 0.0, FACE_AZ_R, 0.0, FACE_EL_R, 0.009)
+    out['bear_snout'] = uv_patch(bear_head_pt, 0.0, SNOUT_AZ_R, SNOUT_EL, SNOUT_EL_R, 0.011,
+                                 n=16, mm=14)
+
+    # Where the face art goes, in each patch's own 0..1 cell (y from the top),
+    # so the atlas draws the eyes and the muzzle's outline where the skull put
+    # them. A patch maps azimuth and elevation linearly, and the pale oval is
+    # an ellipse in that same domain, so its outline is an ellipse in the cell.
+    cu = lambda az, R: 0.5 + az / (2 * R)
+    cv = lambda el, c, R: 0.5 - (el - c) / (2 * R)
+    DATA.append('/* the bear\'s face layout, solved off the skull from the sketch */')
+    DATA.append('const BEAR_FACE = { eyeX: %.4f, eyeY: %.4f, eyeR: %.4f, browY: %.4f,'
+                % (cu(EYE_AZ, FACE_AZ_R) - 0.5, cv(EYE_EL, 0.0, FACE_EL_R),
+                   EYE_AZ_R / (2 * FACE_AZ_R), cv(BROW_EL, 0.0, FACE_EL_R)))
+    DATA.append('  muz: [0.5, 0.5, %.4f, %.4f] };' % (MUZ_AZ_R / (2 * SNOUT_AZ_R),
+                                                      MUZ_EL_R / (2 * SNOUT_EL_R)))
+    DATA.append('')
 
     body = Mesh()
     NA, NT = 28, 22
@@ -801,14 +873,14 @@ def build_bear():
     # The belt sits below the widest point, where the top of the trousers
     # would be — on the waist of an egg it reads as a seam cutting him in half
     out['bear_collar'] = bear_band(0.935, 0.995, 0.008)
-    out['bear_belt'] = bear_band(0.155, 0.235, 0.008)
+    out['bear_belt'] = bear_band(0.300, 0.350, 0.008)   # 69% down, as drawn
     # The sketch's jersey is a pinstripe: a dozen thin lines all the way
     # round, and one dark placket down the front. Four fat stripes in the
     # jersey's own colour read as corduroy.
-    out['bear_placket'] = bear_strip(0.0, 0.044, 0.24, 0.93, 0.007)
+    out['bear_placket'] = bear_strip(0.0, 0.036, 0.36, 0.93, 0.007)
     stripes = Mesh()
     for k in range(1, 16):
-        stripes.merge(bear_strip(math.tau * k / 16, 0.020, 0.25, 0.93, 0.006, na=2))
+        stripes.merge(bear_strip(math.tau * k / 16, 0.017, 0.36, 0.93, 0.006, na=2))
     out['bear_stripe'] = stripes
     return out
 

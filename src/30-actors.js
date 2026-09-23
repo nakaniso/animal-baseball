@@ -88,10 +88,13 @@ const ANIMALS = {
   // the other mammals carry (hw/muz/earR) are the mesh's business now.
   //
   // Drawn from the owner's pencil sketch (2026-09-23): no cap, so the big head
-  // and the little ears are the silhouette, and dark pads on the paws.
-  bear:    { ink: 0.022, mesh: 'bear', tail: 'nub', tailZ: -0.292, noHat: 1,
-             legW: 0.138, footS: 0.365,
-             fur: '#96683F', fur2: '#E6D2AE', paw: '#4A3020' },
+  // and the little ears are the silhouette. The ears have no pale disc in
+  // them, the arms end in a dark tip rather than a mitten-sized ball, and the
+  // legs are stubs in the trouser colour with only the soles dark — the
+  // sketch draws no boots.
+  bear:    { ink: 0.022, mesh: 'bear', tail: 'nub', tailZ: -0.300, noHat: 1,
+             legW: 0.132, footS: 0.300, sole: 1, handS: 0.235, noCollar: 1,
+             fur: '#96683F', fur2: '#E6D2AE', paw: '#4A3020', earIn: '#7C5431' },
 
   // Drawn from the reference sketch: tall straight ears, round head, dot eyes.
   // Ears, haunches, hind feet and tail are baked (段階3); the head is still a
@@ -157,11 +160,10 @@ const EXPR = { idle: 0, focus: 1, happy: 2, down: 3 };
 
 /* eye/nose/mouth art per species, in 0..1 of a cell, y measured from the top */
 const FACES = {
-  // Half-lidded and unimpressed, with a smirk pulled up at one corner: the
-  // sketch's bear is a bit of a so-and-so, and that is why you like him.
-  bear:    { eye: 'lid',    eyeX: 0.190, eyeY: 0.360, eyeR: 0.082, brow: '#3E2A1A',
-             nose: 'bean',  noseC: '#33241B', noseY: 0.300, noseR: 0.105, mouth: 'smirk',
-             mouthY: 0.600, mouthW: 0.125 },
+  // Its own painters, read off the owner's sketch; the layout comes from the
+  // baker (BEAR_FACE), which solved it off the skull
+  bear:    Object.assign({ paintHead: bearHeadCell, paintSnout: bearSnoutCell,
+                           ink: '#2B1D14', noseC: '#2B1D14', fur: ANIMALS.bear.fur }, BEAR_FACE),
   // the rabbit has no muzzle at all, so its nose and mouth go on the head
   rabbit:  { eye: 'dot',    eyeX: 0.200, eyeY: 0.355, eyeR: 0.062, onHead: 1,
              nose: 'dot',   noseC: '#4A3438', noseY: 0.655, noseR: 0.050, mouth: 'w',
@@ -183,7 +185,6 @@ function fStroke(g, c, w) { g.strokeStyle = c; g.lineWidth = w; g.lineCap = 'rou
 
 /* one eye, centred on (x,y). s is -1 for the reader's left eye, +1 the right */
 function drawEye(g, F, exp, x, y, s) {
-  if (F.eye === 'lid') return drawLidEye(g, F, exp, x, y, s);
   const r = F.eyeR, tilt = (F.tilt || 0) * s;
   if (exp === EXPR.happy) {                       // a closed upward arc
     fStroke(g, EYE, r * 0.52);
@@ -211,58 +212,9 @@ function drawEye(g, F, exp, x, y, s) {
   g.restore();
 }
 
-/* The bear's eye, from the sketch: a small white oval with the upper lid
-   drawn straight across it and the pupil hanging from the lid. Where the lid
-   sits is the whole expression — half-shut is unimpressed, lower and pitched
-   in toward the nose is the glare from the mound, pitched out is sulking.
-   Only the lid line and what is under it are painted; above it the fur shows
-   through, so the lid is the head's own colour under the head's own light. */
-function drawLidEye(g, F, exp, x, y, s) {
-  const r = F.eyeR, h = r * 0.70, ink = F.brow || EYE;
-  if (exp === EXPR.happy) {                       // smug: shut, bowed down
-    fStroke(g, ink, r * 0.40);
-    g.beginPath();
-    g.moveTo(x - r * 1.05, y - h * 0.10);
-    g.quadraticCurveTo(x, y + h * 0.95, x + r * 1.05, y - h * 0.10);
-    g.stroke();
-    return;
-  }
-  // how far down the lid comes (0 top of the eye, 1 bottom), and its pitch:
-  // positive drops the end nearest the nose
-  const lid = exp === EXPR.focus ? 0.56 : exp === EXPR.down ? 0.60 : 0.46;
-  const pitch = (exp === EXPR.focus ? 0.30 : exp === EXPR.down ? -0.26 : 0.04) * h;
-  const ly = y - h + 2 * h * lid;
-  const inX = x - s * r * 1.15, outX = x + s * r * 1.15;
-  const lidAt = (px) => ly + pitch * ((px - x) / (inX - x));
-  g.save();
-  g.beginPath();                                  // what the lid leaves open
-  g.moveTo(outX, lidAt(outX));
-  g.lineTo(inX, lidAt(inX));
-  g.lineTo(inX, y + h * 1.4);
-  g.lineTo(outX, y + h * 1.4);
-  g.closePath();
-  g.clip();
-  g.beginPath(); g.ellipse(x, y, r, h, 0, 0, Math.PI * 2);
-  g.fillStyle = '#FBF7EE'; g.fill();
-  const pr = r * 0.46, px = x - s * r * 0.08, py = lidAt(px) + pr * 0.55;
-  if (exp === EXPR.down) {                        // looking at his feet
-    g.fillStyle = EYE; g.beginPath(); g.arc(px, y + h * 0.35, pr, 0, Math.PI * 2); g.fill();
-  } else {
-    g.fillStyle = EYE; g.beginPath(); g.arc(px, py, pr, 0, Math.PI * 2); g.fill();
-    g.fillStyle = SHINE;
-    g.beginPath(); g.arc(px + pr * 0.35, py + pr * 0.05, pr * 0.30, 0, Math.PI * 2); g.fill();
-  }
-  fStroke(g, ink, r * 0.16);
-  g.beginPath(); g.ellipse(x, y, r, h, 0, 0, Math.PI * 2); g.stroke();
-  g.restore();
-  fStroke(g, ink, r * 0.30);                      // the lid, a little past the eye
-  g.beginPath(); g.moveTo(inX, lidAt(inX)); g.lineTo(outX, lidAt(outX)); g.stroke();
-}
-
 /* the brow stroke: level when idle, driven in when focused, up at the outer
    end when dejected — it carries most of the expression */
 function drawBrow(g, F, exp, x, y, s, col) {
-  if (F.eye === 'lid') return drawLidBrow(g, F, exp, x, y, s, col);
   if (exp === EXPR.happy) return;
   const r = F.eyeR, w = r * 1.55, lift = exp === EXPR.focus ? r * 0.62 : r * 1.05;
   const inner = exp === EXPR.focus ? r * 0.46 : exp === EXPR.down ? -r * 0.34 : 0;
@@ -273,24 +225,8 @@ function drawBrow(g, F, exp, x, y, s, col) {
   g.stroke();
 }
 
-/* The sketch's brows are short straight dashes, set well above the eye. Idle
-   they are level, which is what makes the half-shut eye read as bored rather
-   than sleepy; one of them hitched up is the smugness. */
-function drawLidBrow(g, F, exp, x, y, s, col) {
-  const r = F.eyeR, w = r * 0.85;
-  let lift = r * 1.30, inner = 0, outer = 0;
-  if (exp === EXPR.idle) { if (s > 0) { lift += r * 0.22; outer = r * 0.10; } }
-  else if (exp === EXPR.focus) { lift = r * 1.00; inner = r * 0.46; outer = -r * 0.16; }
-  else if (exp === EXPR.happy) { lift = r * 1.45; outer = r * 0.12; }
-  else { lift = r * 1.20; inner = -r * 0.36; outer = r * 0.14; }
-  fStroke(g, col, r * 0.34);
-  g.beginPath();
-  g.moveTo(x - s * w, y - lift + inner);
-  g.lineTo(x + s * w, y - lift + outer);
-  g.stroke();
-}
-
 function drawHeadCell(g, F, exp) {
+  if (F.paintHead) return F.paintHead(g, F, exp);
   if (F.eye !== 'none') {
     for (const s of [-1, 1]) drawEye(g, F, exp, 0.5 + s * F.eyeX, F.eyeY, s);
     if (F.brow) for (const s of [-1, 1]) drawBrow(g, F, exp, 0.5 + s * F.eyeX, F.eyeY, s, F.brow);
@@ -329,13 +265,6 @@ function drawSnout(g, F, exp) {
     g.quadraticCurveTo(nx + w * 0.55, ny + h * 0.75, nx, ny + h);
     g.quadraticCurveTo(nx - w * 0.55, ny + h * 0.75, nx - w, ny - h * 0.55);
     g.fill();
-  } else if (F.nose === 'bean') {                 // small, wide, flat-bottomed
-    g.beginPath();
-    g.ellipse(nx, ny, nr, nr * 0.68, 0, 0, Math.PI * 2);
-    g.fill();
-    g.fillStyle = 'rgba(255,255,255,0.55)';
-    g.beginPath(); g.ellipse(nx - nr * 0.30, ny - nr * 0.30, nr * 0.28, nr * 0.14, -0.2, 0, Math.PI * 2);
-    g.fill();
   } else if (F.nose === 'nostril') {
     for (const s of [-1, 1]) {
       g.beginPath();
@@ -348,7 +277,6 @@ function drawSnout(g, F, exp) {
 
   const my = F.mouthY || 0.520, mw = F.mouthW || 0.180, mc = F.mouthC || F.noseC;
   fStroke(g, mc, 0.028);
-  if (F.mouth === 'smirk') return drawSmirk(g, F, exp, nx, ny, nr, my, mw, mc);
   if (F.mouth === 'line') {
     g.beginPath();
     if (exp === EXPR.happy) { g.moveTo(nx - mw, my); g.quadraticCurveTo(nx, my + mw * 0.55, nx + mw, my); }
@@ -384,44 +312,130 @@ function drawSnout(g, F, exp) {
   }
 }
 
-/* The sketch's mouth: a short line under the nose that is never quite
-   straight. Lopsided on purpose — one corner up is the smirk, and it is the
-   same corner in every expression, so it reads as his and not as a mood. */
-function drawSmirk(g, F, exp, nx, ny, nr, my, mw, mc) {
-  fStroke(g, mc, 0.026);
-  g.beginPath(); g.moveTo(nx, ny + nr * 0.60); g.lineTo(nx, my - mw * 0.06); g.stroke();
-  g.beginPath();
-  if (exp === EXPR.happy) {                       // ニヤリ: open, up on one side
-    g.fillStyle = mc;
-    g.moveTo(nx - mw * 1.15, my - mw * 0.20);
-    g.quadraticCurveTo(nx, my + mw * 0.10, nx + mw * 1.25, my - mw * 0.62);
-    g.quadraticCurveTo(nx + mw * 0.45, my + mw * 1.45, nx - mw * 1.15, my - mw * 0.20);
-    g.fill();
-    g.fillStyle = '#C0605A';                      // and the tongue in it
+/* ---------- the bear, from the owner's sketch ----------
+   Read off the paper rather than off the idea of a teddy bear:
+
+   * The eyes are wide white almonds with a small pupil stuck to the top edge,
+     white showing underneath (三白眼). That, not a drooping lid, is the look
+     he gives you: unimpressed, a bit shifty, still round and harmless.
+   * The brows are short dashes a long way above the eyes.
+   * The muzzle is drawn as an outline. The nose sits on its top edge, half
+     in and half out, and the mouth is a thick mark along its bottom edge.
+     There is no line from the nose down to the mouth.
+
+   The fur shows through everywhere the paint is not, and the paint is lit
+   like the skull it lies on, so a lid painted in the fur colour is fur. */
+function bearHeadCell(g, F, exp) {
+  for (const s of [-1, 1]) bearEye(g, F, exp, 0.5 + s * F.eyeX, F.eyeY, s);
+  for (const s of [-1, 1]) bearBrow(g, F, exp, 0.5 + s * F.eyeX, F.browY, s);
+}
+
+/* s is -1 for the eye on the reader's left; the nose is toward -s */
+function bearEye(g, F, exp, x, y, s) {
+  const r = F.eyeR, ink = F.ink;
+  if (exp === EXPR.happy) {                       // shut, pleased with himself
+    fStroke(g, ink, r * 0.30);
     g.beginPath();
-    g.ellipse(nx + mw * 0.15, my + mw * 0.50, mw * 0.42, mw * 0.20, -0.25, 0, Math.PI * 2);
-    g.fill();
+    g.moveTo(x - r * 0.95, y - r * 0.05);
+    g.quadraticCurveTo(x, y + r * 0.50, x + r * 0.95, y - r * 0.05);
+    g.stroke();
     return;
   }
-  if (exp === EXPR.down) {                        // a sulk, the corner down
-    g.moveTo(nx - mw * 0.85, my + mw * 0.22);
-    g.quadraticCurveTo(nx, my - mw * 0.22, nx + mw * 0.85, my + mw * 0.10);
-  } else if (exp === EXPR.focus) {                // set, a flat press
-    g.moveTo(nx - mw * 0.80, my + mw * 0.02);
-    g.lineTo(nx + mw * 0.70, my - mw * 0.10);
-  } else {                                        // the resting smirk
-    g.moveTo(nx - mw * 0.80, my + mw * 0.04);
-    g.quadraticCurveTo(nx + mw * 0.35, my + mw * 0.22, nx + mw * 0.95, my - mw * 0.34);
-    g.stroke();
-    g.beginPath();                                // and the dimple that sells it
-    g.moveTo(nx + mw * 1.05, my - mw * 0.50);
-    g.lineTo(nx + mw * 1.12, my - mw * 0.16);
+  const focus = exp === EXPR.focus, down = exp === EXPR.down;
+  const h = r * (focus ? 0.40 : 0.48), pr = r * 0.27;
+  g.save();
+  g.translate(x, y);
+  g.rotate(focus ? -s * 0.16 : down ? s * 0.14 : 0);  // + drops the outer end
+  g.save();
+  g.beginPath(); g.ellipse(0, 0, r, h, 0, 0, Math.PI * 2); g.clip();
+  g.fillStyle = '#FBF8F1'; g.fillRect(-r, -h, 2 * r, 2 * h);
+  // idle, the pupils ride up and in; set, they both slide the same way —
+  // a sidelong look; down, they drop and the lid comes after them
+  const px = focus ? r * 0.34 : down ? -s * r * 0.05 : -s * r * 0.14;
+  const py = down ? h - pr * 0.9 : -h + pr * 0.92;
+  g.fillStyle = EYE; g.beginPath(); g.arc(px, py, pr, 0, Math.PI * 2); g.fill();
+  if (down) {
+    g.fillStyle = F.fur;
+    g.fillRect(-r, -h, 2 * r, h * 0.85);
   }
+  g.restore();
+  fStroke(g, ink, r * 0.13);
+  g.beginPath(); g.ellipse(0, 0, r, h, 0, 0, Math.PI * 2); g.stroke();
+  fStroke(g, ink, r * 0.24);                      // the top edge is the heavy one
+  g.beginPath();
+  if (down) { g.moveTo(-r, -h * 0.15); g.lineTo(r, -h * 0.15); }
+  else g.ellipse(0, 0, r, h, 0, Math.PI * 1.06, Math.PI * 1.94);
+  g.stroke();
+  g.restore();
+}
+
+function bearBrow(g, F, exp, x, y, s) {
+  const r = F.eyeR, w = r * 0.62, cx = x - s * r * 0.08;
+  let inner = 0, outer = 0, lift = 0;
+  if (exp === EXPR.idle) { if (s > 0) lift = r * 0.10; }
+  else if (exp === EXPR.focus) { inner = r * 0.30; outer = -r * 0.12; lift = -r * 0.10; }
+  else if (exp === EXPR.happy) { lift = r * 0.20; }
+  else { inner = -r * 0.26; outer = r * 0.10; }
+  fStroke(g, F.ink, r * 0.21);
+  g.beginPath();
+  g.moveTo(cx - s * w, y - lift + inner);
+  g.lineTo(cx + s * w, y - lift + outer);
   g.stroke();
 }
 
+function bearSnoutCell(g, F, exp) {
+  const [cx, cy, rx, ry] = F.muz, ink = F.ink;
+  const at = (a) => [cx + Math.cos(a) * rx, cy + Math.sin(a) * ry];
+  fStroke(g, ink, 0.020);                         // the oval, as drawn
+  g.beginPath(); g.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2); g.stroke();
+
+  const B = Math.PI / 2;                          // the bottom of the oval
+  if (exp === EXPR.happy) {                       // open, hanging off the edge
+    const a0 = B - 0.80, a1 = B + 0.64, p0 = at(a0);
+    g.fillStyle = ink;
+    g.beginPath();
+    g.moveTo(p0[0], p0[1]);
+    g.ellipse(cx, cy, rx, ry, 0, a0, a1);
+    g.quadraticCurveTo(cx - rx * 0.05, cy + ry * 0.02, p0[0], p0[1]);
+    g.fill();
+    g.fillStyle = '#B9564F';
+    g.beginPath(); g.ellipse(cx + rx * 0.05, cy + ry * 0.66, rx * 0.26, ry * 0.11, 0, 0, Math.PI * 2);
+    g.fill();
+  } else if (exp === EXPR.down) {                 // clamped shut, corners down
+    fStroke(g, ink, 0.050);
+    g.beginPath();
+    g.moveTo(cx - rx * 0.34, cy + ry * 0.74);
+    g.quadraticCurveTo(cx, cy + ry * 0.50, cx + rx * 0.34, cy + ry * 0.74);
+    g.stroke();
+  } else {
+    // A thick mark along the bottom edge, heavier and a touch longer on one
+    // side. Set in the box, it only gets shorter. It rides a little inside
+    // the edge: the bottom of the muzzle turns under, and a mark right on the
+    // rim foreshortens to a hairline from any camera above the chin.
+    const L = exp === EXPR.focus ? 0.30 : 0.42, my = ry * 0.68;
+    fStroke(g, ink, 0.100);
+    g.beginPath(); g.ellipse(cx, cy, rx * 0.86, my, 0, B - L, B + L * 0.72); g.stroke();
+    if (exp === EXPR.idle) {                      // and the kink in it
+      const k = [cx + Math.cos(B - L) * rx * 0.86, cy + Math.sin(B - L) * my];
+      fStroke(g, ink, 0.050);
+      g.beginPath(); g.moveTo(k[0], k[1]); g.lineTo(k[0] + rx * 0.05, k[1] - ry * 0.16); g.stroke();
+    }
+  }
+
+  // the nose on the top edge, half in and half out
+  const nw = rx * 0.24, nh = nw * 0.66, ny = cy - ry;
+  g.fillStyle = F.noseC;
+  g.beginPath(); g.ellipse(cx, ny, nw, nh, 0, 0, Math.PI * 2); g.fill();
+  g.fillStyle = 'rgba(255,255,255,0.45)';
+  g.beginPath(); g.ellipse(cx - nw * 0.32, ny - nh * 0.38, nw * 0.30, nh * 0.20, -0.2, 0, Math.PI * 2);
+  g.fill();
+}
+
 /* built once at boot; nothing here runs per frame */
-function drawMuzCell(g, F, exp) { if (F.nose && !F.onHead) drawSnout(g, F, exp); }
+function drawMuzCell(g, F, exp) {
+  if (F.paintSnout) return F.paintSnout(g, F, exp);
+  if (F.nose && !F.onHead) drawSnout(g, F, exp);
+}
 
 function buildFaceAtlas() {
   const S = FACE_PX, cv = document.createElement('canvas');
@@ -701,7 +715,7 @@ function drawAnimal(x, z, ry, look, pose, y0) {
     if (t) { f.t = t; f.ct = Math.cos(t); f.st = Math.sin(t); f.pivot = y + BEE_PIVOT; }
   }
   const big = A.big ? 1.12 : 1;
-  const fur = col(A.fur), fur2 = col(A.fur2), paw = A.paw ? col(A.paw) : fur;
+  const fur = col(A.fur), fur2 = col(A.fur2), paw = A.paw ? col(A.paw) : fur, hs = A.handS || 0.27;
   const uni = col(look.uni), trim = col(look.trim), cap = col(look.cap);
   const trim2 = shade(look.trim, 0.72);
 
@@ -725,8 +739,14 @@ function drawAnimal(x, z, ry, look, pose, y0) {
     // built on that. How much leg you actually see is set by how low the
     // jersey comes; thickness and foot size do the rest of the work.
     const lw = A.legW || 0.12, fs = A.footS || 0.30;
-    limb(f, -(0.155 * big + sp), y + 0.44, 0, p.legL || 0, -0.04, 0.36, lw, pant, shoe, fs, 1);
-    limb(f, 0.155 * big + sp, y + 0.44, 0, p.legR || 0, 0.04, 0.36, lw, pant, shoe, fs, 1);
+    for (const s of [-1, 1]) {
+      const rx = (s < 0 ? p.legL : p.legR) || 0, rz = s * 0.04;
+      const e = limb(f, s * (0.155 * big + sp), y + 0.44, 0, rx, rz, 0.36, lw, pant,
+                     A.sole ? pant : shoe, fs, 1);
+      // just the sole dark, a slab under the foot the way the sketch shades it
+      if (A.sole) part(f, 'rbox', e[0], e[1] - fs * 0.24, e[2] + fs * 0.16,
+                       fs * 0.98, fs * 0.26, fs * 1.38, shoe, rx, rz);
+    }
   }
 
   // torso
@@ -739,7 +759,8 @@ function drawAnimal(x, z, ry, look, pose, y0) {
     part(f, M + 'body', 0, y + 0.74, 0, 1, 1, 1, uni, ln);
     part(f, M + 'stripe', 0, y + 0.74, 0, 1, 1, 1, look.pin ? col(look.pin) : shade(look.uni, 0.80), ln);
     part(f, M + 'placket', 0, y + 0.74, 0, 1, 1, 1, trim, ln);
-    part(f, M + 'collar', 0, y + 0.74, 0, 1, 1, 1, trim, ln);
+    // the sketch's jersey has no collar: the head sits straight on it
+    if (!A.noCollar) part(f, M + 'collar', 0, y + 0.74, 0, 1, 1, 1, trim, ln);
     part(f, M + 'belt', 0, y + 0.74, 0, 1, 1, 1, shade(look.cap, 0.85), ln);
     // The sleeve is a capped cylinder hung outside the jersey, so its cut end
     // sat in plain sight as a hard facet on each shoulder — most obvious from
@@ -780,17 +801,17 @@ function drawAnimal(x, z, ry, look, pose, y0) {
     hl = p.handL
       ? armIK(slx, shY, slz, p.handL[0], p.handL[1], p.handL[2], BONE, BONE, poleL, 0.075, uni,
               p.noPawL ? null : hand)
-      : limb(f, -0.33 * big, shY, 0, p.armL || 0, -0.30, 0.34, 0.112, uni, paw, 0.27);
+      : limb(f, -0.33 * big, shY, 0, p.armL || 0, -0.30, 0.34, 0.112, uni, paw, hs);
     hr = p.handR
       ? armIK(srx, shY, srz, p.handR[0], p.handR[1], p.handR[2], BONE, BONE, poleR, 0.075, uni,
               p.noPawR ? null : hand)
       : limb(f, 0.33 * big, shY, 0, p.armR || 0, 0.30, 0.34, 0.112, uni,
-             p.noPawR ? null : paw, 0.27);
+             p.noPawR ? null : paw, hs);
   } else {
     hl = limb(f, -0.33 * big, shY, 0, p.armL || 0, -0.30, 0.34, 0.112, uni,
-              p.noPawL ? null : paw, 0.27);
+              p.noPawL ? null : paw, hs);
     hr = limb(f, 0.33 * big, shY, 0, p.armR || 0, 0.30, 0.34, 0.112, uni,
-              p.noPawR ? null : paw, 0.27);
+              p.noPawR ? null : paw, hs);
   }
 
   // head — may be turned independently of the body (a batter watching the
@@ -838,7 +859,7 @@ function drawAnimal(x, z, ry, look, pose, y0) {
 
   if (A.mesh) {
     part(fh, A.mesh + '_muz', 0, hy, 0, 1, 1, 1, fur2);     // the pale mask
-    part(fh, A.mesh + '_earin', 0, hy, 0, 1, 1, 1, fur2);
+    part(fh, A.mesh + '_earin', 0, hy, 0, 1, 1, 1, A.earIn ? col(A.earIn) : fur2);
     if (FC && !FC.onHead && R.atlas && R.inkW === 0) {
       R.decal(faceRect(look.animal, p.face || 0, 1));
       part(fh, A.mesh + '_snout', 0, hy, 0, 1, 1, 1, fur);
