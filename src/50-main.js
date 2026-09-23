@@ -40,7 +40,9 @@ function togglePause() {
    canvas and copied out. The 2D sketches these replace could not keep up with
    the models: the salmon had ears, a nose and a cap. */
 const PORTRAIT = { salmon: { ty: 0.42, d: 2.6, ry: -1.45 }, beetle: { ty: 0.95, d: 2.6, ry: -1.0 },
-                   rabbit: { ty: 1.34, d: 2.6, ry: -0.28 } };
+                   rabbit: { ty: 1.34, d: 2.6, ry: -0.28 },
+                   // the bear's resting face is the one in the sketch
+                   bear: { ty: 1.42, d: 2.6, ry: -0.28, face: EXPR.idle } };
 function paintPortrait(c, team) {
   const w = c.width, h = c.height;
   R.resize();
@@ -55,9 +57,9 @@ function paintPortrait(c, team) {
   for (let i = -6; i <= 6; i++)
     R.d('box', i * 0.62, P.ty, -2.2, 0, 0, -0.45, 0.24, 7, 0.05, back);
   R.unlit(false);
-  const look = { animal: team.animal, uni: team.uni, trim: team.trim, cap: team.cap };
+  const look = { animal: team.animal, uni: team.uni, trim: team.trim, cap: team.cap, pin: team.pin };
   // the rabbit's resting face is the one drawn by hand, so that is the one shown
-  const face = FACE_SCANS[team.animal + ':0'] ? EXPR.idle : EXPR.happy;
+  const face = P.face !== undefined ? P.face : FACE_SCANS[team.animal + ':0'] ? EXPR.idle : EXPR.happy;
   drawAnimal(0.18, 0, P.ry, look, { armL: 0.25, armR: -0.25, face }, 0);
   SHADOWS.length = 0;
   const g = c.getContext('2d');
