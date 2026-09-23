@@ -393,10 +393,14 @@ def build_salmon():
 # rectangles of that same domain, so they sit on the surface by construction
 # instead of being fitted to it by hand. Any mammal can be baked this way.
 
-# the envelope the cap and the ears were sized against; keep it
-HEAD_X, HEAD_Y, HEAD_Z = 0.393, 0.352, 0.318
+# The owner's pencil sketch (2026-09-23) is the reference now: a big wide head
+# with no cap on it, small round ears on the top corners, and a muzzle that
+# takes up the lower half of the face. The bear no longer wears a cap, so the
+# head is free of the envelope the cap was sized against and has grown into
+# the sketch's proportions — as wide as the body, a little squarer.
+HEAD_X, HEAD_Y, HEAD_Z = 0.420, 0.362, 0.328
 HEAD_FWD = 0.02                 # the head primitive sat this far forward
-SNOUT_EL = -0.325               # a bear's muzzle points down as well as out
+SNOUT_EL = -0.385               # a bear's muzzle points down as well as out
 
 
 def bump(q, amp):
@@ -416,7 +420,7 @@ def bear_head_pt(az, el, out=0.0):
     dx = math.cos(el) * math.sin(az)
     dy = math.sin(el)
     dz = math.cos(el) * math.cos(az)
-    n = 3.1                     # a rounded box, softer than the rbox it replaces
+    n = 2.6                     # rounded, with just a hint of the sketch's corners
     k = (abs(dx) ** n + abs(dy) ** n + abs(dz) ** n) ** (-1.0 / n)
     x, y, z = dx * k * HEAD_X, dy * k * HEAD_Y, dz * k * HEAD_Z
 
@@ -428,7 +432,11 @@ def bear_head_pt(az, el, out=0.0):
     # also wrong for this game. Anatomy is not the target: a round face with a
     # soft swelling on it is, and the stop turned the face into a snout. Do not
     # reach for realism here again. `bump` is the decision, not the default.
-    d = bump((az / 0.64) ** 2 + ((el - SNOUT_EL) / 0.42) ** 2, 0.152)
+    #
+    # The sketch's muzzle is the biggest thing on the face — nearly half its
+    # width and height — and it stands well out from it. Bigger and further
+    # out, but still a bump: it is the size that changed, not the profile.
+    d = bump((az / 0.70) ** 2 + ((el - SNOUT_EL) / 0.50) ** 2, 0.200)
 
     # the brow ridge, kept light — enough to catch the light above the eyes
     d += bump((az / 0.95) ** 2 + ((el - 0.17) / 0.22) ** 2, 0.024)
@@ -436,7 +444,8 @@ def bear_head_pt(az, el, out=0.0):
     # jowls, low and wide, carrying the line from the muzzle back to the ears
     d += bump(((abs(az) - 1.00) / 0.58) ** 2 + ((el + 0.20) / 0.44) ** 2, 0.030)
 
-    # and the flat of the crown, so the cap has something to sit on
+    # the flat of the crown — no cap sits on it any more, but the sketch's
+    # head is flat-topped between the ears
     d -= 0.020 * max(0.0, (el - 0.95) / 0.62) ** 2
 
     L = math.sqrt(x * x + y * y + z * z) or 1.0
@@ -533,7 +542,7 @@ def oval_patch(fn, az_c, el_c, az_r, el_r, out, nr=6, nt=22):
     return m
 
 
-EAR_AZ, EAR_EL = 1.70, 0.74      # where on the skull the ear is rooted
+EAR_AZ, EAR_EL = 1.62, 0.80      # where on the skull the ear is rooted
 EAR_LIFT = 0.062                 # and how far out of it the disc's centre sits
 
 
@@ -566,7 +575,7 @@ def _ear_frame(side):
     return c, ax, u, v
 
 
-EAR_R = 0.138
+EAR_R = 0.122                     # the sketch's ears are small
 EAR_IN = 0.54                     # the inner ear's share of the radius
 
 
@@ -755,11 +764,11 @@ def build_bear():
     out['bear_earin'] = inner
 
     # the pale mask over the muzzle, and the two decal patches
-    out['bear_muz'] = oval_patch(bear_head_pt, 0.0, SNOUT_EL - 0.008, 0.53, 0.31, 0.008)
+    out['bear_muz'] = oval_patch(bear_head_pt, 0.0, SNOUT_EL - 0.008, 0.60, 0.38, 0.008)
     out['bear_face'] = uv_patch(bear_head_pt, 0.0, 60 * math.pi / 180,
                                 0.0, 50 * math.pi / 180, 0.009)
-    out['bear_snout'] = uv_patch(bear_head_pt, 0.0, 34 * math.pi / 180,
-                                 SNOUT_EL - 0.015, 20 * math.pi / 180, 0.011)
+    out['bear_snout'] = uv_patch(bear_head_pt, 0.0, 38 * math.pi / 180,
+                                 SNOUT_EL - 0.015, 23 * math.pi / 180, 0.011)
 
     body = Mesh()
     NA, NT = 28, 22
@@ -791,18 +800,15 @@ def build_bear():
     #
     # The belt sits below the widest point, where the top of the trousers
     # would be — on the waist of an egg it reads as a seam cutting him in half
-    # The collar rides high enough that the head hides most of it. With no
-    # neck to sit on there is nowhere for a jersey collar to go, and a full
-    # ring of pale trim below the chin reads as a bib, not a collar.
-    #
-    # The belt sits below the widest point, where the top of the trousers
-    # would be — on the waist of an egg it reads as a seam cutting him in half
     out['bear_collar'] = bear_band(0.935, 0.995, 0.008)
     out['bear_belt'] = bear_band(0.155, 0.235, 0.008)
-    out['bear_placket'] = bear_strip(0.0, 0.068, 0.24, 0.90, 0.007)
+    # The sketch's jersey is a pinstripe: a dozen thin lines all the way
+    # round, and one dark placket down the front. Four fat stripes in the
+    # jersey's own colour read as corduroy.
+    out['bear_placket'] = bear_strip(0.0, 0.044, 0.24, 0.93, 0.007)
     stripes = Mesh()
-    for a_c in (-0.80, -0.42, 0.42, 0.80):
-        stripes.merge(bear_strip(a_c, 0.030, 0.28, 0.86, 0.006, na=3))
+    for k in range(1, 16):
+        stripes.merge(bear_strip(math.tau * k / 16, 0.020, 0.25, 0.93, 0.006, na=2))
     out['bear_stripe'] = stripes
     return out
 
