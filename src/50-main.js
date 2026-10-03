@@ -609,8 +609,9 @@ function update(dt) {
   if (stalled && G.phase === 'play' && G.carStall < 2.6) { G.phaseLen += dt; G.carStall += dt; }
   // fielders drift back / converge, or head for the bench on the third out
   const off3 = G.phase === 'change';
+  const bench = dugoutOf(1 - G.half);   // the side in the field goes to its own bench
   for (const f of G.fielders) {
-    const tx = off3 ? DUGOUT[0] : f.tx, tz = off3 ? DUGOUT[1] : f.tz;
+    const tx = off3 ? bench[0] : f.tx, tz = off3 ? bench[1] : f.tz;
     if (!f.scripted || off3) {
       const k = Math.min(1, dt * (off3 ? 1.5 : 3.4));
       f.x += (tx - f.x) * k; f.z += (tz - f.z) * k;
