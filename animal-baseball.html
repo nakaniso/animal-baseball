@@ -2319,7 +2319,8 @@ const pitchingPlayer = () => (G.half === 0 ? '2P' : '1P');
 const curBatter = () => batTeam().roster[G.order[G.half]];
 const curPitcher = () => fldTeam().roster[8];
 const basePt = (i) => (i < 0 || i >= 3 ? HOME_POS : BASE_POS[i]);
-const DUGOUT = [-25.5, 2.0];   // the bench, first-base side in foul ground
+const DUGOUT = [[25.5, 2.0], [-25.5, 2.0]];
+const dugoutOf = (side) => DUGOUT[side];
 function startGame(stadiumId, awayTeamId, homeTeamId) {
 const st = stadiumById(stadiumId);
 G.st = st;
@@ -3867,8 +3868,9 @@ break;
 }
 if (stalled && G.phase === 'play' && G.carStall < 2.6) { G.phaseLen += dt; G.carStall += dt; }
 const off3 = G.phase === 'change';
+const bench = dugoutOf(1 - G.half);   // the side in the field goes to its own bench
 for (const f of G.fielders) {
-const tx = off3 ? DUGOUT[0] : f.tx, tz = off3 ? DUGOUT[1] : f.tz;
+const tx = off3 ? bench[0] : f.tx, tz = off3 ? bench[1] : f.tz;
 if (!f.scripted || off3) {
 const k = Math.min(1, dt * (off3 ? 1.5 : 3.4));
 f.x += (tx - f.x) * k; f.z += (tz - f.z) * k;

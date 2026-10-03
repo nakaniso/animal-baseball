@@ -53,7 +53,9 @@ const pitchingPlayer = () => (G.half === 0 ? '2P' : '1P');
 const curBatter = () => batTeam().roster[G.order[G.half]];
 const curPitcher = () => fldTeam().roster[8];
 const basePt = (i) => (i < 0 || i >= 3 ? HOME_POS : BASE_POS[i]);
-const DUGOUT = [-25.5, 2.0];   // the bench, first-base side in foul ground
+// the benches, in foul ground: the home side has first base (-x), the visitors third (+x)
+const DUGOUT = [[25.5, 2.0], [-25.5, 2.0]];
+const dugoutOf = (side) => DUGOUT[side];
 
 /* ============================================================
    setup
