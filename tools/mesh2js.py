@@ -1800,6 +1800,243 @@ def build_frog():
     DATA.append('')
     return out
 
+# ------------------------------------------------------------------ penguin
+# One soft egg with a round head on it, flippers at the sides and two orange
+# feet peeking out from under the hem. It keeps the shared rig's anchors —
+# torso y+0.74, head y+1.34, hips y+0.44 — so running, sliding, tumbling, the
+# camera and the shadow all work unchanged; the legs are simply inside him.
+#
+# Everything is authored in the character's own frame (+z the face, +y up,
+# +x his LEFT side), about the anchor 30-actors.js places it at.
+#
+# The white face is not geometry. It is painted into the face cell along with
+# the eyes, on a patch cut from the same (az, el) map as the skull — so it
+# follows the head exactly, and a heart shape costs nothing.
+PEN_X, PEN_Y, PEN_Z = 0.430, 0.400, 0.392     # the skull: as wide as the body's widest
+PEN_UP, PEN_FWD = 0.000, 0.015                # 46% of his height, chin over the jersey
+PEN_N = 2.25                                  # just off a sphere: soft, not a ball
+PEN_FACE_AZ_R, PEN_FACE_EL_C, PEN_FACE_EL_R = 1.20, -0.10, 0.86
+PEN_BEAK_EL = -0.20                           # just under the eye line
+PEN_BEAK_TILT = 0.20                          # pointing forward and a little down
+PEN_BEAK_S = 1.15
+
+
+def pen_skull(az, el):
+    dx = math.cos(el) * math.sin(az)
+    dy = math.sin(el)
+    dz = math.cos(el) * math.cos(az)
+    k = (abs(dx) ** PEN_N + abs(dy) ** PEN_N + abs(dz) ** PEN_N) ** (-1.0 / PEN_N)
+    return dx * k * PEN_X, dy * k * PEN_Y, dz * k * PEN_Z
+
+
+def pen_head_pt(az, el, out=0.0):
+    x, y, z = pen_skull(az, el)
+    # soft cheeks low on the face, so the head is a little pear and not a ball
+    d = bump(((abs(az) - 0.75) / 0.70) ** 2 + ((el + 0.35) / 0.50) ** 2, 0.024)
+    L = math.sqrt(x * x + y * y + z * z) or 1.0
+    return (x + x / L * d, y + y / L * d + PEN_UP, z + z / L * d + PEN_FWD)
+
+
+# The body: a pear, widest low, deep enough not to go flat when he turns, and
+# coming down nearly to the ground so the legs vanish inside it.
+PEN_LO, PEN_HI = -0.640, 0.300                # about the torso anchor: y+0.10 .. y+1.04
+PEN_W = [(0.00, 0.100), (0.04, 0.220), (0.10, 0.310), (0.18, 0.370),
+         (0.28, 0.402), (0.38, 0.408), (0.50, 0.392), (0.62, 0.362),
+         (0.74, 0.312), (0.85, 0.270), (0.94, 0.236), (1.00, 0.210)]
+PEN_DK = 0.90                                 # depth as a share of width
+PEN_ZS = [(0.00, 0.020), (0.40, 0.034), (0.80, 0.004), (1.00, -0.022)]
+PEN_HEM = 0.50                                # where the jersey ends
+
+
+def smooth_profile(t, keys):
+    """Catmull-Rom through [(t, value), ...] (ascending). The straight pieces
+    of lerp_profile show as corners on a silhouette this round."""
+    n = len(keys)
+    if t <= keys[0][0]:
+        return keys[0][1]
+    if t >= keys[-1][0]:
+        return keys[-1][1]
+    i = 0
+    while keys[i + 1][0] < t:
+        i += 1
+    t0, t1 = keys[i][0], keys[i + 1][0]
+    u = (t - t0) / (t1 - t0)
+    p0 = keys[max(0, i - 1)][1]
+    p1, p2 = keys[i][1], keys[i + 1][1]
+    p3 = keys[min(n - 1, i + 2)][1]
+    return 0.5 * (2 * p1 + (-p0 + p2) * u + (2 * p0 - 5 * p1 + 4 * p2 - p3) * u * u
+                  + (-p0 + 3 * p1 - 3 * p2 + p3) * u * u * u)
+
+
+def pen_body_pt(a, t, out=0.0):
+    """`a` from the middle of the chest (0) round toward his left; `t` from the
+    bottom (0) to the top (1)."""
+    y = PEN_LO + t * (PEN_HI - PEN_LO)
+    w = smooth_profile(t, PEN_W)
+    hw, hd = w + out, w * PEN_DK + out
+    sa, ca = math.sin(a), math.cos(a)
+    return (sa * hw, y, ca * hd + smooth_profile(t, PEN_ZS))
+
+
+def pen_body_rings(t0, t1, nt, out, na=32):
+    return [[pen_body_pt(math.tau * j / na, t0 + (t1 - t0) * i / float(nt), out)
+             for j in range(na)] for i in range(nt + 1)]
+
+
+def pen_disc(fn, ac, bc, ar, br, out, nr=3, nt=24, lo=0.0, hi=math.tau):
+    """A disc (or a fan of one, lo..hi) of a surface map, in its own domain."""
+    m = Mesh()
+    full = abs(hi - lo - math.tau) < 1e-9
+    na = nt if full else nt + 1
+    rings = [[m.vert(*fn(ac, bc, out))] * na]
+    for r in range(1, nr + 1):
+        rho = r / float(nr)
+        rings.append([m.vert(*fn(ac + rho * math.cos(th) * ar, bc + rho * math.sin(th) * br, out))
+                      for th in [lo + (hi - lo) * j / float(nt) for j in range(na)]])
+    for r in range(nr):
+        a, b = rings[r], rings[r + 1]
+        for j in range(nt):
+            k = (j + 1) % na
+            if r == 0:
+                m.tri(a[0], b[j], b[k])
+            else:
+                m.quad(a[j], b[j], b[k], a[k])
+    return m
+
+
+def pen_lens_loft(table, n, closed=True):
+    """Rings of a flat paddle hanging along -y: (t, half width in z, half
+    thickness in x, z offset), t a fraction of PEN_FLIP down."""
+    rings = [section(0.0, -t * PEN_FLIP, cz, th, w, n, e=2.0) for t, w, th, cz in table]
+    return loft(rings, cap_start=closed, cap_end=closed)
+
+
+PEN_FLIP = 0.44
+# Wider than the first cut and round at the tip, so it reads as a flipper and
+# not a stick from any side. drawPenguin holds it flat on to the camera.
+PEN_FL = [(-0.02, 0.040, 0.030, 0.000), (0.00, 0.062, 0.040, 0.000),
+          (0.15, 0.094, 0.041, -0.004), (0.38, 0.108, 0.038, -0.014),
+          (0.60, 0.102, 0.035, -0.024), (0.78, 0.086, 0.032, -0.032),
+          (0.89, 0.066, 0.029, -0.036), (0.955, 0.044, 0.025, -0.038),
+          (0.990, 0.022, 0.018, -0.038), (1.00, 0.006, 0.008, -0.038)]
+
+
+def build_penguin():
+    out = {}
+    out['penguin_head'] = oriented(surface_of(pen_head_pt, naz=32, nel=20))
+    # the face cell — the white mask, the eyes and the blush are all art on it.
+    # Dense, so the mask's edge comes out as a curve and not a run of kinks
+    out['penguin_face'] = uv_patch(pen_head_pt, 0.0, PEN_FACE_AZ_R, PEN_FACE_EL_C,
+                                   PEN_FACE_EL_R, 0.010, n=16, mm=16)
+
+    # The beak. Shut, it is one closed soft cone — two halves drawn shut left a
+    # dark seam and a lower half a shade off, and read as a little burger.
+    # Pleased, it splits: the half is drawn twice, the lower one turned over
+    # about its own axis and dropped open.
+    BK = [(-0.050, 0.064, 0.048), (-0.010, 0.066, 0.052), (0.030, 0.062, 0.050),
+          (0.066, 0.050, 0.042), (0.092, 0.036, 0.032), (0.112, 0.022, 0.020),
+          (0.126, 0.010, 0.010), (0.131, 0.002, 0.002)]
+    S = PEN_BEAK_S
+    rings = []
+    for z, w, h in BK:
+        ring = []
+        for k in range(13):
+            a = math.pi * k / 12.0
+            ring.append((math.cos(a) * w * S, math.sin(a) ** 0.85 * h * S, z * S))
+        ring.append((0.0, 0.0, z * S))             # the flat underside
+        rings.append(ring)
+    out['penguin_beak'] = oriented(loft(rings))
+    rings = []
+    for z, w, h in BK:
+        ring = []
+        for k in range(20):
+            a = math.tau * k / 20.0
+            sa = math.sin(a)
+            ring.append((math.cos(a) * w * S, sa * (h if sa > 0 else h * 0.82) * S, z * S))
+        rings.append(ring)
+    out['penguin_beakc'] = oriented(loft(rings))
+    root = lifted(pen_head_pt, 0.0, PEN_BEAK_EL, -0.014)
+
+    # the flipper: a flat paddle hanging from the shoulder along -y. Thin in x,
+    # broad in z, widest a third of the way down; 2 x A.ink thick or more.
+    out['penguin_flip'] = oriented(pen_lens_loft(PEN_FL, 16))
+
+    # The sleeve: a short cap round the flipper's root, hung from the same
+    # shoulder and turned with it, domed on top so no cut end shows — and the
+    # navy edge round its mouth. A ball over the joint read as a bolt.
+    SL = [(-0.100, 0.030, 0.022, 0.0), (-0.088, 0.070, 0.050, 0.0),
+          (-0.062, 0.094, 0.064, 0.0), (-0.020, 0.108, 0.072, 0.0),
+          (0.050, 0.114, 0.076, -0.002), (0.150, 0.112, 0.074, -0.004),
+          (0.210, 0.108, 0.072, -0.005)]
+    out['penguin_sleeve'] = oriented(pen_lens_loft(SL, 16))
+    cuff = [(0.200, 0.114, 0.078, -0.005), (0.238, 0.113, 0.077, -0.006)]
+    out['penguin_cuff'] = oriented_open(pen_lens_loft(cuff, 16, closed=False),
+                                        (0.0, -0.22 * PEN_FLIP, 0.0))
+
+    # The foot, from the ankle forward: flat, wide, webbed. The ankle is 8cm
+    # off the ground when he stands, so the sole is 8cm under it.
+    FT = [(-0.074, 0.020, -0.030, -0.066), (-0.066, 0.040, -0.016, -0.074),
+          (-0.040, 0.060, 0.000, -0.079), (0.000, 0.074, 0.002, -0.080),
+          (0.050, 0.088, -0.006, -0.080), (0.100, 0.102, -0.018, -0.080),
+          (0.150, 0.115, -0.026, -0.080), (0.200, 0.126, -0.030, -0.080),
+          (0.245, 0.126, -0.032, -0.079), (0.278, 0.110, -0.034, -0.077),
+          (0.298, 0.080, -0.036, -0.075), (0.309, 0.040, -0.040, -0.072)]
+    out['penguin_foot'] = oriented(loft([ring_xy(z, hw, top, bot, 16, 2.4)
+                                         for z, hw, top, bot in FT]))
+
+    # the dark egg below the hem, closed at the bottom, open at the top where
+    # the jersey takes over
+    body = loft(pen_body_rings(0.0, PEN_HEM + 0.04, 14, 0.0), cap_start=True, cap_end=False)
+    out['penguin_body'] = oriented_open(body, (0.0, PEN_LO + 0.3, 0.0))
+    # the jersey: the same profile, a hair proud, closed over the top
+    jer = loft(pen_body_rings(PEN_HEM, 1.0, 12, 0.012), cap_start=False, cap_end=True)
+    out['penguin_jersey'] = oriented_open(jer, (0.0, 0.0, 0.0))
+    # the hem, in the trim — what tells jersey from belly at any distance
+    hem = loft(pen_body_rings(PEN_HEM - 0.030, PEN_HEM + 0.030, 2, 0.022),
+               cap_start=False, cap_end=False)
+    out['penguin_hem'] = oriented_open(hem, (0.0, PEN_LO + 0.5, 0.0))
+    # a placket down the front, so it is a jersey and not a T-shirt
+    pk = Mesh()
+    rows = [[pk.vert(*pen_body_pt((j - 1) * 0.045, PEN_HEM + (0.93 - PEN_HEM) * i / 8.0, 0.017))
+             for j in range(3)] for i in range(9)]
+    for i in range(8):
+        for j in range(2):
+            pk.quad(rows[i][j], rows[i][j + 1], rows[i + 1][j + 1], rows[i + 1][j])
+    out['penguin_placket'] = pk
+    # and two buttons on it — the one detail the front gets
+    bt = Mesh()
+    for t in (0.63, 0.78):
+        w = smooth_profile(t, PEN_W)
+        bt.merge(pen_disc(pen_body_pt, 0.0, t, 0.030 / w, 0.030 / (PEN_HI - PEN_LO), 0.024,
+                          nr=2, nt=14))
+    out['penguin_button'] = bt
+    # The white belly: a soft U, round at the bottom, whose top runs straight
+    # across under the hem, so it tucks in there instead of ending in corners.
+    tt, tb = PEN_HEM - 0.012, 0.07
+    out['penguin_belly'] = pen_disc(pen_body_pt, 0.0, tt, 0.98, tt - tb, 0.012,
+                                    nr=8, nt=32, lo=math.pi, hi=math.tau)
+
+    DATA.append('/* the penguin, solved off its own skull and body by the baker */')
+    DATA.append('const PEN = { beak: [%.4f, %.4f, %.4f], flip: %.3f };'
+                % (root[1], root[2], PEN_BEAK_TILT, PEN_FLIP))
+    DATA.append('')
+    return out
+
+
+def oriented_open(m, inside):
+    """oriented() for a surface that is not closed: make the faces point away
+    from a point known to be inside it."""
+    s = 0.0
+    for a, b, c in m.f:
+        pa, pb, pc = m.v[a], m.v[b], m.v[c]
+        u = [pb[i] - pa[i] for i in range(3)]
+        v = [pc[i] - pa[i] for i in range(3)]
+        n = (u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[1] * v[0])
+        s += sum(n[i] * (pa[i] - inside[i]) for i in range(3))
+    if s < 0.0:
+        m.f = [(a, c, b) for a, b, c in m.f]
+    return m
+
 # ------------------------------------------------------------------- packing
 
 def load_obj(path):
@@ -1900,6 +2137,7 @@ def main():
     meshes.update(build_beetle())
     meshes.update(build_rabbit())
     meshes.update(build_frog())
+    meshes.update(build_penguin())
 
     # anything hand-made wins over the procedural version of the same name
     objdir = os.path.join('tools', 'obj')
