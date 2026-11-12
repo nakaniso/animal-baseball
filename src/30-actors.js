@@ -1129,7 +1129,12 @@ function drawAnimal(x, z, ry, look, pose, y0) {
     // from the ankle the way the rabbit's is
     for (const s of [-1, 1]) {
       const rx = (s < 0 ? p.legL : p.legR) || 0, rz = s * 0.04;
-      const e = limb(f, s * (A.hipX * big + sp), y + 0.44, 0, rx, rz, 0.36, A.legW, fur, null, 0);
+      // a baked soft leg on the rig's own hip and length, not the plain
+      // cylinder: spread at the plate, that was a bright green post
+      // half the stance spread, as the penguin: the full one stood the back
+      // leg out beside the jersey from the hip down
+      const jx = s * (A.hipX * big + sp * 0.5), e = limbTip(jx, y + 0.44, 0, rx, rz, 0.36);
+      part(f, 'frog_leg', jx, y + 0.44, 0, 1, 1, 1, fur, rx, rz);
       part(f, s < 0 ? 'frog_foot_r' : 'frog_foot_l', e[0], e[1], e[2], 1, 1, 1, col(A.foot), rx, rz);
     }
   } else if (!A.body) {             // the fish has none and the beetle has six

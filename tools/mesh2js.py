@@ -1653,38 +1653,76 @@ def uv_sub(fn, P, out, u0, u1, v0, v1, n, mm):
 
 
 def frog_foot(yaw):
-    """A webbed foot, from the ankle forward: flat, wide, three soft toes,
-    turned out by `yaw` (the feet splay, the way a frog sits).
+    """A webbed foot, from the ankle forward: a soft flat pad with three round
+    toe lobes, turned out by `yaw` (the feet splay, the way a frog sits).
 
-    The outline is a fan of three lobes; the section is a flat superellipse
-    so it lies on the ground like a pad instead of standing like a shoe.
+    Built as a pillow, not a loft: an outline in plan (a polar curve with
+    three smooth Gaussian lobes in front) swept through a flat superellipse
+    from the sole to the top, closed by one vertex at each pole. Lofted
+    along its length with the toes cut into the rings, it came out as a
+    block with a jagged front edge and flat facets.
     """
-    m_rings = []
-    NZ, NS = 9, 16
+    NU, NV = 40, 10
+    ZC = 0.085                                   # the pad's centre, ahead of the ankle
+    WX, LZ = 0.168, 0.165                        # half width and half length
+    TOES = ((0.0, 0.070), (0.64, 0.060), (-0.64, 0.060))
     cy_, sy_ = math.cos(yaw), math.sin(yaw)
-    for i in range(NZ):
-        t = i / float(NZ - 1)
-        z = -0.08 + t * 0.34
-        hw = 0.095 + 0.140 * math.sin(min(1.0, t * 1.15) * math.pi * 0.5) ** 1.2
-        if t > 0.80:
-            hw *= 1.0 - ((t - 0.80) / 0.20) ** 2 * 0.60
-        top = 0.022 - t * 0.040
-        bot = -0.080
-        ring = []
-        for k in range(NS):
-            a = (k / float(NS)) * math.tau
-            ca, sa = math.cos(a), math.sin(a)
-            x = math.copysign(abs(ca) ** (2.0 / 2.6), ca) * hw
-            # three toes: the front edge scalloped by the angle across
-            zz = z
-            if t > 0.50:
-                lobe = 0.5 + 0.5 * math.cos(3 * math.pi * (x / max(hw, 1e-6)))
-                zz += 0.045 * (t - 0.50) / 0.50 * lobe
-            cy, hh = (top + bot) * 0.5, (top - bot) * 0.5
-            y = cy + math.copysign(abs(sa) ** (2.0 / 2.6), sa) * hh
-            ring.append((x * cy_ + zz * sy_, y, -x * sy_ + zz * cy_))
-        m_rings.append(ring)
-    return oriented(loft(m_rings))
+
+    def outline(phi):                            # phi from straight ahead
+        s, c = math.sin(phi), math.cos(phi)
+        r = 1.0 / math.sqrt((s / WX) ** 2 + (c / LZ) ** 2)
+        r *= 1.0 + 0.16 * max(0.0, c)            # broader toward the front
+        for p0, amp in TOES:
+            d = math.atan2(math.sin(phi - p0), math.cos(phi - p0))
+            r += amp * math.exp(-(d / 0.21) ** 2)
+        return s * r, ZC + c * r
+
+    def pt(phi, th):
+        ox, oz = outline(phi)
+        ct, st = math.cos(th), math.sin(th)
+        k = abs(ct) ** (2.0 / 3.0)               # flat top and sole, round rim
+        x, z = ox * k, ZC + (oz - ZC) * k
+        fwd = max(0.0, min(1.0, (z + 0.06) / 0.34))
+        top = 0.050 - 0.034 * fwd                # thins toward the toes
+        y = -0.045 + (top + 0.005 if st > 0 else 0.035) * math.copysign(abs(st) ** (2.0 / 3.0), st)
+        return (x * cy_ + z * sy_, y, -x * sy_ + z * cy_)
+
+    m = Mesh()
+    bot = m.vert(*pt(0.0, -math.pi / 2))
+    rings = []
+    for i in range(1, NV):
+        th = -math.pi / 2 + math.pi * i / NV
+        rings.append([m.vert(*pt(math.tau * j / NU, th)) for j in range(NU)])
+    top = m.vert(*pt(0.0, math.pi / 2))
+    for j in range(NU):
+        k = (j + 1) % NU
+        m.tri(bot, rings[0][k], rings[0][j])
+        m.tri(top, rings[-1][j], rings[-1][k])
+    for i in range(len(rings) - 1):
+        a, b = rings[i], rings[i + 1]
+        for j in range(NU):
+            k = (j + 1) % NU
+            m.quad(a[j], a[k], b[k], b[j])
+    return oriented(m)
+
+
+def frog_leg():
+    """A short soft leg hung from the hip along -y to the ankle (0.36 down),
+    the same joint and length as the rig's limb(): a little fuller at the
+    top, tapering, and flaring again where it meets the foot. The plain
+    cylinder read as a bright green post in a batting stance."""
+    # a round top: spread at the plate the hip end shows beside the hem, and
+    # a flat cap there made the leg a post
+    PROF = [(-0.30, 0.030), (-0.27, 0.075), (-0.22, 0.104), (-0.15, 0.121),
+            (-0.06, 0.134), (0.10, 0.138), (0.40, 0.124), (0.70, 0.100), (0.88, 0.088),
+            (0.97, 0.094), (1.03, 0.088), (1.07, 0.060), (1.09, 0.000)]
+    NS = 24
+    rings = []
+    for t, r in PROF[:-1]:
+        rings.append([(math.sin(math.tau * j / NS) * r, -0.36 * t,
+                       math.cos(math.tau * j / NS) * r) for j in range(NS)])
+    m = loft(rings)
+    return oriented(m)
 
 
 # ---- the frog's torso: a squat egg, the belly forward ----------------------
@@ -1772,6 +1810,7 @@ def build_frog():
 
     out['frog_foot_r'] = frog_foot(-0.30)     # his right foot (-x) turns out to -x
     out['frog_foot_l'] = frog_foot(0.30)
+    out['frog_leg'] = frog_leg()
 
     # the layout the face painters need, in each patch's own 0..1 cell
     def cell(P, az, el, v0=0.0, v1=1.0):
