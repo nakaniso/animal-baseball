@@ -134,7 +134,7 @@ const ANIMALS = {
   // in the face cell, not a ball stuck on the front.
   penguin: { ink: 0.022, form: 'penguin', ear: 'none', tail: 'none',
              fur: '#34475E', fur2: '#F7F5EE', beak: '#F29A35', foot: '#EE9338',
-             capS: 0.64, capY: 0.200 },
+             capS: 0.70, capY: 0.160, capT: -0.16 },
 
   fox:     { ink: 0.022, ear: 'point', fur: '#D96F3A', fur2: '#F6EFE2', tail: 'bushy',
              head: 'rbox', hw: 1.04, hh: 0.96, hd: 1.08,
@@ -784,8 +784,8 @@ function drawBeetle(f, A, look, p, y, big) {
    waddles by construction. The arms are flippers, still driven by the shared
    pose (swung by `armL/armR`, or aimed at a grip with `handL/handR`), so the
    bat, the glove, the throw and the cheer all work as they do on everyone. */
-const PEN_SH = [0.300, 0.935, -0.010];      // shoulder: out, up, back
-const PEN_SPLAY = 0.50, PEN_TWIST = 0.45;
+const PEN_SH = [0.268, 0.865, -0.010];      // shoulder: out, up, back
+const PEN_SPLAY = 0.50;
 
 /* a local point to world, tilt and all — where part() would put it */
 function penW(f, lx, ly, lz) {
@@ -799,23 +799,33 @@ function penW(f, lx, ly, lz) {
   return [wx, Y, wz];
 }
 
+/* a local direction to world */
+function penDir(f, v) {
+  let y = v[1], z = v[2];
+  if (f.t) { const y2 = y * f.ct - z * f.st; z = y * f.st + z * f.ct; y = y2; }
+  return [v[0] * f.c + z * f.s, y, -v[0] * f.s + z * f.c];
+}
+
 /* part() with a yaw of its own — the feet turn out a little */
 function penPart(f, prim, lx, ly, lz, c, rx, rz, yaw) {
   const w = penW(f, lx, ly, lz);
   R.d(prim, w[0], w[1], w[2], (rx || 0) + f.t, f.ry + (yaw || 0), rz || 0, 1, 1, 1, c);
 }
 
-/* a flipper from the shoulder straight at a world-space point. It does not
-   bend, so it stretches a little instead, the way the cartoon arms do */
-function penFlipTo(sx, sy, sz, hx, hy, hz, c) {
-  let dx = hx - sx, dy = hy - sy, dz = hz - sz;
-  const d = Math.hypot(dx, dy, dz) || 1e-4;
-  const L = clamp(d, 0.26, 0.78);
-  dx /= d; dy /= d; dz /= d;
-  // the mesh hangs along -y, so aim -y at the hand
-  R.d('penguin_flip', sx, sy, sz, Math.acos(clamp(-dy, -1, 1)), Math.atan2(-dx, -dz), 0,
-      1, L / PEN.flip, 1, c);
-  return [sx + dx * L, sy + dy * L, sz + dz * L];
+/* Draw a part that hangs along its own -y so that -y points along `d` and its
+   +x (the flat face of a flipper) as near `n` as it can. Euler angles alone
+   cannot roll a flipper about its own length, and a flipper that cannot roll
+   goes edge-on — a stick — the moment it is raised. */
+function penAim(prim, p, d, n, sy, c) {
+  const Y = [-d[0], -d[1], -d[2]];
+  const k = n[0] * Y[0] + n[1] * Y[1] + n[2] * Y[2];
+  let X = [n[0] - k * Y[0], n[1] - k * Y[1], n[2] - k * Y[2]];
+  let L = Math.hypot(X[0], X[1], X[2]);
+  if (L < 1e-4) { X = [Y[1], -Y[0], 0]; L = Math.hypot(X[0], X[1]) || 1; }
+  X = [X[0] / L, X[1] / L, X[2] / L];
+  const Z = [X[1] * Y[2] - X[2] * Y[1], X[2] * Y[0] - X[0] * Y[2], X[0] * Y[1] - X[1] * Y[0]];
+  R.d(prim, p[0], p[1], p[2], Math.asin(clamp(-Z[1], -1, 1)), Math.atan2(Z[0], Z[2]),
+      Math.atan2(X[1], Y[1]), 1, sy || 1, 1, c);
 }
 
 function drawPenguin(x, z, ry, f, A, look, p, y, FC) {
@@ -831,10 +841,11 @@ function drawPenguin(x, z, ry, f, A, look, p, y, FC) {
   // the waddle: he rocks onto whichever foot is under him
   const wad = (lL - lR) * 0.06;
 
-  // legs: short orange stubs, nearly all of them inside the egg, and the feet
+  // legs: short fat orange stubs, nearly all inside the egg, and the feet.
+  // Thick, because in a slide they come out and a thin one is a stick.
   for (const s of [-1, 1]) {
     const jx = s * (0.150 + sp), lr = s < 0 ? lL : lR;
-    const e = limb(f, jx, y + 0.44, 0, lr, s * 0.04, 0.36, 0.062, orange, null, 0);
+    const e = limb(f, jx, y + 0.44, 0, lr, s * 0.04, 0.36, 0.088, orange, null, 0);
     penPart(f, 'penguin_foot', e[0], e[1], e[2], orange, lr * 0.7, s * 0.04, s * 0.26);
   }
 
@@ -845,28 +856,40 @@ function drawPenguin(x, z, ry, f, A, look, p, y, FC) {
   B('penguin_jersey', uni);
   B('penguin_hem', trim);
   B('penguin_placket', trim);
+  B('penguin_button', white);
   // a little point of a tail, low at the back
   part(f, 'cone', 0, y + 0.19, -0.290, 0.13, 0.12, 0.07, fur, 1.25);
 
-  // flippers, under a short sleeve
+  // flippers, each in a short sleeve that turns with it
   let hl, hr;
   const [shx, shy, shz] = PEN_SH, sy = y + shy;
   for (const s of [-1, 1]) {
     const tgt = s < 0 ? p.handL : p.handR;
-    let e;
+    let e, d, n, w, sc = 1;
     if (tgt) {
-      // reaching: from a shoulder pulled in a little toward the chest
-      const w = penW(f, s * (shx - 0.06), sy, shz + 0.04);
-      e = penFlipTo(w[0], w[1], w[2], tgt[0], tgt[1], tgt[2], fur);
+      // reaching: straight at the grip from a shoulder pulled in a little. It
+      // does not bend, so it stretches a little instead, as the cartoon arms do
+      w = penW(f, s * (shx - 0.04), sy, shz + 0.04);
+      d = [tgt[0] - w[0], tgt[1] - w[1], tgt[2] - w[2]];
+      const dl = Math.hypot(d[0], d[1], d[2]) || 1e-4, L = clamp(dl, 0.26, 0.78);
+      d = [d[0] / dl, d[1] / dl, d[2] / dl];
+      n = penDir(f, [s, 0.2, 0.7]);
+      sc = L / PEN.flip;
+      e = [w[0] + d[0] * L, w[1] + d[1] * L, w[2] + d[2] * L];
     } else {
-      // turned a little about the vertical so the broad side shows head-on:
-      // square to the body, a flipper is a thin stick from the front
-      const rx = (s < 0 ? p.armL : p.armR) || 0, rz = s * PEN_SPLAY, tw = -s * PEN_TWIST;
-      penPart(f, 'penguin_flip', s * shx, sy, shz, fur, rx, rz, tw);
-      const t = limbTip(0, 0, 0, rx, rz, PEN.flip), c = Math.cos(tw), n = Math.sin(tw);
-      e = [s * shx + t[0] * c + t[2] * n, sy + t[1], shz - t[0] * n + t[2] * c];
+      const rx = (s < 0 ? p.armL : p.armR) || 0, rz = s * PEN_SPLAY;
+      const t = limbTip(0, 0, 0, rx, rz, 1);
+      // Hanging, the flat face looks out and a little forward; raised, it
+      // turns to face front, so a cheer is two flippers and not two sticks
+      const u = clamp(-rx / 2.2, 0, 1), th = 0.45 + u * 0.95;
+      w = penW(f, s * shx, sy, shz);
+      d = penDir(f, t);
+      n = penDir(f, [s * Math.cos(th), 0, Math.sin(th)]);
+      e = [s * shx + t[0] * PEN.flip, sy + t[1] * PEN.flip, shz + t[2] * PEN.flip];
     }
-    part(f, 'sphere', s * (shx - 0.030), sy + 0.000, shz, 0.160, 0.160, 0.180, uni);
+    penAim('penguin_flip', w, d, n, sc, fur);
+    penAim('penguin_sleeve', w, d, n, 1, uni);
+    penAim('penguin_cuff', w, d, n, 1, trim);
     if (s < 0) hl = e; else hr = e;
   }
 
@@ -881,37 +904,43 @@ function drawPenguin(x, z, ry, f, A, look, p, y, FC) {
     part(fh, 'penguin_face', 0, hy, 0, 1, 1, 1, white);
     R.decal(null);
   }
-  // the beak: two halves of one soft cone; the lower one drops open when he
-  // is pleased with himself
-  const open = p.face === EXPR.happy ? 0.55 : 0;
-  const [by, bz, bt] = PEN.beak;
-  part(fh, 'penguin_beak', 0, hy + by, bz, 1, 1, 1, col(A.beak), bt);
-  part(fh, 'penguin_beak', 0, hy + by - 0.002, bz - 0.004, 0.94, 0.82, 0.94,
-       shade(A.beak, 0.90), bt + open, Math.PI);
-  // and when it is open there is something in there
-  if (open && R.inkW === 0)
-    part(fh, 'sphere', 0, hy + by - 0.016, bz + 0.010, 0.095, 0.050, 0.120, col('#B4474A'), bt + open * 0.5);
+  // The beak: one closed soft cone; only when he is pleased with himself does
+  // it come apart into two halves, the lower one dropped open
+  const [by, bz, bt] = PEN.beak, beak = col(A.beak);
+  if (p.face === EXPR.happy) {
+    const open = 0.55;
+    part(fh, 'penguin_beak', 0, hy + by, bz, 1, 1, 1, beak, bt);
+    part(fh, 'penguin_beak', 0, hy + by - 0.002, bz - 0.004, 0.94, 0.82, 0.94,
+         shade(A.beak, 0.92), bt + open, Math.PI);
+    if (R.inkW === 0)
+      part(fh, 'sphere', 0, hy + by - 0.018, bz + 0.012, 0.11, 0.055, 0.135, col('#B4474A'), bt + open * 0.5);
+  } else {
+    part(fh, 'penguin_beakc', 0, hy + by, bz, 1, 1, 1, beak, bt);
+  }
 
   // headwear: the shared crown and bill at his own (smaller) size, perched on
-  // top and tipped back so the bill never reaches the eyes
+  // top and rocked back a little, so a low camera sees the top of the bill
+  // and the bill never reaches the eyes
   if (!p.noHat) {
-    const cy = A.capY || 0, cs = A.capS || 1, tip = 0.06;
+    const cy = A.capY || 0, cs = A.capS || 1, tip = A.capT || 0;
+    // the bill a shade under the crown, not navy: a navy bill seen from below
+    // is a headband across the forehead
+    const brim = shade(look.cap, 0.80);
     if (p.helmet) {
-      // a size up and lower on the head, the bill a stub: a helmet is a cap
-      // that swallowed the head
-      const hs = 0.90, hy2 = hy + 0.030, hz = 0.030;
-      part(fh, 'cap_crown', 0, hy2, hz, hs, hs, hs, cap);
-      part(fh, 'cap_bill', 0, hy2 - 0.010, hz + 0.348 * hs * 0.48, hs * 0.80, hs * 1.10, hs * 0.52, trim);
-      part(fh, 'sphere', 0.33 * hs, hy2 + 0.12 * hs, hz, 0.13 * hs, 0.30 * hs, 0.38 * hs, cap);
+      // A size up and sat lower. Big enough that its rim stands clear of the
+      // skull all the way round: a rim that cuts into the head leaves a
+      // ragged line where the two meet.
+      const hs = 1.08, hy2 = hy - 0.060, hz = 0.015;
+      part(fh, 'cap_crown', 0, hy2, hz, hs, hs, hs, cap, tip * 0.5);
+      part(fh, 'cap_bill', 0, hy2, hz + 0.348 * hs * 0.45, hs * 0.74, hs, hs * 0.55, brim, tip * 0.5);
     } else {
       // The bill is scaled shorter in z, and a scale in z also pulls its root
       // back inside the crown — so it is slid forward by what the scale took.
-      // Thickened in y, or the outline pass eats it (two A.ink, CLAUDE.md).
-      const by2 = (0.222 + 0.026) * (cs - cs * 1.3);
-      part(fh, 'cap_crown', 0, hy + cy, -0.01, cs, cs, cs, cap, tip);
-      part(fh, 'cap_bill', 0, hy + cy + by2, -0.01 + 0.348 * cs * 0.22, cs * 0.86, cs * 1.3, cs * 0.78,
-           trim, tip);
-      part(fh, 'sphere', 0, hy + cy + 0.492 * cs, -0.01 - 0.06 * cs, 0.09 * cs, 0.09 * cs, 0.09 * cs, trim);
+      const k = 1.0, by2 = (0.222 + 0.026) * (cs - cs * k);
+      part(fh, 'cap_crown', 0, hy + cy, 0, cs, cs, cs, cap, tip);
+      part(fh, 'cap_bill', 0, hy + cy + by2, 0.348 * cs * 0.36, cs * 0.80, cs * k, cs * 0.64,
+           brim, tip);
+      part(fh, 'sphere', 0, hy + cy + 0.492 * cs, -0.06 * cs, 0.09 * cs, 0.09 * cs, 0.09 * cs, trim);
     }
   }
   return { f, hl, hr, hy, y };
