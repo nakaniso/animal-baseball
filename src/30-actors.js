@@ -157,7 +157,7 @@ const ANIMALS = {
   // ragged maroon and dusky-green bars, a dirty cream belly, dusky fins
   salmon:  { ink: 0.013, body: 'fish', ear: 'none', tail: 'none', noHat: 1, shadow: 1.5,
              noGlove: 1, noBat: 1,
-             fur: '#8B9B89', fur2: '#C2BBA3', back: '#1E2819', bar: '#4E3036', bar2: '#283020',
+             fur: '#8B9B89', fur2: '#C2BBA3', back: '#1E2819', bar: '#4D3332', bar2: '#283020',
              line: '#3A4034', oper: '#68705A', jaw: '#484A3F',
              fin: '#474C3C', finEdge: '#23251E', finTip: '#CFCBB6' },
 
@@ -756,14 +756,29 @@ function faceRect(animal, exp, muz) {
 const SAL_REST = { side: -0.30, tilt: 0.04, yaw: 0, up: 0, fwd: 0, bend: [0, 0, 0],
                    gape: 0.10, flare: 0, pec: 0.15, h: null };
 
-function fishFlop(seed, tq) {
+/* The batter lies in front of the camera behind home, so he is rolled onto the
+   flank that faces it rather than SAL_REST.side (which shows that camera only
+   his dark back). The camera looks down the +z axis from about 26 degrees up;
+   from his heading (ry, plus whatever the batter rig has turned him by) the
+   roll that would point a flank straight at it is solved, and he lies 85% of
+   the way there: barred flank to the lens, back along the top, belly below.
+   Unwrapped to within half a turn of upright, so the swing rolls the short way. */
+function salBatSide(ry) {
+  const d = Math.sin(ry), ph = 0.45;
+  const th = 0.85 * Math.atan2(Math.abs(d) * Math.cos(ph), Math.sin(ph));
+  const b = d < 0 ? -(Math.PI - th) : Math.PI - th;
+  return b - Math.PI * 2 * Math.round((b + Math.PI / 2) / (Math.PI * 2));
+}
+
+function fishFlop(seed, tq, base) {
+  const S0 = base !== undefined ? base : SAL_REST.side;
   const T = (tq !== undefined ? tq : clock) + seed;
   // he thrashes in bursts and lies still between them
   const env = clamp(Math.sin(T * 0.62) * 1.7 + 0.35, 0, 1);
   const ph = T * 11.0, s = Math.sin(ph);
   const gasp = 0.5 + 0.5 * Math.sin(T * 2.6);
   return {
-    side: SAL_REST.side + env * 0.22 * Math.sin(ph + 0.8),
+    side: S0 + env * 0.22 * Math.sin(ph + 0.8),
     tilt: 0.04 + env * 0.16 * Math.max(0, Math.sin(ph + 0.5)),
     yaw: env * 0.10 * Math.sin(ph * 0.5),
     up: env * 0.07 * Math.pow(Math.max(0, s), 3),
@@ -782,10 +797,10 @@ function fishFlop(seed, tq) {
    once and lands back on his flank. `tilt` winds a whole turn, so the landing
    is the resting pose and not a pop; G.batSwingT keeps counting for seconds
    after the swing, so this has to settle on its own. */
-function fishSwing(st) {
+function fishSwing(st, base) {
   const L = SWING_LAG;
   // [time, side, tilt, fwd, h (height of the middle), k1, k2, gape]
-  const S0 = SAL_REST.side;
+  const S0 = base !== undefined ? base : SAL_REST.side;
   const K = [[0, S0, 0.04, 0, 0.0, 0, 0, 0.10],
              [0.05, -1.25, 0.20, -0.22, 0.30, 1.4, 0.3, 0.30],
              [L, -1.57, 0.02, 0.62, 0.70, -0.5, -0.9, 0.42],
@@ -874,18 +889,26 @@ function salHinge(M, a, b, ang, out) {
 /* ---------- 鮭 ---------- */
 function drawSalmon(f, A, look, p, y) {
   const sw = p.swingT;
+  // only the batter's pose carries swingT: he lies for the batting camera
+  // the swing leaves the batter rig turned (rig.ry stays at ~1.1), which would
+  // leave him lying end-on to the camera: once he has landed he wriggles back
+  // round to lie across the plate again (-pi/2), then rolls for that heading
+  const tu = sw !== undefined ? clamp((sw - SWING_LAG - 0.66) / 0.9, 0, 1) : 0;
+  const turn = (-Math.PI / 2 - f.ry) * tu * tu * (3 - 2 * tu);
+  const base = sw !== undefined ? salBatSide(f.ry + turn) : SAL_REST.side;
   let fl;
   if (p.still) fl = Object.assign({}, SAL_REST, { side: -Math.PI / 2, tilt: 0, gape: 0.04, pec: 0.25, h: 0.20 });
   else if (p.fall) fl = Object.assign({}, SAL_REST, { side: 0.38, bend: [0.35, 0, 0], gape: 0.32, flare: 0.16 });
-  else if (sw >= 0 && sw <= SWING_LAG + 0.66) fl = fishSwing(sw);
+  else if (sw >= 0 && sw <= SWING_LAG + 0.66) fl = fishSwing(sw, base);
   else {
-    fl = fishFlop(p.flopT !== undefined ? 0 : f.ry * 3.1, p.flopT);
+    fl = fishFlop(p.flopT !== undefined ? 0 : f.ry * 3.1, p.flopT, base);
     // just after the swing, ease back into the thrash rather than snapping
     if (sw > 0) {
       const k = clamp((sw - SWING_LAG - 0.66) / 0.6, 0, 1);
-      fl.bend = fl.bend.map((v) => v * k); fl.side = lerp(SAL_REST.side, fl.side, k);
+      fl.bend = fl.bend.map((v) => v * k); fl.side = lerp(base, fl.side, k);
       fl.tilt = lerp(SAL_REST.tilt, fl.tilt, k); fl.up *= k; fl.yaw *= k;
     }
+    fl.yaw += turn;
   }
   const PL = 0.56;                           // the middle of the body, where it is held
   const M = salMatrix(f, fl, 0, PL);
