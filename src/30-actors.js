@@ -157,7 +157,7 @@ const ANIMALS = {
   // ragged maroon and dusky-green bars, a dirty cream belly, dusky fins
   salmon:  { ink: 0.013, body: 'fish', ear: 'none', tail: 'none', noHat: 1, shadow: 1.5,
              noGlove: 1, noBat: 1,
-             fur: '#7E8976', fur2: '#BDB59E', back: '#2C3427', bar: '#58293A', bar2: '#323D2C',
+             fur: '#8B9B89', fur2: '#C2BBA3', back: '#1E2819', bar: '#4E3036', bar2: '#283020',
              line: '#3A4034', oper: '#68705A', jaw: '#484A3F',
              fin: '#474C3C', finEdge: '#23251E', finTip: '#CFCBB6' },
 
@@ -753,7 +753,7 @@ function faceRect(animal, exp, muz) {
    dirt, `bend` is the curl [k1, k2, k3] (rad/m, see R.bend), `up`/`fwd` move
    the body's middle. The ground is solved each frame (salLift), so whatever
    the curl, he lies on the dirt rather than through it or above it. */
-const SAL_REST = { side: 0.30, tilt: 0.04, yaw: 0, up: 0, fwd: 0, bend: [0, 0, 0],
+const SAL_REST = { side: -0.30, tilt: 0.04, yaw: 0, up: 0, fwd: 0, bend: [0, 0, 0],
                    gape: 0.10, flare: 0, pec: 0.15, h: null };
 
 function fishFlop(seed, tq) {
@@ -763,7 +763,7 @@ function fishFlop(seed, tq) {
   const ph = T * 11.0, s = Math.sin(ph);
   const gasp = 0.5 + 0.5 * Math.sin(T * 2.6);
   return {
-    side: 0.30 + env * 0.22 * Math.sin(ph + 0.8),
+    side: SAL_REST.side + env * 0.22 * Math.sin(ph + 0.8),
     tilt: 0.04 + env * 0.16 * Math.max(0, Math.sin(ph + 0.5)),
     yaw: env * 0.10 * Math.sin(ph * 0.5),
     up: env * 0.07 * Math.pow(Math.max(0, s), 3),
@@ -785,12 +785,13 @@ function fishFlop(seed, tq) {
 function fishSwing(st) {
   const L = SWING_LAG;
   // [time, side, tilt, fwd, h (height of the middle), k1, k2, gape]
-  const K = [[0, 0.30, 0.04, 0, 0.0, 0, 0, 0.10],
+  const S0 = SAL_REST.side;
+  const K = [[0, S0, 0.04, 0, 0.0, 0, 0, 0.10],
              [0.05, -1.25, 0.20, -0.22, 0.30, 1.4, 0.3, 0.30],
              [L, -1.57, 0.02, 0.62, 0.70, -0.5, -0.9, 0.42],
              [L + 0.22, -1.40, -2.4, 0.78, 0.95, 0.6, -0.4, 0.30],
              [L + 0.46, -0.40, -5.2, 0.40, 0.42, -0.5, 0.3, 0.20],
-             [L + 0.66, 0.30, 0.04 - Math.PI * 2, 0, 0.0, 0, 0, 0.10]];
+             [L + 0.66, S0, 0.04 - Math.PI * 2, 0, 0.0, 0, 0, 0.10]];
   let i = 0;
   while (i < K.length - 2 && st > K[i + 1][0]) i++;
   const u = clamp((st - K[i][0]) / (K[i + 1][0] - K[i][0]), 0, 1), e = u * u * (3 - 2 * u);

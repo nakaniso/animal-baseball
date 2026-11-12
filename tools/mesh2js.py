@@ -258,20 +258,20 @@ SAL_E = 2.3            # superellipse exponent of the sections
 # only the upper jaw: its ventral edge is the mouth line, and the kype hooks
 # down past it at the very tip. Depth at the dorsal is 26% of the length, width
 # half the depth: deep, flat-sided, not a cigar.
-SAL_TOP = [(0.0, 0.062), (0.010, 0.030), (0.025, -0.008), (0.05, -0.034),
-           (0.10, -0.060), (0.15, -0.085), (0.20, -0.112), (0.25, -0.140),
-           (0.31, -0.158), (0.37, -0.175), (0.43, -0.180), (0.50, -0.172),
-           (0.60, -0.146), (0.70, -0.112), (0.80, -0.078), (0.87, -0.058),
-           (0.93, -0.052), (1.0, -0.058)]
-SAL_BOT = [(0.0, 0.072), (0.010, 0.074), (0.025, 0.056), (0.045, 0.039), (0.07, 0.033),
-           (0.10, 0.031), (0.15, 0.029), (0.175, 0.034), (0.20, 0.058),
-           (0.23, 0.086), (0.27, 0.106), (0.33, 0.125), (0.42, 0.140),
-           (0.52, 0.138), (0.62, 0.120), (0.70, 0.096), (0.78, 0.074),
-           (0.86, 0.056), (0.93, 0.050), (1.0, 0.056)]
-SAL_W = [(0.0, 0.008), (0.012, 0.015), (0.03, 0.022), (0.06, 0.030),
-         (0.10, 0.037), (0.15, 0.048), (0.21, 0.060), (0.28, 0.072),
-         (0.36, 0.079), (0.44, 0.080), (0.52, 0.076), (0.62, 0.066),
-         (0.72, 0.051), (0.82, 0.035), (0.90, 0.025), (0.96, 0.022),
+SAL_TOP = [(0.0, 0.066), (0.010, 0.032), (0.025, -0.012), (0.05, -0.048),
+           (0.08, -0.098), (0.12, -0.148), (0.17, -0.172), (0.23, -0.194),
+           (0.30, -0.207), (0.37, -0.219), (0.43, -0.221), (0.50, -0.210),
+           (0.60, -0.174), (0.70, -0.128), (0.80, -0.086), (0.87, -0.060),
+           (0.93, -0.053), (1.0, -0.058)]
+SAL_BOT = [(0.0, 0.084), (0.010, 0.090), (0.025, 0.070), (0.045, 0.052), (0.07, 0.045),
+           (0.10, 0.043), (0.15, 0.042), (0.175, 0.050), (0.20, 0.086),
+           (0.23, 0.114), (0.27, 0.133), (0.33, 0.155), (0.42, 0.174),
+           (0.52, 0.171), (0.62, 0.146), (0.70, 0.112), (0.78, 0.082),
+           (0.86, 0.058), (0.93, 0.050), (1.0, 0.056)]
+SAL_W = [(0.0, 0.009), (0.012, 0.016), (0.03, 0.024), (0.06, 0.034),
+         (0.10, 0.044), (0.15, 0.054), (0.21, 0.066), (0.28, 0.079),
+         (0.36, 0.088), (0.44, 0.091), (0.52, 0.087), (0.62, 0.075),
+         (0.72, 0.057), (0.82, 0.037), (0.90, 0.025), (0.96, 0.022),
          (1.0, 0.023)]
 
 
@@ -421,7 +421,7 @@ def sal_fin(base, dirs, lens, th0, th1, nrm, rows=5, ridge=0.0, droop=None, spli
         b, d, L = base[i], dirs[i], lens[i]
         th = (th0 + (th1 - th0) * s) * 0.5
         if ridge and 0 < i < nc - 1:
-            th *= 1.0 + (ridge if i % 2 else -ridge) * min(1.0, s * 3.0)
+            th *= 1.0 + (ridge if i % 2 else -ridge) * min(1.0, s * 3.0) * (1.0 - s) ** 2
         n = nrm[i] if isinstance(nrm[0], (list, tuple)) else nrm
         q = [b[k] + d[k] * L * s for k in range(3)]
         if droop:
@@ -476,10 +476,10 @@ def sal_cone(b, d, L, r, n=5):
     return oriented_open(m, b)
 
 
-SAL_JAW_T = [(0.032, 0.041, 0.054, 0.009), (0.042, 0.042, 0.064, 0.014),
-             (0.060, 0.044, 0.072, 0.021), (0.100, 0.038, 0.079, 0.030),
-             (0.150, 0.033, 0.080, 0.039), (0.205, 0.032, 0.072, 0.044),
-             (0.235, 0.034, 0.066, 0.040)]
+SAL_JAW_T = [(0.030, 0.056, 0.064, 0.009), (0.040, 0.054, 0.080, 0.015),
+             (0.060, 0.057, 0.100, 0.023), (0.100, 0.052, 0.120, 0.033),
+             (0.150, 0.047, 0.127, 0.042), (0.205, 0.046, 0.116, 0.048),
+             (0.235, 0.048, 0.104, 0.044)]
 
 
 def sal_jaw_sec(t):
@@ -496,8 +496,8 @@ def build_salmon():
 
     # --- the body: 56 sections, packed toward the head where the kype is
     rings = []
-    for i in range(48):
-        t = (i / 47.0) ** 1.25
+    for i in range(42):
+        t = (i / 41.0) ** 1.25
         rings.append([sal_ring_pt(t, math.tau * k / 22.0) for k in range(22)])
     out['sal_body'] = oriented(loft(rings))
 
@@ -517,12 +517,12 @@ def build_salmon():
         k = abs(c - 0.5) * 2
         e0 = back_e(t, side)
         return t, math.pi / 2 - (math.pi / 2 - e0) * k, side
-    out['sal_back'] = sal_patch(back_fn, 36, 9, 0.0075)
+    out['sal_back'] = sal_patch(back_fn, 30, 7, 0.0075)
 
     def belly_e(t):
-        return -math.pi / 2 + smooth_profile(t, [(0.185, 0.50), (0.23, 0.76), (0.30, 0.90),
-                                                  (0.45, 0.94), (0.60, 0.86), (0.72, 0.66),
-                                                  (0.82, 0.50), (0.90, 0.28)])
+        return -math.pi / 2 + smooth_profile(t, [(0.185, 0.40), (0.23, 0.55), (0.30, 0.62),
+                                                  (0.45, 0.64), (0.60, 0.58), (0.72, 0.46),
+                                                  (0.82, 0.34), (0.90, 0.20)])
 
     def belly_fn(r, c):
         t = 0.185 + 0.715 * r
@@ -536,29 +536,43 @@ def build_salmon():
     bars, dbars = Mesh(), Mesh()
     for side in (1, -1):
         for k in range(8):
-            tc = 0.285 + k * 0.073 + 0.008 * jag(k, side)
-            e_lo = -0.62 - 0.22 * (0.5 + 0.5 * jag(k, 3, side))
+            tc = 0.280 + k * 0.073 + 0.010 * jag(k, side)
+            fade = 1.0 - 0.10 * max(0, k - 4)              # smaller toward the tail
+            e_lo = (-0.80 - 0.18 * (0.5 + 0.5 * jag(k, 3, side))) * fade
+            wk = 0.022 * (1.0 + 0.40 * jag(k, 11, side)) * fade
 
-            def bar(r, c, tc=tc, e_lo=e_lo, k=k, side=side):
+            def bar(r, c, tc=tc, e_lo=e_lo, k=k, side=side, wk=wk, r0=0.0, r1=1.0, dt=0.0, sc=1.0):
+                r = r0 + (r1 - r0) * r
                 e_hi = back_e(tc, side) + 0.14
                 e = e_hi + (e_lo - e_hi) * r
-                hw = 0.021 * (1.0 + 0.30 * jag(k, 11, side)) * (1.0 + 0.25 * r) * (1.0 + 0.35 * jag(k, int(r * 12), side, c))
-                if r > 0.85:
-                    hw *= 1.0 - (r - 0.85) * 3.5
-                return tc + 0.016 * e + (c * 2 - 1) * hw, e, side
-            bars.merge(sal_patch(bar, 10, 2, 0.0055))
+                hw = wk * sc * (1.0 + 0.30 * r) * (1.0 + 0.45 * jag(k, int(r * 10), side, c))
+                if r > 0.80:
+                    hw *= max(0.15, 1.0 - (r - 0.80) * 4.0)
+                mz = 0.010 * jag(k, int(r * 5), side, 9)    # the bar wanders
+                return tc + 0.016 * e + mz + dt + (c * 2 - 1) * hw, e, side
+            if k in (1, 6):                                # broken
+                bars.merge(sal_patch(lambda r, c, f=bar: f(r, c, r0=0.0, r1=0.44), 5, 2, 0.0055))
+                bars.merge(sal_patch(lambda r, c, f=bar: f(r, c, r0=0.54, r1=1.0), 4, 2, 0.0055))
+            elif k in (2, 4):                              # forked at the foot
+                bars.merge(sal_patch(lambda r, c, f=bar: f(r, c, r0=0.0, r1=0.62), 6, 2, 0.0055))
+                for d in (-1, 1):
+                    bars.merge(sal_patch(lambda r, c, f=bar, d=d: f(r, c, r0=0.58, r1=1.0,
+                               dt=d * wk * (0.45 + 0.9 * r), sc=0.5), 3, 2, 0.0055))
+            else:
+                bars.merge(sal_patch(bar, 8, 2, 0.0055))
         for k in range(7):
-            tc = 0.285 + k * 0.073 + 0.0365 + 0.005 * jag(k, 7, side)
-            e_lo = -0.30 - 0.45 * (0.5 + 0.5 * jag(k, 5, side))
+            tc = 0.280 + k * 0.073 + 0.0365 + 0.006 * jag(k, 7, side)
+            e_lo = -0.40 - 0.45 * (0.5 + 0.5 * jag(k, 5, side))
+            wide = 1.9 if k == 3 else 1.0                   # two bars run together here
 
-            def dbar(r, c, tc=tc, e_lo=e_lo, k=k, side=side):
+            def dbar(r, c, tc=tc, e_lo=e_lo, k=k, side=side, wide=wide):
                 e_hi = back_e(tc, side) + 0.10
                 e = e_hi + (e_lo - e_hi) * r
-                hw = 0.0085 * (1.0 + 0.9 * r) * (1.0 + 0.45 * jag(k, int(r * 9), side, c, 2))
+                hw = 0.0095 * (1.0 + 0.9 * r * wide) * (1.0 + 0.45 * jag(k, int(r * 9), side, c, 2))
                 if r > 0.8:
                     hw *= 1.0 - (r - 0.8) * 4.0
                 return tc + 0.016 * e + (c * 2 - 1) * hw, e, side
-            dbars.merge(sal_patch(dbar, 8, 2, 0.006))
+            dbars.merge(sal_patch(dbar, 7, 2, 0.006))
     out['sal_bars'] = bars
     out['sal_dbars'] = dbars
 
@@ -610,11 +624,11 @@ def build_salmon():
 
     # --- the eye: small, set high over the long jaw, under a domed cornea
     eye, iris, pupil = Mesh(), Mesh(), Mesh()
-    TE, EE = 0.098, 0.20
+    TE, EE = 0.115, 0.22
     for side in (1, -1):
-        eye.merge(sal_dome(TE, EE, side, 0.0235, 0.0090, 0.004, 3, 16))
-        iris.merge(sal_dome(TE, EE, side, 0.0172, 0.0105, 0.007, 4, 16))
-        pupil.merge(sal_dome(TE, EE, side, 0.0098, 0.0160, 0.0040, 3, 14))
+        eye.merge(sal_dome(TE, EE, side, 0.0245, 0.0090, 0.004, 2, 12))
+        iris.merge(sal_dome(TE, EE, side, 0.0178, 0.0105, 0.007, 3, 12))
+        pupil.merge(sal_dome(TE, EE, side, 0.0100, 0.0160, 0.0040, 2, 12))
     out['sal_eye'] = eye
     out['sal_iris'] = iris
     out['sal_pupil'] = pupil
@@ -626,11 +640,11 @@ def build_salmon():
         side = 1 if c < 0.5 else -1
         k = abs(c - 0.5) * 2
         return t, -math.pi / 2 + 0.30 * k, side
-    out['sal_mouth'] = sal_patch(palate, 16, 5, 0.0015)
+    out['sal_mouth'] = sal_patch(palate, 11, 5, 0.0015)
 
     jr = []
     for i in range(16):
-        t = 0.235 - (0.235 - 0.032) * (i / 15.0) ** 0.8
+        t = 0.235 - (0.235 - 0.030) * (i / 15.0) ** 0.8
         top, bot, w = sal_jaw_sec(t)
         mid = 0.5 * (top + bot)
         ring = []
@@ -641,17 +655,16 @@ def build_salmon():
                          mid + math.copysign(abs(sa) ** 0.8, sa) * (bot - top) * 0.5))
         jr.append(ring)
     out['sal_jaw'] = oriented(loft(jr))
-    jaw_hinge = (sal_y(0.195), 0.040)
+    jaw_hinge = (sal_y(0.195), 0.048)
 
     teeth, lteeth = Mesh(), Mesh()
     for side in (1, -1):
-        for t, L in ((0.014, 0.030), (0.025, 0.024), (0.041, 0.013), (0.060, 0.015),
-                     (0.073, 0.010), (0.092, 0.013), (0.104, 0.009), (0.124, 0.011),
-                     (0.139, 0.008), (0.156, 0.009)):
+        for t, L in ((0.012, 0.036), (0.026, 0.026), (0.052, 0.010), (0.079, 0.013),
+                     (0.113, 0.008), (0.141, 0.010)):
             b = sal_pt(t, -1.26, side, -0.002)
             teeth.merge(sal_cone(b, (-side * 0.12, -0.10, 1.0), L, L * 0.30))
-        for t, L in ((0.034, 0.028), (0.045, 0.021), (0.063, 0.013), (0.077, 0.010),
-                     (0.096, 0.012), (0.110, 0.009), (0.128, 0.010), (0.143, 0.008)):
+        for t, L in ((0.036, 0.032), (0.048, 0.020), (0.074, 0.011), (0.104, 0.012),
+                     (0.133, 0.008)):
             top, bot, w = sal_jaw_sec(t)
             b = (side * w * 0.72, sal_y(t), top + 0.003)
             lteeth.merge(sal_cone(b, (side * 0.10, 0.10, -1.0), L, L * 0.30))
@@ -673,9 +686,9 @@ def build_salmon():
         r = 0.32 + 0.62 * i / (n - 1)
         dirs.append((0.0, -math.sin(r), -math.cos(r)))
         u = i / (n - 1.0)
-        lens.append((0.118 if i == 0 else 0.140 - 0.085 * u ** 1.1) * (1 + 0.05 * jag(i, 1)))
+        lens.append(1.25 * (0.118 if i == 0 else 0.140 - 0.085 * u ** 1.1) * (1 + 0.05 * jag(i, 1)))
     out['sal_dorsal'], out['sal_dorsal_m'] = sal_fin(
-        base, dirs, lens, 0.026, 0.009, X, 6, 0.30, (0.0, -0.10, 0.0), split=0.84)
+        base, dirs, lens, 0.026, 0.010, X, 5, 0.30, (0.0, -0.10, 0.0), split=0.84)
 
     # adipose: a small fleshy lobe, no rays — the salmonid signature
     n = 7
@@ -701,7 +714,7 @@ def build_salmon():
             L *= 0.90
         lens.append(L * (1 + 0.03 * jag(i, 4)))
     out['sal_caudal'], out['sal_caudal_m'] = sal_fin(
-        base, dirs, lens, 0.036, 0.009, X, 6, 0.28, split=0.80)
+        base, dirs, lens, 0.036, 0.010, X, 5, 0.28, split=0.80)
 
     # anal: under the adipose, raked back, a white leading tip
     n = 9
