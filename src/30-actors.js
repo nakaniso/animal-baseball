@@ -161,7 +161,7 @@ const ANIMALS = {
   beetle:  { ink: 0.013, body: 'beetle', ear: 'none', tail: 'none', noHat: 1,
              noGlove: 1, noBat: 1,
              // elytra / pronotum / head / horn / legs / underside
-             fur: '#47200E', fur2: '#2A170E', headC: '#21130B', horn: '#1B100A',
+             fur: '#55260F', fur2: '#2A170E', headC: '#21130B', horn: '#1B100A',
              leg: '#1F130B', venter: '#3E2414', brush: '#C07A34',
              // the cap sits on the pronotum behind the thoracic horn
              capS: 0.36, capY: 0.715, capZ: 0.17, capT: -0.20 },
@@ -942,7 +942,12 @@ function drawBeetle(x, z, ry, A, look, p, bob) {
   const wind = !bat && !run && !cheer && !fall && aL < -0.5 ? clamp((-aL - 0.5) / 2, 0, 1) : 0;
   rear -= wind * 0.22;
   // reaching for a ball: lift the front toward it
-  const reachY = bat ? null : p.handR ? p.handR[1] : p.handL ? p.handL[1] : null;
+  // Behind the plate he is crouched (drawn 0.22 low): head down, horn laid
+  // forward along the ground. Raised, it stood straight up in the middle of
+  // the batting camera's view, a black pole in front of the plate.
+  const crouch = !fall && !bat && bob < -0.1;
+  if (crouch) flex += 0.55;
+  const reachY = bat || crouch ? null : p.handR ? p.handR[1] : p.handL ? p.handL[1] : null;
   if (reachY !== null && !fall) flex -= clamp((reachY - 0.5) / 1.6, 0, 0.32);
 
   const W = mTRS(_bm.W, x, 0, z, 0, ry, 0, 1, 1, 1), B = _bm.B, F = _bm.F;
@@ -1066,7 +1071,10 @@ function drawBeetle(x, z, ry, A, look, p, bob) {
   beeAt('bee_scut', B, pro);
   R.gloss = 0.55;
   beeAt('bee_mark', B, col(look.uni));
+  // the pronotum is satin, not lacquer: a smaller, softer highlight
+  R.gloss = 0.35;
   beeAt('bee_prono', F, pro);
+  R.gloss = 0.55;
   beeAt('bee_head', F, headC);
   beeAt('bee_horn', F, horn);
   beeAt('bee_mouth', F, headC);
@@ -1084,8 +1092,9 @@ function drawBeetle(x, z, ry, A, look, p, bob) {
     const k = p.helmet ? A.capS * 1.12 : A.capS, cy = A.capY - (p.helmet ? 0.012 : 0);
     beeAt('cap_crown', F, cap, 0, cy, A.capZ, A.capT, k);
     beeAt('cap_bill', F, brim, 0, cy, A.capZ, A.capT, k);
-    beeAt('sphere', F, trim, 0, cy + 0.492 * k * Math.cos(A.capT), A.capZ + 0.492 * k * Math.sin(A.capT),
-          0, 0.082 * k);
+    if (!p.helmet)
+      beeAt('sphere', F, trim, 0, cy + 0.492 * k * Math.cos(A.capT), A.capZ + 0.492 * k * Math.sin(A.capT),
+            0, 0.082 * k);
   }
   R.gloss = 0;
   return { f: yawFrame(x, z, ry), hl: hl || [x, 0.4, z], hr: hr || [x, 0.4, z], hy: 1.0, y: bob };

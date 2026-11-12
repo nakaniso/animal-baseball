@@ -39,7 +39,8 @@ function togglePause() {
 /* The team's own player, drawn by the game's renderer into a corner of the
    canvas and copied out. The 2D sketches these replace could not keep up with
    the models: the salmon had ears, a nose and a cap. */
-const PORTRAIT = { salmon: { ty: 0.42, d: 2.6, ry: -1.45 }, beetle: { ty: 0.95, d: 2.6, ry: -1.0 },
+const PORTRAIT = { salmon: { ty: 0.42, d: 2.6, ry: -1.45 }, // the beetle like a specimen photograph: 3/4 from the front, from above
+                   beetle: { ty: 0.64, d: 2.42, ry: 0.04, ey: 1.65 },
                    rabbit: { ty: 1.30, d: 2.35, ry: -0.28 },
                    // the eyes on top are the frog: frame them, open
                    frog: { ty: 1.30, d: 2.75, ry: -0.24, face: EXPR.idle },
@@ -51,7 +52,7 @@ function paintPortrait(c, team) {
   R.resize();
   if (!R.w || R.w < w || R.h < h) return;
   const A = ANIMALS[team.animal], P = PORTRAIT[team.animal] || { ty: 1.2, d: 2.35, ry: -0.28 };
-  const cam = { ex: -1.15, ey: P.ty + 0.25, ez: P.d, tx: -0.30, ty: P.ty, tz: 0, fov: 34 };
+  const cam = { ex: -1.15, ey: P.ey || P.ty + 0.25, ez: P.d, tx: -0.30, ty: P.ty, tz: 0, fov: 34 };
   R.begin(cam, { light: [0.45, 0.75, 0.50], skyTint: '#DDEBF5', gndTint: '#6A7A5C',
                  fog: '#20303F', fogDist: 1000 }, w, h);
   // pennant stripes behind him, in the uniform colour

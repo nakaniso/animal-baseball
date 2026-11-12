@@ -1798,7 +1798,7 @@ fur: '#B4C2CB', fur2: '#EFF2F0', back: '#3C5E71', blush: '#B0524C',
 fin: '#7F909B', jaw: '#9DAAB2' },
 beetle:  { ink: 0.013, body: 'beetle', ear: 'none', tail: 'none', noHat: 1,
 noGlove: 1, noBat: 1,
-fur: '#47200E', fur2: '#2A170E', headC: '#21130B', horn: '#1B100A',
+fur: '#55260F', fur2: '#2A170E', headC: '#21130B', horn: '#1B100A',
 leg: '#1F130B', venter: '#3E2414', brush: '#C07A34',
 capS: 0.36, capY: 0.715, capZ: 0.17, capT: -0.20 },
 panda:   { ink: 0.022, ear: 'round', fur: '#F0EDE6', fur2: '#2C3138', tail: 'nub', patch: 1,
@@ -2386,7 +2386,9 @@ roll = 0.035 * w; yaw = 0.045 * w; lift += 0.012 * Math.abs(Math.cos(ph * Math.P
 }
 const wind = !bat && !run && !cheer && !fall && aL < -0.5 ? clamp((-aL - 0.5) / 2, 0, 1) : 0;
 rear -= wind * 0.22;
-const reachY = bat ? null : p.handR ? p.handR[1] : p.handL ? p.handL[1] : null;
+const crouch = !fall && !bat && bob < -0.1;
+if (crouch) flex += 0.55;
+const reachY = bat || crouch ? null : p.handR ? p.handR[1] : p.handL ? p.handL[1] : null;
 if (reachY !== null && !fall) flex -= clamp((reachY - 0.5) / 1.6, 0, 0.32);
 const W = mTRS(_bm.W, x, 0, z, 0, ry, 0, 1, 1, 1), B = _bm.B, F = _bm.F;
 if (flip) {
@@ -2493,7 +2495,9 @@ beeAt('bee_suture', B, shade(A.fur, 0.42));
 beeAt('bee_scut', B, pro);
 R.gloss = 0.55;
 beeAt('bee_mark', B, col(look.uni));
+R.gloss = 0.35;
 beeAt('bee_prono', F, pro);
+R.gloss = 0.55;
 beeAt('bee_head', F, headC);
 beeAt('bee_horn', F, horn);
 beeAt('bee_mouth', F, headC);
@@ -2507,6 +2511,7 @@ const cap = col(look.uni), brim = col(look.cap), trim = col(look.trim);
 const k = p.helmet ? A.capS * 1.12 : A.capS, cy = A.capY - (p.helmet ? 0.012 : 0);
 beeAt('cap_crown', F, cap, 0, cy, A.capZ, A.capT, k);
 beeAt('cap_bill', F, brim, 0, cy, A.capZ, A.capT, k);
+if (!p.helmet)
 beeAt('sphere', F, trim, 0, cy + 0.492 * k * Math.cos(A.capT), A.capZ + 0.492 * k * Math.sin(A.capT),
 0, 0.082 * k);
 }
@@ -4043,7 +4048,8 @@ $('#pause-score').textContent =
 show('#s-pause');
 } else show(null);
 }
-const PORTRAIT = { salmon: { ty: 0.42, d: 2.6, ry: -1.45 }, beetle: { ty: 0.95, d: 2.6, ry: -1.0 },
+const PORTRAIT = { salmon: { ty: 0.42, d: 2.6, ry: -1.45 }, // the beetle like a specimen photograph: 3/4 from the front, from above
+beetle: { ty: 0.64, d: 2.42, ry: 0.04, ey: 1.65 },
 rabbit: { ty: 1.30, d: 2.35, ry: -0.28 },
 frog: { ty: 1.30, d: 2.75, ry: -0.24, face: EXPR.idle },
 penguin: { ty: 1.26, d: 2.7, ry: -0.30 },
@@ -4053,7 +4059,7 @@ const w = c.width, h = c.height;
 R.resize();
 if (!R.w || R.w < w || R.h < h) return;
 const A = ANIMALS[team.animal], P = PORTRAIT[team.animal] || { ty: 1.2, d: 2.35, ry: -0.28 };
-const cam = { ex: -1.15, ey: P.ty + 0.25, ez: P.d, tx: -0.30, ty: P.ty, tz: 0, fov: 34 };
+const cam = { ex: -1.15, ey: P.ey || P.ty + 0.25, ez: P.d, tx: -0.30, ty: P.ty, tz: 0, fov: 34 };
 R.begin(cam, { light: [0.45, 0.75, 0.50], skyTint: '#DDEBF5', gndTint: '#6A7A5C',
 fog: '#20303F', fogDist: 1000 }, w, h);
 R.unlit(true);

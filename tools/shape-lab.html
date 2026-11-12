@@ -1116,7 +1116,7 @@ const BEAR_FACE = { eyeX: 0.1993, eyeY: 0.3866, eyeR: 0.0863, browY: 0.2455,
   muz: [0.5, 0.5, 0.4310, 0.3731] };
 
 /* beetle coxae, solved on the underside: [x, y, z, femur, tibia, tarsus] */
-const BEE_LEG = [[0.1454, 0.3395, 0.375, 0.3, 0.3, 0.23], [0.2095, 0.3161, 0.06, 0.29, 0.3, 0.21], [0.2269, 0.3182, -0.14, 0.34, 0.34, 0.25]];
+const BEE_LEG = [[0.1454, 0.3395, 0.375, 0.31, 0.31, 0.24], [0.2095, 0.3161, 0.06, 0.31, 0.32, 0.22], [0.2269, 0.3182, -0.14, 0.37, 0.37, 0.27]];
 const BEE_BONE = [0.3, 0.3, 0.22];
 
 /* the frog's face layout, solved off the head map */
@@ -1288,7 +1288,7 @@ const ANIMALS = {
   beetle:  { ink: 0.013, body: 'beetle', ear: 'none', tail: 'none', noHat: 1,
              noGlove: 1, noBat: 1,
              // elytra / pronotum / head / horn / legs / underside
-             fur: '#52230F', fur2: '#2A170E', headC: '#21130B', horn: '#1B100A',
+             fur: '#55260F', fur2: '#2A170E', headC: '#21130B', horn: '#1B100A',
              leg: '#1F130B', venter: '#3E2414', brush: '#C07A34',
              // the cap sits on the pronotum behind the thoracic horn
              capS: 0.36, capY: 0.715, capZ: 0.17, capT: -0.20 },
@@ -1960,7 +1960,7 @@ const BEE_REAR = [0, 0.10, -0.50];      // he rears about his hind legs
 const BEE_NECK = [0, 0.60, 0.08];       // the prothorax hinge
 const BEE_ROLL = [0, 0.42, -0.05];
 // the feet at rest, his left side: fore reach forward, mid out, hind back
-const BEE_FOOT = [[0.46, 0.82], [0.80, 0.10], [0.70, -0.74]];
+const BEE_FOOT = [[0.52, 0.92], [0.88, 0.06], [0.80, -0.86]];
 const BEE_SLIDE = [[0.34, 1.05], [0.86, -0.20], [0.60, -1.02]];
 const BEE_STRIDE = 0.34;
 const _bm = { W: m4(), B: m4(), F: m4(), T: m4(), U: m4(), V: m4(), M: m4(), S: m4() };
@@ -2031,9 +2031,9 @@ function beeBone(prim, a, b, L0, ref, side, c) {
    counting long after the swing, so the last key is the stance again. */
 function beetleSwing(st) {
   const L = SWING_LAG;
-  const K = [[0, 0.30, 0, -0.22, 0], [0.05, 0.42, 0.02, -0.34, 0.04],
-             [L, -0.26, -0.20, 0.02, -0.10], [L + 0.12, -0.62, -0.42, 0.50, -0.22],
-             [L + 0.40, -0.40, -0.24, 0.42, -0.10], [L + 0.85, 0.30, 0, -0.22, 0]];
+  const K = [[0, 0.30, 0, -0.22, 0], [0.05, 0.42, 0.02, -0.30, 0.04],
+             [L, -0.15, -0.05, 0.0, -0.08], [L + 0.12, -0.58, -0.28, 0.45, -0.20],
+             [L + 0.40, -0.34, -0.14, 0.35, -0.08], [L + 0.85, 0.30, 0, -0.22, 0]];
   const o = { flex: K[0][1], rear: K[0][2], yaw: K[0][3], roll: K[0][4] };
   if (!(st > 0)) return o;
   if (st >= K[K.length - 1][0]) return o;
@@ -2069,7 +2069,12 @@ function drawBeetle(x, z, ry, A, look, p, bob) {
   const wind = !bat && !run && !cheer && !fall && aL < -0.5 ? clamp((-aL - 0.5) / 2, 0, 1) : 0;
   rear -= wind * 0.22;
   // reaching for a ball: lift the front toward it
-  const reachY = p.handR ? p.handR[1] : p.handL && !bat ? p.handL[1] : null;
+  // Behind the plate he is crouched (drawn 0.22 low): head down, horn laid
+  // forward along the ground. Raised, it stood straight up in the middle of
+  // the batting camera's view, a black pole in front of the plate.
+  const crouch = !fall && !bat && bob < -0.1;
+  if (crouch) flex += 0.55;
+  const reachY = bat || crouch ? null : p.handR ? p.handR[1] : p.handL ? p.handL[1] : null;
   if (reachY !== null && !fall) flex -= clamp((reachY - 0.5) / 1.6, 0, 0.32);
 
   const W = mTRS(_bm.W, x, 0, z, 0, ry, 0, 1, 1, 1), B = _bm.B, F = _bm.F;
@@ -2193,7 +2198,10 @@ function drawBeetle(x, z, ry, A, look, p, bob) {
   beeAt('bee_scut', B, pro);
   R.gloss = 0.55;
   beeAt('bee_mark', B, col(look.uni));
+  // the pronotum is satin, not lacquer: a smaller, softer highlight
+  R.gloss = 0.35;
   beeAt('bee_prono', F, pro);
+  R.gloss = 0.55;
   beeAt('bee_head', F, headC);
   beeAt('bee_horn', F, horn);
   beeAt('bee_mouth', F, headC);
@@ -2211,8 +2219,9 @@ function drawBeetle(x, z, ry, A, look, p, bob) {
     const k = p.helmet ? A.capS * 1.12 : A.capS, cy = A.capY - (p.helmet ? 0.012 : 0);
     beeAt('cap_crown', F, cap, 0, cy, A.capZ, A.capT, k);
     beeAt('cap_bill', F, brim, 0, cy, A.capZ, A.capT, k);
-    beeAt('sphere', F, trim, 0, cy + 0.492 * k * Math.cos(A.capT), A.capZ + 0.492 * k * Math.sin(A.capT),
-          0, 0.082 * k);
+    if (!p.helmet)
+      beeAt('sphere', F, trim, 0, cy + 0.492 * k * Math.cos(A.capT), A.capZ + 0.492 * k * Math.sin(A.capT),
+            0, 0.082 * k);
   }
   R.gloss = 0;
   return { f: yawFrame(x, z, ry), hl: hl || [x, 0.4, z], hr: hr || [x, 0.4, z], hy: 1.0, y: bob };
@@ -2911,6 +2920,32 @@ const SETS = {
                             pose: { helmet: 1 } }),
   ],
 };
+// The beetle lies along the ground with his head low in front, so the head
+// and horn close-ups framed for the upright animals miss him: his own c and e.
+const SETS_OF = { beetle: {
+  c: [
+    view('頭 正面',       { ry: Math.PI, ey: 0.62, ty: 0.44, tz: -0.58, dist: 2.2, fr: 0.30 }),
+    view('頭 3/4',        { ry: Math.PI * 0.75, ey: 0.70, ty: 0.44, tx: 0.42, tz: -0.42, dist: 2.2, fr: 0.30 }),
+    view('頭 横',         { ry: Math.PI * 0.5, ey: 0.50, ty: 0.42, tx: 0.58, dist: 2.2, fr: 0.30 }),
+    view('腹 仰向け',     { ry: Math.PI * 0.70, ey: 1.7, ty: 0.30, dist: 2.6, fr: 0.80,
+                            pose: { fall: 1.45, legL: -0.5, legR: 0.4 } }),
+  ],
+  e: [
+    view('角 横',         { ry: Math.PI * 0.5, ey: 0.95, ty: 0.85, tx: 0.80, dist: 2.6, fr: 0.58 }),
+    view('角 上から',     { ry: Math.PI, ey: 2.2, ty: 0.95, tz: -0.85, dist: 1.6, fr: 0.45 }),
+    view('前脚 3/4',      { ry: Math.PI * 0.78, ey: 0.55, ty: 0.22, tx: 0.30, tz: -0.55, dist: 2.4, fr: 0.38 }),
+    view('後脚 斜め後ろ', { ry: Math.PI * 0.20, ey: 0.55, ty: 0.22, tx: 0.30, tz: -0.30, dist: 2.4, fr: 0.45 }),
+  ],
+  f: [
+    view('帽子 3/4',      { ry: Math.PI * 0.74, ey: 1.30, ty: 0.80, tx: 0.13, tz: -0.13, dist: 2.3, fr: 0.36 }),
+    view('帽子 横',       { ry: Math.PI * 0.5, ey: 0.95, ty: 0.80, tx: 0.18, dist: 2.3, fr: 0.36 }),
+    view('ヘル 3/4',      { ry: Math.PI * 0.74, ey: 1.30, ty: 0.80, tx: 0.13, tz: -0.13, dist: 2.3, fr: 0.36,
+                            pose: { helmet: 1 } }),
+    view('ヘル 横',       { ry: Math.PI * 0.5, ey: 0.95, ty: 0.80, tx: 0.18, dist: 2.3, fr: 0.36,
+                            pose: { helmet: 1 } }),
+  ],
+} };
+const setOf = (a, v) => ((SETS_OF[a] || {})[v]) || SETS[v] || SETS.a;
 let VIEWS = SETS.a;
 
 const COLS = 2, TW = 520, TH = 520;
@@ -2923,7 +2958,8 @@ function renderAll(animal) {
   VIEWS.forEach((v, i) => {
     const d = v.dist;
     const fov = 2 * Math.atan(v.fr / d) * 180 / Math.PI;
-    R.begin({ ex: 0, ey: v.ey, ez: v.ez !== undefined ? v.ez : -d, tx: 0, ty: v.ty, tz: 0, fov: fov }, ENV);
+    R.begin({ ex: v.tx || 0, ey: v.ey, ez: (v.ez !== undefined ? v.ez : -d) + (v.tz || 0), tx: v.tx || 0, ty: v.ty,
+               tz: v.tz || 0, fov: fov }, ENV);
     drawAnimal(0, 0, v.ry, LOOKS[animal], v.pose, 0);
     const x = (i % COLS) * TW, y = Math.floor(i / COLS) * TH;
     sctx.drawImage(glc, x, y, TW, TH);
@@ -2944,10 +2980,10 @@ if (!R.init(glc)) {
   R.upload(buildFaceAtlas());
   const q = new URLSearchParams(location.search);
   const animal = q.get('a') || window.LAB_ANIMAL || 'bear';
-  VIEWS = SETS[q.get('v') || window.LAB_SET || 'a'] || SETS.a;
+  VIEWS = setOf(animal, q.get('v') || window.LAB_SET || 'a');
   R.resize();
   requestAnimationFrame(() => { renderAll(animal); });
   // so the page can be re-driven from the console without a reload
-  window.LAB = (a, v) => { VIEWS = SETS[v || 'a'] || SETS.a; renderAll(a || animal); };
+  window.LAB = (a, v) => { VIEWS = setOf(a || animal, v || 'a'); renderAll(a || animal); };
 }
 </script>
