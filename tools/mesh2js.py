@@ -1378,6 +1378,106 @@ def build_rabbit():
             ring.append((math.cos(b) * sr * r, cy * r, math.sin(b) * sr * r))
         rings.append(ring)
     out['rabbit_tail'] = oriented(loft(rings))
+    out.update(build_rabbit_torso())
+    return out
+
+
+# The torso. The head is a sphere that the child's drawing is projected onto,
+# so it stays; what is baked is the little egg under it. Pear rather than
+# barrel: widest at the hips, so the haunches flow out of it instead of
+# hanging under a ball, and still wide where it disappears into the head —
+# a rabbit toy has no neck any more than the bear does.
+# About the torso anchor (y+0.74), so the hem is at y+0.34 and the top is
+# buried in the head at y+1.10.
+# Round 2: the hem came down to y+0.20 so the haunches are swallowed when he
+# stands and only a little fluff and the big shoes show; the widest point
+# went down with it (y+0.43) and the shoulders narrowed, so the longer sack
+# reads as a squat pear and not a capsule. The chin sits at y+0.95.
+RAB_LO, RAB_HI = -0.540, 0.320
+RAB_W = [(0.00, 0.100), (0.03, 0.192), (0.07, 0.250), (0.12, 0.290),
+         (0.19, 0.316), (0.27, 0.324), (0.36, 0.315), (0.46, 0.292),
+         (0.56, 0.260), (0.66, 0.224), (0.75, 0.196), (0.83, 0.176),
+         (0.90, 0.161), (0.96, 0.150), (1.00, 0.142)]
+RAB_D = 0.90                         # depth as a share of width: an egg, not a board
+RAB_Z = [(0.00, 0.000), (0.35, 0.016), (0.62, 0.012), (1.00, -0.010)]
+
+
+def rab_body_pt(a, t, out=0.0):
+    """`a` from the middle of the chest (0) round toward his left, `t` from
+    the hem (0) to the top (1)."""
+    y = RAB_LO + t * (RAB_HI - RAB_LO)
+    hw = lerp_profile(t, RAB_W)
+    hd = hw * RAB_D + out
+    hw += out
+    sa, ca = math.sin(a), math.cos(a)
+    return (sa * hw, y, ca * hd + lerp_profile(t, RAB_Z))
+
+
+def rab_patch(fn, a0, a1, t0, t1, out, na, nt, closed=False):
+    """A piece of the torso's own surface, lifted along its normal (the
+    surface is round enough that the radial offset rab_body_pt does is it)."""
+    m = Mesh()
+    cols = na if closed else na + 1
+    rows = [[m.vert(*fn(a0 + (a1 - a0) * j / float(na), t0 + (t1 - t0) * i / float(nt), out))
+             for j in range(cols)] for i in range(nt + 1)]
+    for i in range(nt):
+        for j in range(na):
+            k = (j + 1) % cols if closed else j + 1
+            m.quad(rows[i][j], rows[i][k], rows[i + 1][k], rows[i + 1][j])
+    return m
+
+
+def rab_dot(a_c, t_c, r, out, n=10):
+    """A flat round button lying on the torso: a fan in (arc, height)."""
+    m = Mesh()
+    H = RAB_HI - RAB_LO
+    w = lerp_profile(t_c, RAB_W)
+    c = m.vert(*rab_body_pt(a_c, t_c, out))
+    ring = [m.vert(*rab_body_pt(a_c + r * math.cos(math.tau * k / n) / w,
+                                t_c + r * math.sin(math.tau * k / n) / H, out))
+            for k in range(n)]
+    for k in range(n):
+        m.tri(c, ring[k], ring[(k + 1) % n])
+    return m
+
+
+def build_rabbit_torso():
+    out = {}
+    out['rabbit_body'] = oriented(rab_patch(rab_body_pt, 0.0, math.tau, 0.0, 1.0, 0.0,
+                                            20, 17, closed=True))
+    b = out['rabbit_body']
+    for ring_t, rev in ((0.0, True), (1.0, False)):     # close hem and top
+        nr = [i for i, v in enumerate(b.v) if abs(v[1] - (RAB_LO + ring_t * (RAB_HI - RAB_LO))) < 1e-9]
+        c = b.vert(sum(b.v[i][0] for i in nr) / len(nr), b.v[nr[0]][1],
+                   sum(b.v[i][2] for i in nr) / len(nr))
+        for j in range(len(nr)):
+            p, q = nr[j], nr[(j + 1) % len(nr)]
+            b.tri(c, q, p) if rev else b.tri(c, p, q)
+    oriented(b)
+
+    # The trim is what lets white jersey over white fur read at all. A neckline
+    # mostly under the chin (shows as a smile of pink below the head), a thin
+    # belt where the hips start, a placket and three buttons.
+    out['rabbit_collar'] = rab_patch(rab_body_pt, 0.0, math.tau, 0.79, 0.85, 0.007, 20, 1, True)
+    out['rabbit_placket'] = rab_patch(rab_body_pt, -0.075, 0.075, 0.10, 0.79, 0.006, 2, 8)
+    dots = Mesh()
+    for t in (0.35, 0.49, 0.63):
+        dots.merge(rab_dot(0.0, t, 0.026, 0.011))
+    out['rabbit_button'] = dots
+
+    # The sleeve, hung from the shoulder joint and pointing down -Y, so it is
+    # placed exactly like the arm cylinder and swings with it. Short and puffed,
+    # with a dome over the joint: the old sleeve was a cylinder whose flat cut
+    # end sat on the shoulder like a pipe.
+    prof = [(0.075, 0.000), (0.068, 0.045), (0.050, 0.075), (0.020, 0.094),
+            (-0.030, 0.100), (-0.090, 0.098), (-0.135, 0.094), (-0.150, 0.082)]
+    rings = [[(math.cos(math.tau * k / 14) * r, y, math.sin(math.tau * k / 14) * r)
+              for k in range(14)] for y, r in reversed(prof) if r > 0]
+    out['rabbit_sleeve'] = oriented(loft(rings, cap_start=True, cap_end=True))
+    # the cuff: a painted ring round the opening, like the bear's stripes
+    cuff = [[(math.cos(math.tau * k / 14) * (r + 0.006), y, math.sin(math.tau * k / 14) * (r + 0.006))
+             for k in range(14)] for y, r in ((-0.130, 0.0952), (-0.100, 0.098))]
+    out['rabbit_cuff'] = oriented(loft(cuff, cap_start=False, cap_end=False))
     return out
 
 
@@ -1574,6 +1674,43 @@ def load_obj(path):
     return m
 
 
+def _varint(v, out):
+    while v >= 128:
+        out.append((v & 127) | 128)
+        v >>= 7
+    out.append(v)
+
+
+def rle_index(flat, lag):
+    """Index stream as runs of a constant difference from the entry `lag`
+    back. A grid of quads repeats +1 every 6 entries, so a whole ring of the
+    loft collapses to one run. Token = (zigzag(delta) << 1 | repeated), then
+    the run length - 2 if repeated. The runtime in geoMesh() undoes it."""
+    out = bytearray()
+    r = [q - (flat[k - lag] if k >= lag else 0) for k, q in enumerate(flat)]
+    k = 0
+    while k < len(r):
+        n = 1
+        while k + n < len(r) and r[k + n] == r[k]:
+            n += 1
+        z = (r[k] << 1) ^ (r[k] >> 63)
+        _varint((z << 1) | (n > 1), out)
+        if n > 1:
+            _varint(n - 2, out)
+        k += n
+    return '%d|%s' % (lag, base64.b64encode(bytes(out)).decode())
+
+
+def pack_index(flat, raw64):
+    """The smallest of: raw Uint16 base64, or RLE-of-differences at the best lag."""
+    best = raw64
+    for lag in range(1, 13):
+        e = rle_index(flat, lag)
+        if len(e) < len(best):
+            best = e
+    return best
+
+
 def pack(m):
     nor = m.normals()
     xs = [v[0] for v in m.v]
@@ -1591,12 +1728,13 @@ def pack(m):
     ib = bytearray()
     for a, b, c in m.f:
         ib += struct.pack('<HHH', a, b, c)
+    flat = [q for f in m.f for q in f]
     off = [lo[i] + 16000 * sc[i] for i in range(3)]
     d = {
         'sc': sc, 'off': off,
         'p': base64.b64encode(bytes(pb)).decode(),
         'n': base64.b64encode(bytes(nb)).decode(),
-        'i': base64.b64encode(bytes(ib)).decode(),
+        'i': pack_index(flat, base64.b64encode(bytes(ib)).decode()),
         'nv': len(m.v), 'nf': len(m.f),
     }
     # UVs ride along only on the patches that carry a face decal; Uint16 over
