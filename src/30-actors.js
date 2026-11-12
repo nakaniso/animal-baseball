@@ -161,9 +161,14 @@ const ANIMALS = {
              line: '#3A4034', oper: '#68705A', jaw: '#484A3F',
              fin: '#474C3C', finEdge: '#23251E', finTip: '#CFCBB6' },
 
-  beetle:  { ink: 0.013, body: 'beetle', ear: 'none', tail: 'none', capY: -0.20, capS: 0.40,
+  beetle:  { ink: 0.013, body: 'beetle', ear: 'none', tail: 'none', noHat: 1,
              noGlove: 1, noBat: 1,
-             fur: '#3E2717', fur2: '#5C3C22', horn: '#20130A', leg: '#281A0E' },
+             // elytra / pronotum / head / horn / legs / underside
+             fur: '#55260F', fur2: '#2A170E', headC: '#21130B', horn: '#1B100A',
+             leg: '#1F130B', venter: '#3E2414', brush: '#8A6838',
+             // no cap, no helmet: a beetle wears nothing but a breeder's
+             // dab of paint (bee_mark)
+           },
 
   panda:   { ink: 0.022, ear: 'round', fur: '#F0EDE6', fur2: '#2C3138', tail: 'nub', patch: 1,
              head: 'rbox', hw: 1.12, hh: 1.04, hd: 0.98,
@@ -865,28 +870,6 @@ function salHinge(M, a, b, ang, out) {
 }
 
 
-/* The beetle's swing. No bat and no arms, so he fights the way a rhinoceros
-   beetle fights: drops the whole shell forward until the horn is in the dirt,
-   heaves up on all six legs, scoops the ball off the tip and flings it back
-   over his shoulders.
-
-   It is a pitch of the body about BEE_PIVOT, carried on `f.t` so the legs and
-   the cap come along with the shell. The horn tip sits 1.31m from the pivot,
-   which is what fixes the numbers: 0.97 puts the tip in the dirt, and 0.50 —
-   the pitch at SWING_LAG, the moment of contact — puts it at the height of a
-   ball down the middle. Like fishSwing it settles back to 0 on its own,
-   because G.batSwingT keeps counting long after the swing is over. */
-const BEE_PIVOT = 0.50;
-function beetleSwing(st) {
-  const K = [[0, 0], [0.05, 0.97], [SWING_LAG, 0.50], [SWING_LAG + 0.20, -0.55],
-             [SWING_LAG + 0.48, 0.12], [SWING_LAG + 0.75, 0]];
-  if (!(st > 0) || st >= K[K.length - 1][0]) return 0;
-  let i = 0;
-  while (st > K[i + 1][0]) i++;
-  const u = (st - K[i][0]) / (K[i + 1][0] - K[i][0]), e = u * u * (3 - 2 * u);
-  return lerp(K[i][1], K[i + 1][1], e);
-}
-
 /* ---------- 鮭 ---------- */
 function drawSalmon(f, A, look, p, y) {
   const sw = p.swingT;
@@ -961,83 +944,288 @@ function drawSalmon(f, A, look, p, y) {
   R.bend = null;
 }
 
-/* ---------- カブトムシ ---------- */
+/* ---------- カブトムシ ----------
+   A male Trypoxylus dichotomus, as the insect: horizontal on six legs, belly
+   a hand off the dirt, head down in front and the horn rising out of it.
 
-/* The legs. Six of them, and the reason the first six looked like they came
-   out of his middle is that they were hung on numbers that looked about right
-   — all of them inside the shell. `BEE_LEG` comes out of the baker instead,
-   solved against the same profile the wing cases are lofted from, so each one
-   starts on the shell however the shell is retuned.
+   He is drawn with his own matrices rather than `part()`, because a beetle
+   that rears, twists its prothorax and rolls onto its back needs rotations
+   that one pitch about the hips cannot give. Everything goes through
+   W (where he stands, which way he faces) · B (the body: rear, yaw, roll,
+   lift) · F (the prothorax hinge: head, pronotum, horns and fore legs flip
+   up together, which is how the real one throws a rival).
 
-   Each leg is coxa, femur, shin, tarsus. The joint ball at the top is what
-   lets the femur swing wide without the leg reading as stuck on, which is
-   what stopped the last attempt at pushing them outward.
+   The legs are coxa, femur, tibia, tarsus, solved every frame by IK from the
+   coxa (BEE_LEG, solved on the underside in the baker) to a foot on the
+   ground. When he runs the feet are planted in the world: the stride phase
+   is how far he has come along his own heading, so a planted foot does not
+   skate. It is an alternating tripod — left fore, right mid, left hind
+   against the other three — the way every insect walks. */
+const BEE_REAR = [0, 0.10, -0.50];      // he rears about his hind legs
+const BEE_NECK = [0, 0.60, 0.08];       // the prothorax hinge
+const BEE_ROLL = [0, 0.42, -0.05];
+// the feet at rest, his left side: fore reach forward, mid out, hind back
+// tucked in the way the real one stands: about 1.45x the shell's width across
+// the feet, the hind pair trailing back along the body. Splayed twice as wide,
+// the outfield read a dark spider instead of a shell with a horn.
+const BEE_FOOT = [[0.42, 0.80], [0.54, 0.02], [0.46, -0.84]];
+const BEE_SLIDE = [[0.30, 0.98], [0.60, -0.20], [0.42, -1.05]];
+const BEE_STRIDE = 0.34;
+const _bm = { W: m4(), B: m4(), F: m4(), T: m4(), U: m4(), V: m4(), M: m4(), S: m4() };
 
-   The bones are solved against the drop the row actually has to cover, so the
-   feet reach the ground from all three anchor heights rather than being three
-   hand-tuned lengths that go wrong the moment an anchor moves. */
-const BEE_SPLAY = 0.80;             // how far out from the body the femur goes
-const BEE_SHIN = [0.10, -0.30];     // and how the shin comes back under him
-const BEE_TARS = 0.55;
+/* rotate about the point p (the Y*X*Z order mTRS uses) */
+function mPiv(o, p, rx, ry, rz) {
+  mTRS(o, 0, 0, 0, rx, ry, rz, 1, 1, 1);
+  o[12] = p[0] - (o[0] * p[0] + o[4] * p[1] + o[8] * p[2]);
+  o[13] = p[1] - (o[1] * p[0] + o[5] * p[1] + o[9] * p[2]);
+  o[14] = p[2] - (o[2] * p[0] + o[6] * p[1] + o[10] * p[2]);
+  return o;
+}
+function mPt(m, p) {
+  return [m[0] * p[0] + m[4] * p[1] + m[8] * p[2] + m[12],
+          m[1] * p[0] + m[5] * p[1] + m[9] * p[2] + m[13],
+          m[2] * p[0] + m[6] * p[1] + m[10] * p[2] + m[14]];
+}
+function mDir(m, p) {
+  return [m[0] * p[0] + m[4] * p[1] + m[8] * p[2],
+          m[1] * p[0] + m[5] * p[1] + m[9] * p[2],
+          m[2] * p[0] + m[6] * p[1] + m[10] * p[2]];
+}
+const v3sub = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
+const v3dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+const v3cross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+function v3unit(a) { const l = Math.hypot(a[0], a[1], a[2]) || 1e-6; return [a[0] / l, a[1] / l, a[2] / l]; }
 
-function beetleLeg(f, A, y, row, sg, sp2, s, legC, ln) {
-  const [lx, ly, lz, , rake] = row;
-  const jx = s * (lx + sp2), jy = y + ly;
-  const fRx = rake + sg * 0.30, fRz = s * BEE_SPLAY;
-  const sRx = BEE_SHIN[0] + sg * 0.85, sRz = s * BEE_SHIN[1];
-  const tRx = BEE_TARS + sg * 0.40, tRz = s * -0.10;
-
-  // share the drop out among the three bones, then let the shin take up the
-  // slack; `ly` is exactly how far the foot has to fall to reach the ground
-  const Lf = ly * 0.40, Lt = ly * 0.34;
-  const drop = (rx, rz, L) => Math.cos(rx) * Math.cos(rz) * L;
-  const Ls = Math.max(0.10, (ly - drop(fRx, fRz, Lf) - drop(tRx, tRz, Lt))
-                            / (Math.cos(sRx) * Math.cos(sRz)));
-
-  part(f, 'sphere', jx, jy, lz, 0.105, 0.098, 0.105, legC, ln);   // coxa
-  const kn = limb(f, jx, jy, lz, fRx, fRz, Lf, 0.040, legC, null, 0);
-  part(f, 'sphere', kn[0], kn[1], kn[2], 0.072, 0.072, 0.072, legC);   // knee
-  let an;
-  if (row === BEE_LEG[0]) {
-    // the front pair digs, so it gets the toothed shin off the baker
-    part(f, s < 0 ? 'bee_tibR' : 'bee_tibL', kn[0], kn[1], kn[2],
-         1, Ls / 0.30, 1, legC, sRx, sRz);
-    an = limbTip(kn[0], kn[1], kn[2], sRx, sRz, Ls);
-  } else {
-    an = limb(f, kn[0], kn[1], kn[2], sRx, sRz, Ls, 0.030, legC, null, 0);
-  }
-  part(f, 'sphere', an[0], an[1], an[2], 0.052, 0.052, 0.052, legC);   // ankle
-  limb(f, an[0], an[1], an[2], tRx, tRz, Lt, 0.019, legC, legC, 0.046);
+/* one baked part under a full matrix (R.d only takes Euler angles) */
+function beeDraw(prim, M, c) {
+  const gl = R.gl, pt = GEO.parts[prim];
+  gl.uniformMatrix4fv(R.u.uM, false, M);
+  gl.uniform3fv(R.u.uColor, R.inkW > 0 ? inkOf(c) : c);
+  R._g();
+  gl.drawElements(gl.TRIANGLES, pt.count, gl.UNSIGNED_SHORT, pt.offset);
+}
+/* a part authored at the origin, placed by `base` (in his frame) then W */
+function beeAt(prim, base, c, tx, ty, tz, rx, sc) {
+  mTRS(_bm.T, tx || 0, ty || 0, tz || 0, rx || 0, 0, 0, sc || 1, sc || 1, sc || 1);
+  mMul(_bm.U, base, _bm.T);
+  mMul(_bm.M, _bm.W, _bm.U);
+  beeDraw(prim, _bm.M, c);
+}
+/* a bone from joint a to joint b (yaw frame). The baked bone runs down -Y
+   from its joint at length L0; `ref` says which way its outer edge faces. */
+function beeBone(prim, a, b, L0, ref, side, c) {
+  const d = v3sub(a, b), len = Math.hypot(d[0], d[1], d[2]) || 1e-4;
+  const Y = [d[0] / len, d[1] / len, d[2] / len];
+  let X = v3sub(side, Y.map((q) => q * v3dot(side, Y)));
+  if (Math.hypot(X[0], X[1], X[2]) < 1e-4) X = [0, 0, 1];
+  X = v3unit(X);
+  let Z = v3cross(X, Y);
+  if (v3dot(Z, ref) < 0) { X = X.map((q) => -q); Z = Z.map((q) => -q); }
+  const S = _bm.S, k = len / L0;
+  S[0] = X[0]; S[1] = X[1]; S[2] = X[2]; S[3] = 0;
+  S[4] = Y[0] * k; S[5] = Y[1] * k; S[6] = Y[2] * k; S[7] = 0;
+  S[8] = Z[0]; S[9] = Z[1]; S[10] = Z[2]; S[11] = 0;
+  S[12] = a[0]; S[13] = a[1]; S[14] = a[2]; S[15] = 1;
+  mMul(_bm.M, _bm.W, S);
+  beeDraw(prim, _bm.M, c);
 }
 
-function drawBeetle(f, A, look, p, y, big) {
-  const legC = col(A.leg), horn = col(A.horn);
-  const uni = col(look.uni), trim = col(look.trim);
-  const ln = p.lean || 0;
+/* The swing. He has no bat; he hits the way a rhinoceros beetle throws a
+   rival off a branch. Side-on to the plate, horn low over the dirt — then
+   the prothorax snaps up and across while he rears on his hind legs, which
+   flings the horn up through the zone. `flex` is the prothorax hinge (+ is
+   head down), `rear` the body about the hind legs (- is up), `yaw` turns the
+   horn toward the pitcher (+). Contact is at SWING_LAG; G.batSwingT keeps
+   counting long after the swing, so the last key is the stance again. */
+function beetleSwing(st) {
+  const L = SWING_LAG;
+  const K = [[0, 0.30, 0, -0.22, 0], [0.05, 0.42, 0.02, -0.30, 0.04],
+             [L, -0.15, -0.05, 0.0, -0.08], [L + 0.12, -0.58, -0.28, 0.45, -0.20],
+             [L + 0.40, -0.34, -0.14, 0.35, -0.08], [L + 0.85, 0.30, 0, -0.22, 0]];
+  const o = { flex: K[0][1], rear: K[0][2], yaw: K[0][3], roll: K[0][4] };
+  if (!(st > 0)) return o;
+  if (st >= K[K.length - 1][0]) return o;
+  let i = 0;
+  while (st > K[i + 1][0]) i++;
+  const u = (st - K[i][0]) / (K[i + 1][0] - K[i][0]), e = u * u * (3 - 2 * u);
+  o.flex = lerp(K[i][1], K[i + 1][1], e); o.rear = lerp(K[i][2], K[i + 1][2], e);
+  o.yaw = lerp(K[i][3], K[i + 1][3], e); o.roll = lerp(K[i][4], K[i + 1][4], e);
+  return o;
+}
 
-  const sw = p.legL || 0, sw2 = p.legR || 0, sp2 = p.spread || 0;
-  for (const row of BEE_LEG) for (const s of [-1, 1])
-    beetleLeg(f, A, y, row, (s < 0 ? sw : sw2) * row[3], sp2, s, legC, ln);
+function drawBeetle(x, z, ry, A, look, p, bob) {
+  const bat = p.swingT !== undefined;
+  if (bat) ry = -Math.PI / 2;               // squarely side-on, whatever the rig turns
+  const fall = p.fall || 0, flip = Math.abs(fall) > 1.3;
+  const slide = !flip && fall < 0 ? clamp(-fall / 1.18, 0, 1) : 0;
+  const aL = p.armL || 0, aR = p.armR || 0;
+  const cheer = !flip && !bat && aL < -1.8 && aR < -1.8;
+  const lg = p.legL || 0, run = !bat && !fall && lg !== 0 && Math.abs(lg + (p.legR || 0)) < 1e-6;
+  const cs = Math.cos(ry), sn = Math.sin(ry);
+  const ph = p.gait !== undefined ? p.gait : run ? (x * sn + z * cs) / (2 * BEE_STRIDE) : null;
 
-  // The shell, in three separated values. They were within a shade of each
-  // other before, and three brown domes of the same brown read as one lump.
-  part(f, 'bee_elytra', 0, y, 0, 1, 1, 1, shade(A.fur, 1.70), ln);
-  part(f, 'bee_seam', 0, y, 0, 1, 1, 1, shade(A.fur, 0.60), ln);
-  part(f, 'bee_scut', 0, y, 0, 1, 1, 1, shade(A.fur, 0.42), ln);
-  part(f, 'bee_prono', 0, y, 0, 1, 1, 1, shade(A.fur, 1.18), ln);
-  part(f, 'bee_head', 0, y, 0, 1, 1, 1, shade(A.fur, 1.02), ln);
-  part(f, 'bee_horn', 0, y, 0, 1, 1, 1, horn, ln);
+  // ---- body pose
+  let lift = fall ? 0 : bob, rear = 0, yaw = 0, roll = 0, flex = 0;
+  if (bat) { const k = beetleSwing(p.swingT); flex = k.flex; rear = k.rear; yaw = k.yaw; roll = k.roll; }
+  if (cheer) { rear = -0.46; flex = -0.30; }
+  if (slide) { lift -= 0.23 * slide; flex = -0.08 * slide; }
+  if (ph !== null) {
+    const w = Math.sin(ph * Math.PI * 2);
+    roll = 0.035 * w; yaw = 0.045 * w; lift += 0.012 * Math.abs(Math.cos(ph * Math.PI * 2));
+  }
+  // the pitcher winds up by raising his right fore leg and rearing a little
+  const wind = !bat && !run && !cheer && !fall && aL < -0.5 ? clamp((-aL - 0.5) / 2, 0, 1) : 0;
+  rear -= wind * 0.22;
+  // reaching for a ball: lift the front toward it
+  // Behind the plate he is crouched (drawn 0.22 low): head down, horn laid
+  // forward along the ground. Raised, it stood straight up in the middle of
+  // the batting camera's view, a black pole in front of the plate.
+  const crouch = !fall && !bat && bob < -0.1;
+  if (crouch) flex += 0.60;
+  const reachY = bat || crouch ? null : p.handR ? p.handR[1] : p.handL ? p.handL[1] : null;
+  if (reachY !== null && !fall) flex -= clamp((reachY - 0.5) / 1.6, 0, 0.32);
 
-  // compound eyes, flat and black and entirely unreadable
-  part(f, 'bee_eye', 0, y, 0, 1, 1, 1, col('#120A05'), ln);
-  part(f, 'bee_glint', 0, y, 0, 1, 1, 1, col('#93795C'), ln);
+  const W = mTRS(_bm.W, x, 0, z, 0, ry, 0, 1, 1, 1), B = _bm.B, F = _bm.F;
+  if (flip) {
+    // over on his back, rocked a little onto one side, legs in the air
+    mPiv(_bm.U, BEE_ROLL, 0, 0, Math.PI - 0.16);
+    mTRS(_bm.V, 0, -0.035, 0, 0, 0, 0, 1, 1, 1);
+    mMul(B, _bm.V, _bm.U);
+  } else {
+    mPiv(_bm.U, BEE_REAR, rear, 0, 0);
+    mPiv(_bm.V, BEE_ROLL, 0, yaw, roll);
+    mMul(_bm.T, _bm.U, _bm.V);
+    mTRS(_bm.V, 0, lift, 0, 0, 0, 0, 1, 1, 1);
+    mMul(B, _bm.V, _bm.T);
+  }
+  mPiv(_bm.U, BEE_NECK, flex, bat ? yaw * 0.35 : crouch ? 0.50 : 0, bat ? roll * 0.8 : 0);
+  mMul(F, B, _bm.U);
 
-  // Team colour: one saddle across the wing cases, and a collar on the shield
-  // in the trim rather than the uniform. Three bands of yellow made a wasp of
-  // him — the saddle is the jersey and everything else is edging.
-  part(f, 'bee_band', 0, y, 0, 1, 1, 1, uni, ln);
-  part(f, 'bee_trim', 0, y, 0, 1, 1, 1, trim, ln);
-  part(f, 'bee_cband', 0, y, 0, 1, 1, 1, trim, ln);
+  // the shadow follows the body, long and narrow under him
+  const cz = flip ? -0.08 : -0.12;
+  shadow(x + cz * sn, z + cz * cs, flip ? 0.50 : 0.46, 0.34, 1.80, ry);
+
+  // ---- colours
+  const ely = col(A.fur), pro = col(A.fur2), headC = col(A.headC), horn = col(A.horn);
+  const legC = col(A.leg), ven = col(A.venter), eye = col('#06040A');
+
+  // ---- legs, outlined at half weight: at a distance the full line doubled
+  // their thickness and the six of them became a dark tangle
+  const inkW = R.inkW;
+  if (inkW > 0) R.ink(inkW * 0.5);
+  const up = mDir(B, [0, 1, 0]);
+  let hl = null, hr = null;
+  for (let i = 0; i < 3; i++) {
+    const L = BEE_LEG[i], base = i === 0 ? F : B;
+    for (const s of [1, -1]) {
+      const C = mPt(base, [s * L[0], L[1], L[2]]);
+      const outw = mDir(B, [s, 0, 0]);
+      const pole = v3unit([outw[0] + up[0] * 1.3, outw[1] + up[1] * 1.3, outw[2] + up[2] * 1.3]);
+      let T, air = false;
+      const fb = (slide ? BEE_SLIDE : BEE_FOOT)[i];
+      if (flip) {
+        // waving at the sky, each a little differently
+        const kk = (s > 0 ? lg : p.legR || 0) * (i === 1 ? -0.6 : 1);
+        T = mPt(B, [s * fb[0] * 0.70, -0.16 + 0.05 * i + kk * 0.10, fb[1] * 0.72 + kk * 0.12]);
+        air = true;
+      } else if (i === 0 && cheer) {
+        T = mPt(F, [s * 0.36, 0.98 + bob * 0.5, 0.80]);
+        air = true;
+      } else if (i === 0 && !bat && (s > 0 ? p.handR : p.handL)) {
+        const h = s > 0 ? p.handR : p.handL, dx = h[0] - x, dz = h[2] - z;
+        T = [dx * cs - dz * sn, h[1], dx * sn + dz * cs];
+        air = true;
+      } else if (i === 0 && s < 0 && wind > 0) {
+        const r0 = [-fb[0], 0, fb[1]], r1 = mPt(F, [-0.34, 0.80, 0.78]);
+        T = [lerp(r0[0], r1[0], wind), lerp(r0[1], r1[1], wind), lerp(r0[2], r1[2], wind)];
+        air = wind > 0.05;
+      } else {
+        let dz = 0, hgt = 0;
+        if (ph !== null) {
+          const tri = (i === 1) === (s > 0) ? 0.5 : 0;
+          const u = ((ph + tri) % 1 + 1) % 1;
+          if (u < 0.5) dz = BEE_STRIDE / 2 - (u / 0.5) * BEE_STRIDE;
+          else { const v = (u - 0.5) / 0.5; dz = -BEE_STRIDE / 2 + v * BEE_STRIDE; hgt = Math.sin(Math.PI * v) * 0.15; }
+        }
+        T = [s * fb[0], hgt, fb[1] + dz];
+      }
+      // the tarsus: laid along the ground from the claws back toward the body,
+      // rising to the ankle; in the air it simply carries on from the leg
+      const Lf = L[3], Lt = L[4], Lr = L[5];
+      let An;
+      if (air) {
+        const d = v3unit(v3sub(C, T));
+        An = [T[0] + d[0] * Lr * 0.92, T[1] + d[1] * Lr * 0.92 + Lr * 0.25, T[2] + d[2] * Lr * 0.92];
+      } else {
+        const h = v3unit([C[0] - T[0], 0, C[2] - T[2]]);
+        An = [T[0] + h[0] * Lr * 0.90, T[1] + Lr * 0.42, T[2] + h[2] * Lr * 0.90];
+      }
+      // two bones from the coxa to the ankle, the knee breaking up and out
+      let d = v3sub(An, C), D = Math.hypot(d[0], d[1], d[2]);
+      const reach = (Lf + Lt) * 0.998;
+      if (D > reach) {
+        An = [C[0] + d[0] / D * reach, C[1] + d[1] / D * reach, C[2] + d[2] / D * reach];
+        const dt = v3unit(v3sub(T, An));
+        T = [An[0] + dt[0] * Lr, An[1] + dt[1] * Lr, An[2] + dt[2] * Lr];
+        d = v3sub(An, C); D = reach;
+      }
+      const u = [d[0] / D, d[1] / D, d[2] / D];
+      const a = (Lf * Lf - Lt * Lt + D * D) / (2 * D), hk = Math.sqrt(Math.max(0, Lf * Lf - a * a));
+      const pp = v3unit(v3sub(pole, u.map((q) => q * v3dot(pole, u))));
+      const K = [C[0] + u[0] * a + pp[0] * hk, C[1] + u[1] * a + pp[1] * hk, C[2] + u[2] * a + pp[2] * hk];
+      const across = v3unit(v3cross(v3sub(K, C), v3sub(An, C)));
+      const ref = [outw[0] + up[0], outw[1] + up[1], outw[2] + up[2]];
+
+      R.gloss = 0.45;
+      mMul(_bm.T, base, mTRS(_bm.V, s * L[0], L[1], L[2], 0, 0, s * 0.35, 1, 1, 1));
+      mMul(_bm.M, W, _bm.T);
+      beeDraw('bee_coxa', _bm.M, legC);
+      beeBone('bee_fem', C, K, BEE_BONE[0], ref, across, legC);
+      beeBone(i === 0 ? 'bee_tibf' : 'bee_tib', K, An, BEE_BONE[1], ref, across, legC);
+      beeBone('bee_tars', An, T, BEE_BONE[2], up, across, legC);
+      for (const [q, r] of [[K, 0.068], [An, 0.046]]) {
+        mTRS(_bm.T, q[0], q[1], q[2], 0, 0, 0, r, r, r);
+        mMul(_bm.M, W, _bm.T);
+        beeDraw('sphere', _bm.M, legC);
+      }
+      if (i === 0) {
+        const wT = [x + T[0] * cs + T[2] * sn, T[1], z - T[0] * sn + T[2] * cs];
+        if (s > 0) hr = wT; else hl = wT;
+      }
+    }
+  }
+
+  if (inkW > 0) R.ink(inkW);
+
+  // ---- the body: three tagmata, three values. The wing cases are lacquered
+  // chestnut; the pronotum and the head go nearly black, so the three parts
+  // read apart even at a distance.
+  R.gloss = 0.30;
+  beeAt('bee_venter', B, ven);
+  beeAt('bee_stern', B, shade(A.venter, 0.70));
+  R.gloss = 0.55;
+  beeAt('bee_elytra', B, ely);
+  beeAt('bee_rim', B, shade(A.fur, 0.80));
+  R.gloss = 0;
+  beeAt('bee_suture', B, shade(A.fur, 0.42));
+  beeAt('bee_scut', B, pro);
+  R.gloss = 0.55;
+  beeAt('bee_mark', B, col(look.uni));
+  // the pronotum is satin, not lacquer: a smaller, softer highlight
+  R.gloss = 0.35;
+  beeAt('bee_prono', F, pro);
+  R.gloss = 0.55;
+  beeAt('bee_head', F, headC);
+  beeAt('bee_horn', F, horn);
+  beeAt('bee_mouth', F, headC);
+  beeAt('bee_ant', F, legC);
+  R.gloss = 0.95;
+  beeAt('bee_eye', F, eye);
+  R.gloss = 0;
+  beeAt('bee_brush', F, col(A.brush));
+
+  R.gloss = 0;
+  return { f: yawFrame(x, z, ry), hl: hl || [x, 0.4, z], hr: hr || [x, 0.4, z], hy: 1.0, y: bob };
 }
 
 /* ---------- ペンギン ----------
@@ -1230,11 +1418,8 @@ function drawAnimal(x, z, ry, look, pose, y0) {
   const FC = FACES[look.animal] || null;
   const f = yawFrame(x, z, ry);
   const y = (y0 || 0) + (p.bob || 0);
+  if (A.body === 'beetle') return drawBeetle(x, z, ry, A, look, p, y);
   if (p.fall) { f.t = p.fall; f.ct = Math.cos(p.fall); f.st = Math.sin(p.fall); f.pivot = y + 0.34; }
-  else if (A.body === 'beetle' && p.swingT > 0) {
-    const t = beetleSwing(p.swingT);
-    if (t) { f.t = t; f.ct = Math.cos(t); f.st = Math.sin(t); f.pivot = y + BEE_PIVOT; }
-  }
   const big = A.big ? 1.12 : 1;
   const fur = col(A.fur), fur2 = col(A.fur2), paw = A.paw ? col(A.paw) : fur, hs = A.handS || 0.27;
   const uni = col(look.uni), trim = col(look.trim), cap = col(look.cap);
@@ -1286,7 +1471,6 @@ function drawAnimal(x, z, ry, look, pose, y0) {
 
   // torso
   if (A.body === 'fish') drawSalmon(f, A, look, p, y);
-  else if (A.body === 'beetle') drawBeetle(f, A, look, p, y, big);
   else if (A.mesh) {
     // the kit is baked as slices of the same profile as the body: laying a
     // sphere over a shaped torso makes it bulge out rather than cover

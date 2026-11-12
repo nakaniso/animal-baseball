@@ -674,17 +674,19 @@ function inkOf(c) {
 
 /* soft contact shadow — a flat disc, drawn in a blended pass */
 const SHADOWS = [];
-function shadow(x, z, r, a) {
+/* `kz` stretches it along the heading `ry` (a beetle is long and low) */
+function shadow(x, z, r, a, kz, ry) {
   if (R.inkW > 0) return;                       // not during the outline pass
-  SHADOWS.push(x, z, r, a === undefined ? 0.3 : a);
+  SHADOWS.push(x, z, r, a === undefined ? 0.3 : a, kz || 1, ry || 0);
 }
 function flushShadows(groundY) {
   if (!SHADOWS.length) return;
   R.unlit(true, 0.34);
   const c = [0.05, 0.09, 0.06];
-  for (let i = 0; i < SHADOWS.length; i += 4) {
+  for (let i = 0; i < SHADOWS.length; i += 6) {
     R.gl.uniform1f(R.u.uAlpha, SHADOWS[i + 3]);
-    R.b('disc', SHADOWS[i], groundY + 0.055, SHADOWS[i + 1], SHADOWS[i + 2] * 2, 1, SHADOWS[i + 2] * 2, c);
+    R.d('disc', SHADOWS[i], groundY + 0.055, SHADOWS[i + 1], 0, SHADOWS[i + 5], 0,
+        SHADOWS[i + 2] * 2, 1, SHADOWS[i + 2] * 2 * SHADOWS[i + 4], c);
   }
   SHADOWS.length = 0;
   R.unlit(false);

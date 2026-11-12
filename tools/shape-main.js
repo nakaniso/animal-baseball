@@ -64,6 +64,16 @@ const SETS = {
     view('前脚 正面',     { ry: Math.PI, dist: 2.4, fr: 0.36, ty: 0.36, ey: 0.44 }),
     view('前脚 3/4',      { ry: Math.PI * 0.78, dist: 2.4, fr: 0.36, ty: 0.36, ey: 0.44 }),
   ],
+  // the beetle lies along the ground: straight down on him like a specimen in
+  // a box, flat from the side, and two moments of the tripod gait
+  g: [
+    view('標本 top',      { ry: Math.PI, ey: 4.4, ty: 0.3, ez: -0.03, dist: 4.1, fr: 1.05 }),
+    view('真横 side',     { ry: Math.PI * 0.5, ey: 0.55, ty: 0.62, dist: 3.4, fr: 0.85 }),
+    view('歩き 1',        { ry: Math.PI * 0.70, ey: 1.6, ty: 0.45, fr: 1.0,
+                            pose: { legL: 0.5, legR: -0.5, gait: 0.10 } }),
+    view('歩き 2',        { ry: Math.PI * 0.70, ey: 1.6, ty: 0.45, fr: 1.0,
+                            pose: { legL: 0.5, legR: -0.5, gait: 0.60 } }),
+  ],
   // headwear, which is shared by every species and so is easy to leave alone:
   // the cap and the helmet framed on their own, both from a camera low enough
   // to catch a bill hanging over the eyes
@@ -75,8 +85,12 @@ const SETS = {
     view('ヘル 3/4',      { ry: Math.PI * 0.74, dist: 2.3, fr: 0.50, ty: 1.44, ey: 1.30,
                             pose: { helmet: 1 } }),
   ],
-  // the salmon's own: a specimen plate (side, top, the head), the flop at
-  // rest and thrashing, and the swing frame by frame
+};
+// The beetle lies along the ground with his head low in front, so the head
+// and horn close-ups framed for the upright animals miss him: his own c and e.
+// The salmon's own: a specimen plate (side, top, the head), the flop at
+// rest and thrashing, and the swing frame by frame.
+const SETS_OF = { salmon: {
   g: [
     view('標本 横',       { ry: Math.PI / 2, dist: 4, fr: 0.85, tx: 0.08, ex: 0.08, ty: 0.24, ey: 0.30, pose: { still: 1 } }),
     view('標本 真上',     { ry: Math.PI / 2, dist: 0.4, fr: 0.09, tx: 0.08, ex: 0.08, ty: 0.2, ey: 4.0, pose: { still: 1 } }),
@@ -93,7 +107,22 @@ const SETS = {
   ],
   i: [0.03, 0.05, 0.09, 0.20, 0.40, 0.75].map((t) =>
     view('swing ' + t, { ry: Math.PI * 0.5, dist: 4.4, tx: 0.5, ex: 0.5, ey: 1.4, ty: 0.55, fr: 1.15, pose: { swingT: t } })),
-};
+}, beetle: {
+  c: [
+    view('頭 正面',       { ry: Math.PI, ey: 0.62, ty: 0.44, tz: -0.58, dist: 2.2, fr: 0.30 }),
+    view('頭 3/4',        { ry: Math.PI * 0.75, ey: 0.70, ty: 0.44, tx: 0.42, tz: -0.42, dist: 2.2, fr: 0.30 }),
+    view('頭 横',         { ry: Math.PI * 0.5, ey: 0.50, ty: 0.42, tx: 0.58, dist: 2.2, fr: 0.30 }),
+    view('腹 仰向け',     { ry: Math.PI * 0.70, ey: 1.7, ty: 0.30, dist: 2.6, fr: 0.80,
+                            pose: { fall: 1.45, legL: -0.5, legR: 0.4 } }),
+  ],
+  e: [
+    view('角 横',         { ry: Math.PI * 0.5, ey: 0.95, ty: 0.85, tx: 0.80, dist: 2.6, fr: 0.58 }),
+    view('角 上から',     { ry: Math.PI, ey: 2.2, ty: 0.95, tz: -0.85, dist: 1.6, fr: 0.45 }),
+    view('前脚 3/4',      { ry: Math.PI * 0.78, ey: 0.55, ty: 0.22, tx: 0.30, tz: -0.55, dist: 2.4, fr: 0.38 }),
+    view('後脚 斜め後ろ', { ry: Math.PI * 0.20, ey: 0.55, ty: 0.22, tx: 0.30, tz: -0.30, dist: 2.4, fr: 0.45 }),
+  ],
+} };
+const setOf = (a, v) => ((SETS_OF[a] || {})[v]) || SETS[v] || SETS.a;
 let VIEWS = SETS.a;
 
 const COLS = 2, TW = 520, TH = 520;
@@ -106,7 +135,8 @@ function renderAll(animal) {
   VIEWS.forEach((v, i) => {
     const d = v.dist;
     const fov = 2 * Math.atan(v.fr / d) * 180 / Math.PI;
-    R.begin({ ex: v.ex || 0, ey: v.ey, ez: -d, tx: v.tx || 0, ty: v.ty, tz: 0, fov: fov }, ENV);
+    R.begin({ ex: v.tx || 0, ey: v.ey, ez: (v.ez !== undefined ? v.ez : -d) + (v.tz || 0), tx: v.tx || 0, ty: v.ty,
+               tz: v.tz || 0, fov: fov }, ENV);
     drawAnimal(0, 0, v.ry, LOOKS[animal], v.pose, 0);
     const x = (i % COLS) * TW, y = Math.floor(i / COLS) * TH;
     sctx.drawImage(glc, x, y, TW, TH);
@@ -127,9 +157,9 @@ if (!R.init(glc)) {
   R.upload(buildFaceAtlas());
   const q = new URLSearchParams(location.search);
   const animal = q.get('a') || window.LAB_ANIMAL || 'bear';
-  VIEWS = SETS[q.get('v') || window.LAB_SET || 'a'] || SETS.a;
+  VIEWS = setOf(animal, q.get('v') || window.LAB_SET || 'a');
   R.resize();
   requestAnimationFrame(() => { renderAll(animal); });
   // so the page can be re-driven from the console without a reload
-  window.LAB = (a, v) => { VIEWS = SETS[v || 'a'] || SETS.a; renderAll(a || animal); };
+  window.LAB = (a, v) => { VIEWS = setOf(a || animal, v || 'a'); renderAll(a || animal); };
 }
