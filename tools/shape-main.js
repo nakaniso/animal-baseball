@@ -64,6 +64,16 @@ const SETS = {
     view('前脚 正面',     { ry: Math.PI, dist: 2.4, fr: 0.36, ty: 0.36, ey: 0.44 }),
     view('前脚 3/4',      { ry: Math.PI * 0.78, dist: 2.4, fr: 0.36, ty: 0.36, ey: 0.44 }),
   ],
+  // the beetle lies along the ground: straight down on him like a specimen in
+  // a box, flat from the side, and two moments of the tripod gait
+  g: [
+    view('標本 top',      { ry: Math.PI, ey: 4.4, ty: 0.3, ez: -0.03, dist: 4.1, fr: 1.05 }),
+    view('真横 side',     { ry: Math.PI * 0.5, ey: 0.55, ty: 0.62, dist: 3.4, fr: 0.85 }),
+    view('歩き 1',        { ry: Math.PI * 0.70, ey: 1.6, ty: 0.45, fr: 1.0,
+                            pose: { legL: 0.5, legR: -0.5, gait: 0.10 } }),
+    view('歩き 2',        { ry: Math.PI * 0.70, ey: 1.6, ty: 0.45, fr: 1.0,
+                            pose: { legL: 0.5, legR: -0.5, gait: 0.60 } }),
+  ],
   // headwear, which is shared by every species and so is easy to leave alone:
   // the cap and the helmet framed on their own, both from a camera low enough
   // to catch a bill hanging over the eyes
@@ -88,7 +98,7 @@ function renderAll(animal) {
   VIEWS.forEach((v, i) => {
     const d = v.dist;
     const fov = 2 * Math.atan(v.fr / d) * 180 / Math.PI;
-    R.begin({ ex: 0, ey: v.ey, ez: -d, tx: 0, ty: v.ty, tz: 0, fov: fov }, ENV);
+    R.begin({ ex: 0, ey: v.ey, ez: v.ez !== undefined ? v.ez : -d, tx: 0, ty: v.ty, tz: 0, fov: fov }, ENV);
     drawAnimal(0, 0, v.ry, LOOKS[animal], v.pose, 0);
     const x = (i % COLS) * TW, y = Math.floor(i / COLS) * TH;
     sctx.drawImage(glc, x, y, TW, TH);
