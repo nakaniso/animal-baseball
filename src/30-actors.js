@@ -99,11 +99,16 @@ const ANIMALS = {
   // Drawn from the reference sketch: tall straight ears, round head, dot eyes.
   // Ears, haunches, hind feet and tail are baked (段階3); the head is still a
   // sphere because that is the surface the drawn face is projected onto.
+  // The torso is baked too (`torso: 'rabbit'`): a little pear the haunches
+  // flow out of, the pink trim baked onto it. The arms are fur in a short
+  // puffed sleeve (`sleeve`), and the cap is a toy cap perched on the crown.
   rabbit:  { ink: 0.022, ear: 'bunny', fur: '#F4F0E8', fur2: '#F6D7DA', tail: 'cotton',
              head: 'sphere', hw: 1.08, hh: 1.06, hd: 0.98,
-             buttons: 1,                   // no muzzle — the nose is drawn on
              legs: 'bunny', earX: 0.148, earY: 0.18, earTilt: 0.13,
-             earIn: '#F6D7DA' },
+             earIn: '#F6D7DA', torso: 'rabbit', tailY: 0.62, tailZ: -0.285,
+             sleeve: 'rabbit', armX: 0.255, armLen: 0.27, armW: 0.074, handS: 0.180,
+             capS: 0.62, capY: 0.13, capZ: -0.045, billW: 0.78,
+             helm: { s: 0.72, y: 0.065, z: -0.03 } },
 
   cat:     { ink: 0.022, ear: 'point', fur: '#E0A44F', fur2: '#F7EDDD', tail: 'long',
              head: 'rbox', hw: 1.10, hh: 0.98, hd: 0.94,
@@ -770,6 +775,13 @@ function drawAnimal(x, z, ry, look, pose, y0) {
     // is what a set-in sleeve looks like anyway.
     for (const s of [-1, 1])
       part(f, 'sphere', s * 0.318 * big, y + 0.948, 0.004, 0.268, 0.248, 0.274, uni, ln);
+  } else if (A.torso === 'rabbit') {
+    // white jersey on white fur: the pink trim is what draws him
+    const ln = p.lean || 0;
+    part(f, 'rabbit_body', 0, y + 0.74, 0, 1, 1, 1, uni, ln);
+    for (const m of ['rabbit_collar', 'rabbit_belt', 'rabbit_placket'])
+      part(f, m, 0, y + 0.74, 0, 1, 1, 1, trim, ln);
+    part(f, 'rabbit_button', 0, y + 0.74, 0, 1, 1, 1, col('#FFFFFF'), ln);
   } else {
   part(f, 'sphere', 0, y + 0.74, 0, 0.66 * big, 0.70, 0.56 * big, uni, p.lean || 0);
   part(f, 'sphere', 0, y + 0.97, 0.01, 0.50, 0.14, 0.45, trim);   // jersey collar
@@ -788,6 +800,15 @@ function drawAnimal(x, z, ry, look, pose, y0) {
 
   // arms — either swung by rotation, or aimed at a world-space grip
   const shY = y + 0.94;
+  // `armX`/`armLen`/`armW` for a smaller body; with `sleeve` the arm is fur
+  // and a baked sleeve, hung from the same joint, swings with it
+  const AX = (A.armX || 0.33) * big, AL = A.armLen || 0.34, AW = A.armW || 0.112;
+  const armC = A.sleeve ? fur : uni;
+  const sleeve = (s, rx) => {
+    if (!A.sleeve) return;
+    part(f, A.sleeve + '_sleeve', s * AX, shY, 0, 1, 1, 1, uni, rx, s * 0.30);
+    part(f, A.sleeve + '_cuff', s * AX, shY, 0, 1, 1, 1, trim, rx, s * 0.30);
+  };
   let hl, hr;
   if (A.body) { hl = [x, y + 0.9, z]; hr = [x, y + 0.9, z]; }
   else if (p.handL || p.handR) {
@@ -801,16 +822,17 @@ function drawAnimal(x, z, ry, look, pose, y0) {
     hl = p.handL
       ? armIK(slx, shY, slz, p.handL[0], p.handL[1], p.handL[2], BONE, BONE, poleL, 0.075, uni,
               p.noPawL ? null : hand)
-      : limb(f, -0.33 * big, shY, 0, p.armL || 0, -0.30, 0.34, 0.112, uni, paw, hs);
+      : (sleeve(-1, p.armL || 0), limb(f, -AX, shY, 0, p.armL || 0, -0.30, AL, AW, armC, paw, hs));
     hr = p.handR
       ? armIK(srx, shY, srz, p.handR[0], p.handR[1], p.handR[2], BONE, BONE, poleR, 0.075, uni,
               p.noPawR ? null : hand)
-      : limb(f, 0.33 * big, shY, 0, p.armR || 0, 0.30, 0.34, 0.112, uni,
-             p.noPawR ? null : paw, hs);
+      : (sleeve(1, p.armR || 0), limb(f, AX, shY, 0, p.armR || 0, 0.30, AL, AW, armC,
+             p.noPawR ? null : paw, hs));
   } else {
-    hl = limb(f, -0.33 * big, shY, 0, p.armL || 0, -0.30, 0.34, 0.112, uni,
+    sleeve(-1, p.armL || 0); sleeve(1, p.armR || 0);
+    hl = limb(f, -AX, shY, 0, p.armL || 0, -0.30, AL, AW, armC,
               p.noPawL ? null : paw, hs);
-    hr = limb(f, 0.33 * big, shY, 0, p.armR || 0, 0.30, 0.34, 0.112, uni,
+    hr = limb(f, AX, shY, 0, p.armR || 0, 0.30, AL, AW, armC,
               p.noPawR ? null : paw, hs);
   }
 
@@ -912,9 +934,16 @@ function drawAnimal(x, z, ry, look, pose, y0) {
     // `clock` — that lives in 50-main.js, which the face lab does not load.
     const back = Math.min(0.30, (Math.abs(p.legL || 0) + Math.abs(p.legR || 0)) * 0.16);
     const inC = A.earIn ? col(A.earIn) : fur2;
+    // and they say what the face says: they splay and sag when he is down,
+    // stand up straight when he is happy. His left one always leans a little
+    // further out than the right — a toy that has been hugged.
+    const fc = p.face || 0;
+    const sag = fc === 3 ? 0.36 : fc === 2 ? -0.05 : 0;
     for (const s of [-1, 1]) {
-      part(fh, 'rabbit_ear', s * exx, hy + eyy, -0.02, 1, 1, 1, fur, -back, -s * tl);
-      part(fh, 'rabbit_earin', s * exx, hy + eyy, -0.02, 1, 1, 1, inC, -back, -s * tl);
+      const lean = s > 0 ? 0.07 : 0, bk = back + (s > 0 ? 0.05 : 0) + Math.max(0, sag) * 0.6;
+      const rz = -s * (tl + lean + sag);
+      part(fh, 'rabbit_ear', s * exx, hy + eyy, -0.02, 1, 1, 1, fur, -bk, rz);
+      part(fh, 'rabbit_earin', s * exx, hy + eyy, -0.02, 1, 1, 1, inC, -bk, rz);
     }
   }
   if (A.ear === 'toad') {
@@ -929,7 +958,8 @@ function drawAnimal(x, z, ry, look, pose, y0) {
     }
   }
   // tail
-  if (A.tail === 'cotton') part(f, 'rabbit_tail', 0, y + 0.66, -0.30, 1, 1, 1, fur2);
+  if (A.tail === 'cotton')
+    part(f, 'rabbit_tail', 0, y + (A.tailY || 0.66), A.tailZ || -0.30, 1, 1, 1, fur2);
   // the baked torso has a shallower back than the sphere one, so the nub has
   // to be seated further in or it floats off the jersey
   if (A.tail === 'nub') part(f, 'sphere', 0, y + 0.60, A.tailZ || -0.30, 0.16, 0.16, 0.16, fur);
@@ -945,23 +975,27 @@ function drawAnimal(x, z, ry, look, pose, y0) {
     // stub — a helmet is a cap that swallowed the head, not a different
     // object. The crest used to be a free-standing box above the dome and
     // read as a chimney; it is sunk into the shell now.
-    const cy = A.capY || 0, cs = A.capS || 1, shy = hy + cy - 0.014 * cs;
-    part(fh, 'cap_crown', 0, shy, 0, 1.055 * big * cs, 1.05 * cs, 1.055 * big * cs, cap);
-    part(fh, 'cap_bill', 0, shy, 0, 1.06 * big * cs, 1.05 * cs, 0.70 * big * cs, cap);
+    // `helm` ({s, y, z}) lets a species whose cap is a toy wear a real helmet
+    const H = A.helm || {};
+    const cy = H.y !== undefined ? H.y : A.capY || 0, cs = H.s || A.capS || 1, cz = H.z || 0;
+    const shy = hy + cy - 0.014 * cs;
+    part(fh, 'cap_crown', 0, shy, cz, 1.055 * big * cs, 1.05 * cs, 1.055 * big * cs, cap);
+    part(fh, 'cap_bill', 0, shy, cz, 1.06 * big * cs * (A.billW || 1), 1.05 * cs, 0.70 * big * cs, cap);
     // the flap covers the ear turned toward the pitcher (local +x)
-    part(fh, 'sphere', 0.345 * big * cs, hy + 0.10 * cs + cy, 0.01,
+    part(fh, 'sphere', 0.345 * big * cs, hy + 0.10 * cs + cy, 0.01 + cz,
          0.15 * cs, 0.34 * cs, 0.42 * cs, cap);
-    part(fh, 'rbox', 0, hy + 0.462 * cs + cy, 0.012 * cs,
+    part(fh, 'rbox', 0, hy + 0.462 * cs + cy, 0.012 * cs + cz,
          0.082 * cs, 0.112 * cs, 0.54 * cs, trim);
   } else {
     // Baked at full size, so the scale is 1 and `capS` is the only shrink.
     // A dome and a box read as a plate with a plank on it; the crown has a
     // lip and a shoulder, and the bill curves down its length and up across
     // its width so it is still a bill when seen edge-on.
-    const cy = A.capY || 0, cs = A.capS || 1;
-    part(fh, 'cap_crown', 0, hy + cy, 0, big * cs, cs, big * cs, cap);
-    part(fh, 'cap_bill', 0, hy + cy, 0, big * cs, cs, big * cs, cap);
-    part(fh, 'sphere', 0, hy + 0.492 * cs + cy, 0.012 * cs,
+    // `capZ` sets it back on the crown, `billW` narrows the bill
+    const cy = A.capY || 0, cs = A.capS || 1, cz = A.capZ || 0, bw = A.billW || 1;
+    part(fh, 'cap_crown', 0, hy + cy, cz, big * cs, cs, big * cs, cap);
+    part(fh, 'cap_bill', 0, hy + cy, cz, big * cs * bw, cs, big * cs, cap);
+    part(fh, 'sphere', 0, hy + 0.492 * cs + cy, 0.012 * cs + cz,
          0.082 * cs, 0.082 * cs, 0.082 * cs, trim);
   }
 
