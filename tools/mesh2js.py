@@ -1040,9 +1040,9 @@ def _ends(t, a, b):
 # z0 + dz*t along the body; half width; dome top; margin (the widest line);
 # how far the shell drops below the margin; exponent; rounding at the ends;
 # sutural groove depth
-BEE_E = dict(z0=0.10, dz=-0.82, e=2.5, ends=(0.035, 0.075), groove=0.010,
-             W=[(0.0, 0.300), (0.08, 0.326), (0.25, 0.347), (0.48, 0.360), (0.66, 0.352),
-                (0.80, 0.320), (0.90, 0.270), (0.95, 0.215), (1.0, 0.150)],
+BEE_E = dict(z0=0.10, dz=-0.91, e=2.15, ends=(0.05, 0.085), groove=0.010,
+             W=[(0.0, 0.272), (0.06, 0.312), (0.16, 0.336), (0.35, 0.352), (0.56, 0.360),
+                (0.72, 0.346), (0.84, 0.305), (0.92, 0.240), (0.97, 0.180), (1.0, 0.130)],
              top=[(0.0, 0.735), (0.10, 0.785), (0.30, 0.805), (0.50, 0.800), (0.68, 0.772),
                   (0.82, 0.718), (0.92, 0.645), (1.0, 0.560)],
              mar=[(0.0, 0.440), (0.5, 0.425), (0.85, 0.432), (1.0, 0.465)],
@@ -1052,7 +1052,7 @@ BEE_P = dict(z0=0.035, dz=0.425, e=2.25, ends=(0.06, 0.16), groove=0.0,
              top=[(0.0, 0.765), (0.3, 0.800), (0.55, 0.805), (0.75, 0.775), (0.9, 0.700), (1.0, 0.600)],
              mar=[(0.0, 0.445), (1.0, 0.440)],
              hb=[(0.0, 0.070), (1.0, 0.070)])
-BEE_V = dict(z0=-0.69, dz=1.20, e=2.2, ends=(0.08, 0.10), groove=0.0,
+BEE_V = dict(z0=-0.78, dz=1.29, e=2.2, ends=(0.08, 0.10), groove=0.0,
              W=[(0.0, 0.150), (0.1, 0.215), (0.3, 0.272), (0.55, 0.268), (0.75, 0.222),
                 (0.9, 0.172), (1.0, 0.120)],
              top=[(0.0, 0.540), (0.3, 0.520), (0.7, 0.500), (1.0, 0.500)],
@@ -1129,14 +1129,17 @@ def bee_strip(fn, nu, nv, inside):
 
 
 def bee_fan(fn, cx, cz, r, nr, nt, out, inside):
-    """A round patch on a shell, in plan: a breeder's paint dot."""
+    """A round patch on a shell, in plan: a breeder's paint dot, dabbed on by
+    hand, so its edge wanders a little."""
     m = Mesh()
     c = m.vert(*fn(cx, cz, out))
     rings = []
     for i in range(1, nr + 1):
-        rr = r * i / float(nr)
-        rings.append([m.vert(*fn(cx + rr * math.cos(math.tau * j / nt),
-                                 cz + rr * math.sin(math.tau * j / nt), out)) for j in range(nt)])
+        rings.append([])
+        for j in range(nt):
+            a = math.tau * j / nt
+            rr = r * i / float(nr) * (1.0 + 0.10 * math.sin(3 * a + 0.7) + 0.06 * math.cos(5 * a))
+            rings[-1].append(m.vert(*fn(cx + rr * math.cos(a), cz + rr * 1.12 * math.sin(a), out)))
     for j in range(nt):
         m.tri(c, rings[0][j], rings[0][(j + 1) % nt])
     for i in range(nr - 1):
@@ -1203,7 +1206,7 @@ def taper(r0, r1, n, p=1.0):
 # teeth and spines go; +X is across the leg's plane.
 BEE_FEM, BEE_TIB, BEE_TAR = 0.30, 0.30, 0.22
 # [z of the coxa, femur, tibia, tarsus]: fore, mid, hind
-BEE_ROWS = [(0.375, 0.31, 0.31, 0.24), (0.060, 0.31, 0.32, 0.22), (-0.140, 0.37, 0.37, 0.27)]
+BEE_ROWS = [(0.375, 0.26, 0.27, 0.20), (0.060, 0.26, 0.27, 0.19), (-0.140, 0.30, 0.31, 0.23)]
 
 
 def bee_bone(L, rx, rz, nt=14, na=10, ends=(0.10, 0.10)):
@@ -1236,7 +1239,7 @@ def build_beetle():
     # the sutural line down the middle of the back, and the scutellum at the
     # top of it: open strips a hair off the lacquer, so no outline swallows them
     out['bee_suture'] = bee_strip(
-        lambda u, v: bee_plan(BEE_E, -0.008 + 0.016 * v, 0.03 - 0.775 * u, 0.003),
+        lambda u, v: bee_plan(BEE_E, -0.008 + 0.016 * v, 0.03 - 0.86 * u, 0.003),
         34, 1, (0.0, 0.5, -0.3))
     out['bee_scut'] = bee_strip(
         lambda u, v: bee_plan(BEE_E, (v * 2 - 1) * 0.052 * (1 - u) ** 0.9, 0.036 - 0.10 * u, 0.004),
@@ -1254,30 +1257,34 @@ def build_beetle():
     out['bee_rim'] = rim
     # the sternites, seen when he goes over on his back
     st = Mesh()
-    for z in (-0.57, -0.47, -0.37, -0.27, -0.16):
+    for z in (-0.64, -0.53, -0.42, -0.31, -0.19):
         t = (z - BEE_V['z0']) / BEE_V['dz']
         st.merge(bee_strip(lambda u, v, t=t: bee_lift(BEE_V, t - 0.006 + 0.012 * v,
                                                       math.pi + (u * 2 - 1) * 1.05, 0.004),
                            12, 1, (0.0, 0.45, z)))
     out['bee_stern'] = st
-    # the team's mark: a dab of paint on the left wing case, the way a breeder
-    # numbers his beetles. It is the only thing he wears besides the cap.
+    # the team's mark: a dab of paint on the right wing case near the shoulder,
+    # the way a breeder marks his beetles. It is all he wears.
     out['bee_mark'] = bee_fan(lambda x, z, o: bee_plan(BEE_E, x, z, o),
-                              0.165, -0.10, 0.082, 3, 22, 0.005, (0.0, 0.5, -0.2))
+                              -0.165, -0.07, 0.050, 2, 18, 0.005, (0.0, 0.5, -0.2))
 
     # The head horn: forward off the front of the head, then up, then forked
     # left and right, and each fork forked again. Four tips. The thoracic horn
     # is the short one off the front of the pronotum, forked at its tip.
     horn = Mesh()
     shaft = cubic((0.0, 0.42, 0.590), (0.0, 0.56, 0.850), (0.0, 0.84, 0.990), (0.0, 1.06, 0.985), 16)
-    horn.merge(sweep_e(shaft, taper(0.088, 0.050, 16, 0.8), 12, 1.25))
+    # slimmer than a pillar: narrowest two thirds of the way up, swelling
+    # again into the fork
+    hr = [0.070 - 0.022 * math.sin(math.pi * 0.5 * min(1.0, t / 0.62)) + (0.010 * ((t - 0.62) / 0.38) ** 2 if t > 0.62 else 0.0)
+          for t in [i / 15.0 for i in range(16)]]
+    horn.merge(sweep_e(shaft, hr, 12, 1.18))
     top = shaft[-1]
     for s in (-1.0, 1.0):
-        q = (s * 0.085, 1.185, 0.975)
-        br = bez(top, (s * 0.022, 1.150, 1.000), q, 6)
-        horn.merge(sweep_e(br, taper(0.050, 0.037, 6), 10))
-        for e, m in (((s * 0.100, 1.325, 0.900), (s * 0.096, 1.270, 0.950)),
-                     ((s * 0.180, 1.245, 1.060), (s * 0.140, 1.230, 1.020))):
+        q = (s * 0.110, 1.180, 0.975)
+        br = bez(top, (s * 0.030, 1.145, 1.000), q, 6)
+        horn.merge(sweep_e(br, taper(0.052, 0.037, 6), 10))
+        for e, m in (((s * 0.130, 1.325, 0.900), (s * 0.124, 1.268, 0.950)),
+                     ((s * 0.215, 1.240, 1.060), (s * 0.170, 1.225, 1.020))):
             horn.merge(sweep_e(bez(q, m, e, 6), taper(0.036, 0.014, 6), 8))
     th = bez((0.0, 0.740, 0.340), (0.0, 0.812, 0.440), (0.0, 0.832, 0.530), 7)
     horn.merge(sweep_e(th, taper(0.076, 0.042, 7), 12, 1.25))
@@ -1300,7 +1307,7 @@ def build_beetle():
         mouth.merge(sweep_e(bez((s * 0.045, 0.305, 0.635), (s * 0.068, 0.280, 0.680),
                                 (s * 0.074, 0.232, 0.700), 5), taper(0.014, 0.008, 5), 6))
     out['bee_mouth'] = mouth
-    out['bee_brush'] = ell(0.0, 0.292, 0.640, 0.046, 0.030, 0.032, 6, 10)
+    out['bee_brush'] = ell(0.0, 0.298, 0.640, 0.030, 0.020, 0.022, 5, 8)
     # antennae: elbowed, ending in a club of three leaves
     ant = Mesh()
     ax, ay, az = bee_shell(BEE_H, 0.86, math.pi / 2 + 0.35)

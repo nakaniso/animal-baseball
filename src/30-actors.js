@@ -162,9 +162,10 @@ const ANIMALS = {
              noGlove: 1, noBat: 1,
              // elytra / pronotum / head / horn / legs / underside
              fur: '#55260F', fur2: '#2A170E', headC: '#21130B', horn: '#1B100A',
-             leg: '#1F130B', venter: '#3E2414', brush: '#C07A34',
-             // the cap sits on the pronotum behind the thoracic horn
-             capS: 0.36, capY: 0.715, capZ: 0.17, capT: -0.20 },
+             leg: '#1F130B', venter: '#3E2414', brush: '#8A6838',
+             // no cap, no helmet: a beetle wears nothing but a breeder's
+             // dab of paint (bee_mark)
+           },
 
   panda:   { ink: 0.022, ear: 'round', fur: '#F0EDE6', fur2: '#2C3138', tail: 'nub', patch: 1,
              head: 'rbox', hw: 1.12, hh: 1.04, hd: 0.98,
@@ -833,8 +834,11 @@ const BEE_REAR = [0, 0.10, -0.50];      // he rears about his hind legs
 const BEE_NECK = [0, 0.60, 0.08];       // the prothorax hinge
 const BEE_ROLL = [0, 0.42, -0.05];
 // the feet at rest, his left side: fore reach forward, mid out, hind back
-const BEE_FOOT = [[0.52, 0.92], [0.88, 0.06], [0.80, -0.86]];
-const BEE_SLIDE = [[0.34, 1.05], [0.86, -0.20], [0.60, -1.02]];
+// tucked in the way the real one stands: about 1.45x the shell's width across
+// the feet, the hind pair trailing back along the body. Splayed twice as wide,
+// the outfield read a dark spider instead of a shell with a horn.
+const BEE_FOOT = [[0.42, 0.80], [0.54, 0.02], [0.46, -0.84]];
+const BEE_SLIDE = [[0.30, 0.98], [0.60, -0.20], [0.42, -1.05]];
 const BEE_STRIDE = 0.34;
 const _bm = { W: m4(), B: m4(), F: m4(), T: m4(), U: m4(), V: m4(), M: m4(), S: m4() };
 
@@ -946,7 +950,7 @@ function drawBeetle(x, z, ry, A, look, p, bob) {
   // forward along the ground. Raised, it stood straight up in the middle of
   // the batting camera's view, a black pole in front of the plate.
   const crouch = !fall && !bat && bob < -0.1;
-  if (crouch) flex += 0.55;
+  if (crouch) flex += 0.60;
   const reachY = bat || crouch ? null : p.handR ? p.handR[1] : p.handL ? p.handL[1] : null;
   if (reachY !== null && !fall) flex -= clamp((reachY - 0.5) / 1.6, 0, 0.32);
 
@@ -963,18 +967,21 @@ function drawBeetle(x, z, ry, A, look, p, bob) {
     mTRS(_bm.V, 0, lift, 0, 0, 0, 0, 1, 1, 1);
     mMul(B, _bm.V, _bm.T);
   }
-  mPiv(_bm.U, BEE_NECK, flex, bat ? yaw * 0.35 : 0, bat ? roll * 0.8 : 0);
+  mPiv(_bm.U, BEE_NECK, flex, bat ? yaw * 0.35 : crouch ? 0.50 : 0, bat ? roll * 0.8 : 0);
   mMul(F, B, _bm.U);
 
   // the shadow follows the body, long and narrow under him
-  const cz = flip ? -0.05 : -0.08;
-  shadow(x + cz * sn, z + cz * cs, flip ? 0.52 : 0.50, 0.34, 1.62, ry);
+  const cz = flip ? -0.08 : -0.12;
+  shadow(x + cz * sn, z + cz * cs, flip ? 0.50 : 0.46, 0.34, 1.80, ry);
 
   // ---- colours
   const ely = col(A.fur), pro = col(A.fur2), headC = col(A.headC), horn = col(A.horn);
   const legC = col(A.leg), ven = col(A.venter), eye = col('#06040A');
 
-  // ---- legs
+  // ---- legs, outlined at half weight: at a distance the full line doubled
+  // their thickness and the six of them became a dark tangle
+  const inkW = R.inkW;
+  if (inkW > 0) R.ink(inkW * 0.5);
   const up = mDir(B, [0, 1, 0]);
   let hl = null, hr = null;
   for (let i = 0; i < 3; i++) {
@@ -1057,13 +1064,15 @@ function drawBeetle(x, z, ry, A, look, p, bob) {
     }
   }
 
+  if (inkW > 0) R.ink(inkW);
+
   // ---- the body: three tagmata, three values. The wing cases are lacquered
   // chestnut; the pronotum and the head go nearly black, so the three parts
   // read apart even at a distance.
   R.gloss = 0.30;
   beeAt('bee_venter', B, ven);
   beeAt('bee_stern', B, shade(A.venter, 0.70));
-  R.gloss = 0.85;
+  R.gloss = 0.55;
   beeAt('bee_elytra', B, ely);
   beeAt('bee_rim', B, shade(A.fur, 0.80));
   R.gloss = 0;
@@ -1084,18 +1093,6 @@ function drawBeetle(x, z, ry, A, look, p, bob) {
   R.gloss = 0;
   beeAt('bee_brush', F, col(A.brush));
 
-  // ---- a team cap on the pronotum, behind the thoracic horn
-  if (!p.noHat && !A.noCap) {
-    // the crown in the team's yellow: the team's dark cap colour on a nearly
-    // black pronotum was not there at all
-    const cap = col(look.uni), brim = col(look.cap), trim = col(look.trim);
-    const k = p.helmet ? A.capS * 1.12 : A.capS, cy = A.capY - (p.helmet ? 0.012 : 0);
-    beeAt('cap_crown', F, cap, 0, cy, A.capZ, A.capT, k);
-    beeAt('cap_bill', F, brim, 0, cy, A.capZ, A.capT, k);
-    if (!p.helmet)
-      beeAt('sphere', F, trim, 0, cy + 0.492 * k * Math.cos(A.capT), A.capZ + 0.492 * k * Math.sin(A.capT),
-            0, 0.082 * k);
-  }
   R.gloss = 0;
   return { f: yawFrame(x, z, ry), hl: hl || [x, 0.4, z], hr: hr || [x, 0.4, z], hy: 1.0, y: bob };
 }

@@ -102,14 +102,6 @@ const SETS_OF = { beetle: {
     view('前脚 3/4',      { ry: Math.PI * 0.78, ey: 0.55, ty: 0.22, tx: 0.30, tz: -0.55, dist: 2.4, fr: 0.38 }),
     view('後脚 斜め後ろ', { ry: Math.PI * 0.20, ey: 0.55, ty: 0.22, tx: 0.30, tz: -0.30, dist: 2.4, fr: 0.45 }),
   ],
-  f: [
-    view('帽子 3/4',      { ry: Math.PI * 0.74, ey: 1.30, ty: 0.80, tx: 0.13, tz: -0.13, dist: 2.3, fr: 0.36 }),
-    view('帽子 横',       { ry: Math.PI * 0.5, ey: 0.95, ty: 0.80, tx: 0.18, dist: 2.3, fr: 0.36 }),
-    view('ヘル 3/4',      { ry: Math.PI * 0.74, ey: 1.30, ty: 0.80, tx: 0.13, tz: -0.13, dist: 2.3, fr: 0.36,
-                            pose: { helmet: 1 } }),
-    view('ヘル 横',       { ry: Math.PI * 0.5, ey: 0.95, ty: 0.80, tx: 0.18, dist: 2.3, fr: 0.36,
-                            pose: { helmet: 1 } }),
-  ],
 } };
 const setOf = (a, v) => ((SETS_OF[a] || {})[v]) || SETS[v] || SETS.a;
 let VIEWS = SETS.a;
