@@ -362,7 +362,7 @@ precision mediump float;
 varying vec3 vN, vW;
 varying vec2 vUV;
 uniform vec3 uColor, uLight, uSky, uGnd, uFog, uEye;
-uniform float uFogD, uUnlit, uAlpha, uUseTex;
+uniform float uFogD, uUnlit, uAlpha, uUseTex, uGloss;
 uniform sampler2D uTex;
 void main(){
   vec3 base = uColor;
@@ -394,6 +394,25 @@ void main(){
   vec3 v = normalize(uEye - vW);
   float rimD = 1.0 - smoothstep(30.0, 70.0, length(uEye - vW));
   c += uSky * pow(1.0 - max(dot(n, v), 0.0), 3.0) * (n.y * 0.5 + 0.5) * 0.14 * rimD * (1.0 - smoothstep(0.85, 0.98, n.y));
+  // opt-in gloss (fish skin, chitin). uGloss 0 skips all of it; decals and white/cream stay matte.
+  if (uGloss > 0.0 && uUseTex < 0.5) {
+    float g = uGloss * (1.0 - lk);
+    float dist = length(uEye - vW);
+    // lacquer: a deeper, more saturated shadow side
+    float dk = g * (1.0 - lit);
+    c *= 1.0 - 0.16 * dk;
+    float l2 = dot(c, vec3(0.30, 0.59, 0.11));
+    c = mix(vec3(l2), c, 1.0 + 0.30 * dk);
+    // stronger sky reflection at grazing angles
+    float nv = max(dot(n, v), 0.0);
+    c += uSky * pow(1.0 - nv, 3.0) * g * 0.42;
+    // specular on the half vector; the lobe widens with distance so it cannot sparkle
+    vec3 h = normalize(normalize(uLight + 1.6 * v) + v);   // key light leaned toward the camera so a low view still catches it
+    float e = max(122.9 * g - 12.9, 6.0) * mix(1.0, 0.3, smoothstep(25.0, 100.0, dist));
+    float lg = log2(max(dot(n, h), 0.0001));
+    float sp = (smoothstep(0.03, 0.30, exp2(e * lg)) * 0.85 + 0.55 * exp2(e * 0.2 * lg)) * smoothstep(-0.05, 0.25, d);
+    c += mix(vec3(1.0), uSky, 0.25) * sp * g * 1.25;
+  }
   float f = clamp(length(vW - uEye) / uFogD, 0.0, 1.0);
   c = mix(c, uFog, f * f * 0.85);
   gl_FragColor = vec4(c, a);
@@ -402,6 +421,7 @@ void main(){
 const R = {
   gl: null, prog: null, u: {}, vp: m4(), _m: m4(), _t: m4(),
   eye: [0, 0, 0], w: 1, h: 1, dpr: 1, inkW: 0,
+  gloss: 0, _gloss: 0,   // R.gloss: 0..1, set before drawing glossy parts, reset to 0 after
 
   init(canvas) {
     const gl = canvas.getContext('webgl', { antialias: true, alpha: false });
@@ -422,7 +442,7 @@ const R = {
     }
     gl.useProgram(p);
     this.prog = p;
-    for (const n of ['uVP', 'uM', 'uColor', 'uLight', 'uSky', 'uGnd', 'uFog', 'uEye', 'uFogD', 'uUnlit', 'uAlpha', 'uOutline', 'uCam', 'uUseTex', 'uUVRect', 'uTex'])
+    for (const n of ['uVP', 'uM', 'uColor', 'uLight', 'uSky', 'uGnd', 'uFog', 'uEye', 'uFogD', 'uUnlit', 'uAlpha', 'uOutline', 'uCam', 'uUseTex', 'uUVRect', 'uTex', 'uGloss'])
       this.u[n] = gl.getUniformLocation(p, n);
 
     const vb = gl.createBuffer();
@@ -457,6 +477,7 @@ const R = {
     gl.uniform1i(this.u.uTex, 0);
     gl.uniform1f(this.u.uUseTex, 0);
     gl.uniform4f(this.u.uUVRect, 1, 1, 0, 0);
+    gl.uniform1f(this.u.uGloss, 0);
 
     gl.enable(gl.DEPTH_TEST);
     gl.enable(gl.CULL_FACE);
@@ -538,6 +559,8 @@ const R = {
     gl.uniform1f(this.u.uAlpha, 1);
     gl.uniform1f(this.u.uOutline, 0);
     this.inkW = 0;
+    this.gloss = 0; this._gloss = 0;
+    gl.uniform1f(this.u.uGloss, 0);
   },
 
   /* ink line pass: call R.ink(w), draw the same parts again, then R.ink(0) */
@@ -550,12 +573,19 @@ const R = {
     gl.cullFace(this.inkW > 0 ? gl.FRONT : gl.BACK);
   },
 
+  /* upload R.gloss only when the effective value changes; the ink pass is always 0 */
+  _g() {
+    const g = this.inkW > 0 ? 0 : this.gloss;
+    if (g !== this._gloss) { this._gloss = g; this.gl.uniform1f(this.u.uGloss, g); }
+  },
+
   /* draw one primitive with a full transform */
   d(prim, x, y, z, rx, ry, rz, sx, sy, sz, c) {
     const gl = this.gl, part = GEO.parts[prim];
     mTRS(this._m, x, y, z, rx, ry, rz, sx, sy, sz);
     gl.uniformMatrix4fv(this.u.uM, false, this._m);
     gl.uniform3fv(this.u.uColor, this.inkW > 0 ? inkOf(c) : c);
+    this._g();
     gl.drawElements(gl.TRIANGLES, part.count, gl.UNSIGNED_SHORT, part.offset);
   },
 
@@ -576,6 +606,7 @@ const R = {
     const gl = this.gl, part = GEO.parts[prim];
     gl.uniformMatrix4fv(this.u.uM, false, mat);
     gl.uniform3fv(this.u.uColor, c);
+    this._g();
     gl.drawElements(gl.TRIANGLES, part.count, gl.UNSIGNED_SHORT, part.offset);
   },
 
