@@ -110,9 +110,13 @@ const ANIMALS = {
              muz: [0.46, 0.255, 0.26], muzY: -0.125, muzZ: 0.245,
              earR: 0.255, earX: 0.235, earY: 0.36, earT: 0.26 },
 
-  frog:    { ink: 0.022, ear: 'toad', fur: '#7DC163', fur2: '#E8F0C8', tail: 'none',
-             head: 'rbox', hw: 1.24, hh: 0.86, hd: 1.02,
-             earR: 0.285, earX: 0.275, earY: 0.13, earZ: 0.24 },
+  // A wide low pebble of a head with the eyes on two domes on top — baked
+  // like the bear's, one surface. The torso is the bear's egg (`torso`), in a
+  // plain jersey: no pinstripe, that is the bear's. A small cap perches
+  // between the domes, and the feet are flat webbed pads.
+  frog:    { ink: 0.022, mesh: 'frog', torso: 'bear', noStripe: 1, tail: 'none',
+             legs: 'frog', legW: 0.118, handS: 0.215, capS: 0.54, capSY: 0.74, capY: 0.150,
+             fur: '#86C25A', fur2: '#F8F4B4', paw: '#79B551', earIn: '#FBF8EC', foot: '#5E9A43' },
 
   penguin: { ink: 0.022, ear: 'none', fur: '#2E3B4A', fur2: '#F4F1E6', tail: 'nub',
              beak: '#F2A93B', head: 'sphere', hw: 1.02, hh: 1.08, hd: 0.98,
@@ -170,7 +174,9 @@ const FACES = {
              mouthC: '#4A3438', mouthY: 0.745, mouthW: 0.085 },
   cat:     { eye: 'almond', eyeX: 0.205, eyeY: 0.355, eyeR: 0.092, tilt: 0.16, whisk: '#B0895A',
              nose: 'tri',   noseC: '#C2705E', noseY: 0.295, noseR: 0.140, mouth: 'w' },
-  frog:    { eye: 'none',   headMouth: 'wide', mouthC: '#3E6B33' },
+  // its own painters; where everything goes comes from the baker (FROG_FACE)
+  frog:    Object.assign({ paintHead: frogHeadCell, paintSnout: frogSnoutCell,
+                           ink: '#22401F', fur: ANIMALS.frog.fur }, FROG_FACE),
   penguin: { eye: 'bead',   eyeX: 0.250, eyeY: 0.300, eyeR: 0.076, onPatch: 1 },
   fox:     { eye: 'almond', eyeX: 0.205, eyeY: 0.350, eyeR: 0.084, tilt: 0.20,
              nose: 'tri',   noseC: '#3C2A20', noseY: 0.300, noseR: 0.175, mouth: 'w',
@@ -243,15 +249,6 @@ function drawHeadCell(g, F, exp) {
     }
   }
   if (F.nose && F.onHead) drawSnout(g, F, exp);
-  if (F.headMouth === 'wide') {                   // the frog's grin spans the head
-    const y = 0.60;
-    fStroke(g, F.mouthC, 0.036);
-    g.beginPath();
-    if (exp === EXPR.down) { g.moveTo(0.16, y + 0.09); g.quadraticCurveTo(0.5, y - 0.05, 0.84, y + 0.09); }
-    else if (exp === EXPR.happy) { g.moveTo(0.14, y - 0.07); g.quadraticCurveTo(0.5, y + 0.16, 0.86, y - 0.07); }
-    else { g.moveTo(0.16, y - 0.02); g.quadraticCurveTo(0.5, y + 0.10, 0.84, y - 0.02); }
-    g.stroke();
-  }
 }
 
 function drawSnout(g, F, exp) {
@@ -429,6 +426,118 @@ function bearSnoutCell(g, F, exp) {
   g.fillStyle = 'rgba(255,255,255,0.45)';
   g.beginPath(); g.ellipse(cx - nw * 0.32, ny - nh * 0.38, nw * 0.30, nh * 0.20, -0.2, 0, Math.PI * 2);
   g.fill();
+}
+
+/* ---------- the frog ----------
+   A decal writes no depth, so whatever is drawn after it paints over it. The
+   head cell goes down before the eye whites and the pale throat, so it only
+   carries what lies on bare skin: the nostrils and the blush. The muzzle
+   cell goes down last, and carries the pupils (a quarter of the cell each, at
+   the top) and the mouth (the bottom half). The layout is the baker's
+   (FROG_FACE): a circle in an eye's quarter is a circle on the dome, and the
+   mouth runs exactly along the top edge of the pale throat.
+   The whites themselves are geometry (frog_earin). Lids are painted in the
+   skin colour — the decal is lit like the dome under it, so painted skin is
+   skin. */
+function frogHeadCell(g, F, exp) {
+  g.fillStyle = 'rgba(248,150,150,0.85)';         // blush, faint and wide
+  for (const s of [-1, 1]) {
+    g.beginPath(); g.ellipse(0.5 + s * F.cheek[0], F.cheek[1], 0.050, 0.20, 0, 0, Math.PI * 2); g.fill();
+  }
+  g.fillStyle = F.ink;                            // two nostrils
+  for (const s of [-1, 1]) {
+    g.beginPath(); g.ellipse(0.5 + s * F.nose[0], F.nose[1], 0.014, 0.085, 0, 0, Math.PI * 2); g.fill();
+  }
+}
+
+/* s is -1 for the eye on the reader's left; drawn in a unit square */
+function frogEye(g, F, exp, s) {
+  const r = F.eyeR, ink = F.ink;
+  if (exp === EXPR.happy) {                       // shut, smiling: ^ ^
+    g.fillStyle = F.fur;
+    g.beginPath(); g.arc(0, 0, r * 1.15, 0, Math.PI * 2); g.fill();
+    fStroke(g, ink, r * 0.24);
+    g.beginPath();
+    g.moveTo(-r * 0.68, r * 0.26);
+    g.quadraticCurveTo(0, -r * 0.62, r * 0.68, r * 0.26);
+    g.stroke();
+    return;
+  }
+  const focus = exp === EXPR.focus, down = exp === EXPR.down;
+  g.save();
+  g.beginPath(); g.arc(0, 0, r * 1.02, 0, Math.PI * 2); g.clip();
+  // the white again, over the baked one: the decal stands a few mm off it, and
+  // from a camera under the eyes (the usual one) that parallax shifts the
+  // pupil up — painting the white with it keeps the two together
+  g.fillStyle = '#FBF8EC'; g.fillRect(-r * 1.1, -r * 1.1, r * 2.2, r * 2.2);
+  // the pupil: big, round and dead centre, which is the deadpan
+  const pr = r * 0.52, px = focus ? s * r * 0.08 : 0, py = down ? r * 0.44 : focus ? r * 0.18 : r * 0.12;
+  g.fillStyle = '#1B2420';
+  g.beginPath();
+  g.ellipse(px, py, pr * (focus ? 1.08 : 1), pr * (focus ? 0.66 : 1), 0, 0, Math.PI * 2);
+  g.fill();
+  g.fillStyle = SHINE;
+  g.beginPath(); g.arc(px - pr * 0.34, py - pr * (focus ? 0.20 : 0.36), pr * 0.30, 0, Math.PI * 2); g.fill();
+  g.beginPath(); g.arc(px + pr * 0.40, py + pr * 0.32, pr * 0.13, 0, Math.PI * 2); g.fill();
+  // the lid: level and low when set, half down and drooping when beaten
+  if (focus || down) {
+    const lid = focus ? -r * 0.40 : r * 0.06, tilt = down ? s * r * 0.24 : -s * r * 0.12;
+    g.fillStyle = F.fur;
+    g.beginPath();
+    g.moveTo(-r * 1.2, -r * 1.2); g.lineTo(r * 1.2, -r * 1.2);
+    g.lineTo(r * 1.2, lid + tilt); g.lineTo(-r * 1.2, lid - tilt);
+    g.closePath(); g.fill();
+    fStroke(g, ink, r * 0.16);
+    g.beginPath(); g.moveTo(-r * 1.2, lid - tilt); g.lineTo(r * 1.2, lid + tilt); g.stroke();
+  }
+  g.restore();
+}
+
+function frogSnoutCell(g, F, exp) {
+  for (const s of [-1, 1]) {                      // the eyes, a quarter each
+    g.save();
+    g.translate(s < 0 ? 0.25 : 0.75, 0.25);
+    g.scale(0.5, 0.5);
+    g.beginPath(); g.rect(-0.5, -0.5, 1, 1); g.clip();
+    frogEye(g, F, exp, s);
+    g.restore();
+  }
+
+  const M = F.mouth, n = M.length / 2, ink = F.ink;
+  const pt = (i) => [M[2 * i], M[2 * i + 1]];
+  const bend = (k) => (i) => { const u = i / (n - 1) * 2 - 1; return k * u * u; };
+  // the curve through the baker's points, smoothed through the midpoints
+  const trace = (from, to, dy) => {
+    let p = pt(from);
+    g.moveTo(p[0], p[1] + dy(from));
+    for (let i = from + 1; i < to; i++) {
+      const a = pt(i), b = pt(i + 1);
+      g.quadraticCurveTo(a[0], a[1] + dy(i), (a[0] + b[0]) / 2, (a[1] + b[1]) / 2 + (dy(i) + dy(i + 1)) / 2);
+    }
+    p = pt(to);
+    g.lineTo(p[0], p[1] + dy(to));
+  };
+  g.beginPath(); g.rect(0, 0.5, 1, 0.5); g.clip();
+  if (exp === EXPR.happy) {                       // open wide, pink inside
+    const deep = (i) => { const u = i / (n - 1) * 2 - 1; return 0.20 * Math.max(0, 1 - u * u) ** 0.8; };
+    g.beginPath(); trace(1, n - 2, bend(0));
+    for (let i = n - 2; i >= 1; i--) { const p = pt(i); g.lineTo(p[0], p[1] + deep(i)); }
+    g.closePath();
+    g.fillStyle = '#E8837F'; g.fill();
+    fStroke(g, ink, 0.020); g.stroke();
+    fStroke(g, ink, 0.026);
+    g.beginPath(); trace(0, n - 1, bend(0)); g.stroke();
+    return;
+  }
+  if (exp === EXPR.down) {                        // a short frown, corners down
+    fStroke(g, ink, 0.026);
+    g.beginPath(); trace(3, n - 4, (i) => { const u = i / (n - 1) * 2 - 1; return 0.36 * u * u - 0.05; });
+    g.stroke();
+    return;
+  }
+  // the long smile; set, it presses flatter at the ends
+  fStroke(g, ink, exp === EXPR.focus ? 0.030 : 0.026);
+  g.beginPath(); trace(0, n - 1, bend(exp === EXPR.focus ? 0.025 : 0)); g.stroke();
 }
 
 /* built once at boot; nothing here runs per frame */
@@ -733,6 +842,14 @@ function drawAnimal(x, z, ry, look, pose, y0) {
       const e = limb(f, jx, y + 0.44, 0, lr, s * 0.04, 0.34, 0.088, pant, null, 0);
       part(f, 'rabbit_foot', e[0], e[1], e[2], 1, 1, 1, shoe, lr, s * 0.04);
     }
+  } else if (A.legs === 'frog') {
+    // a stub in the trouser colour and a flat webbed foot, laid on the ground
+    // from the ankle the way the rabbit's is
+    for (const s of [-1, 1]) {
+      const rx = (s < 0 ? p.legL : p.legR) || 0, rz = s * 0.04;
+      const e = limb(f, s * (0.155 * big + sp), y + 0.44, 0, rx, rz, 0.36, A.legW, pant, null, 0);
+      part(f, 'frog_foot', e[0], e[1], e[2], 1, 1, 1, col(A.foot), rx, rz);
+    }
   } else if (!A.body) {             // the fish has none and the beetle has six
     // `legW` / `footS` let a species be stumpier without moving the hip: the
     // rig hangs every leg off y+0.44 and running, sliding and falling are all
@@ -755,9 +872,10 @@ function drawAnimal(x, z, ry, look, pose, y0) {
   else if (A.mesh) {
     // the kit is baked as slices of the same profile as the body: laying a
     // sphere over a shaped torso makes it bulge out rather than cover
-    const M = A.mesh + '_', ln = p.lean || 0;
+    // `torso` borrows another species' jersey when the egg is the right shape
+    const M = (A.torso || A.mesh) + '_', ln = p.lean || 0;
     part(f, M + 'body', 0, y + 0.74, 0, 1, 1, 1, uni, ln);
-    part(f, M + 'stripe', 0, y + 0.74, 0, 1, 1, 1, look.pin ? col(look.pin) : shade(look.uni, 0.80), ln);
+    if (!A.noStripe) part(f, M + 'stripe', 0, y + 0.74, 0, 1, 1, 1, look.pin ? col(look.pin) : shade(look.uni, 0.80), ln);
     part(f, M + 'placket', 0, y + 0.74, 0, 1, 1, 1, trim, ln);
     // the sketch's jersey has no collar: the head sits straight on it
     if (!A.noCollar) part(f, M + 'collar', 0, y + 0.74, 0, 1, 1, 1, trim, ln);
@@ -880,7 +998,7 @@ function drawAnimal(x, z, ry, look, pose, y0) {
   }
   // Every mammal has a face cell, so its eyes, nose and mouth are art on the
   // decals above rather than spheres; the fish and the beetle carry theirs in
-  // the mesh. (The frog's eyes are its ears, below.)
+  // the mesh.
 
   // ears
   const earC = A.earC ? col(A.earC) : fur;
@@ -917,17 +1035,6 @@ function drawAnimal(x, z, ry, look, pose, y0) {
       part(fh, 'rabbit_earin', s * exx, hy + eyy, -0.02, 1, 1, 1, inC, -back, -s * tl);
     }
   }
-  if (A.ear === 'toad') {
-    const er = A.earR || 0.28, exx = A.earX || 0.19, eyy = A.earY || 0.26;
-    const ez = A.earZ === undefined ? 0.05 : A.earZ;
-    for (const s of [-1, 1]) {
-      part(fh, 'sphere', s * exx, hy + eyy, ez, er, er, er * 0.92, fur);
-      part(fh, 'sphere', s * exx, hy + eyy + 0.02, ez + 0.11, er * 0.66, er * 0.66, er * 0.46, col('#F6F1E6'));
-      part(fh, 'sphere', s * exx - s * 0.014, hy + eyy + 0.02, ez + 0.15,
-           er * 0.34, er * 0.42, er * 0.28, col(EYE));
-      part(fh, 'sphere', s * exx + 0.05, hy + eyy + 0.09, ez + 0.17, 0.036, 0.036, 0.030, col(SHINE));
-    }
-  }
   // tail
   if (A.tail === 'cotton') part(f, 'rabbit_tail', 0, y + 0.66, -0.30, 1, 1, 1, fur2);
   // the baked torso has a shallower back than the sphere one, so the nub has
@@ -945,23 +1052,25 @@ function drawAnimal(x, z, ry, look, pose, y0) {
     // stub — a helmet is a cap that swallowed the head, not a different
     // object. The crest used to be a free-standing box above the dome and
     // read as a chimney; it is sunk into the shell now.
-    const cy = A.capY || 0, cs = A.capS || 1, shy = hy + cy - 0.014 * cs;
-    part(fh, 'cap_crown', 0, shy, 0, 1.055 * big * cs, 1.05 * cs, 1.055 * big * cs, cap);
-    part(fh, 'cap_bill', 0, shy, 0, 1.06 * big * cs, 1.05 * cs, 0.70 * big * cs, cap);
+    const cy = A.capY || 0, cs = A.capS || 1, sy = A.capSY || cs, shy = hy + cy - 0.014 * sy;
+    part(fh, 'cap_crown', 0, shy, 0, 1.055 * big * cs, 1.05 * sy, 1.055 * big * cs, cap);
+    part(fh, 'cap_bill', 0, shy, 0, 1.06 * big * cs, 1.05 * sy, 0.70 * big * cs, cap);
     // the flap covers the ear turned toward the pitcher (local +x)
     part(fh, 'sphere', 0.345 * big * cs, hy + 0.10 * cs + cy, 0.01,
          0.15 * cs, 0.34 * cs, 0.42 * cs, cap);
-    part(fh, 'rbox', 0, hy + 0.462 * cs + cy, 0.012 * cs,
+    part(fh, 'rbox', 0, hy + 0.462 * sy + cy, 0.012 * cs,
          0.082 * cs, 0.112 * cs, 0.54 * cs, trim);
   } else {
     // Baked at full size, so the scale is 1 and `capS` is the only shrink.
     // A dome and a box read as a plate with a plank on it; the crown has a
     // lip and a shoulder, and the bill curves down its length and up across
     // its width so it is still a bill when seen edge-on.
-    const cy = A.capY || 0, cs = A.capS || 1;
-    part(fh, 'cap_crown', 0, hy + cy, 0, big * cs, cs, big * cs, cap);
-    part(fh, 'cap_bill', 0, hy + cy, 0, big * cs, cs, big * cs, cap);
-    part(fh, 'sphere', 0, hy + 0.492 * cs + cy, 0.012 * cs,
+    // `capSY` keeps a shrunk cap's bill thick enough for the outline: at half
+    // size it fell under 2 x A.ink and went solid black
+    const cy = A.capY || 0, cs = A.capS || 1, sy = A.capSY || cs;
+    part(fh, 'cap_crown', 0, hy + cy, 0, big * cs, sy, big * cs, cap);
+    part(fh, 'cap_bill', 0, hy + cy, 0, big * cs, sy, big * cs, cap);
+    part(fh, 'sphere', 0, hy + 0.492 * sy + cy, 0.012 * cs,
          0.082 * cs, 0.082 * cs, 0.082 * cs, trim);
   }
 
@@ -1057,7 +1166,9 @@ const TEAMS = [
     tag: 'SPEED',   desc: '足が速い。内野安打も盗塁もお手のもの。', pow: 2, con: 4, spd: 5, def: 4 },
   { id: 'salmons',  name: 'そじょうサーモンズ', animal: 'salmon', uni: '#2F5C7A', trim: '#F0B9A8', cap: '#22455C',
     tag: 'CONTACT', desc: 'バットは持たないが、当てるのはうまい。四球も選ぶ。', pow: 3, con: 5, spd: 3, def: 3 },
-  { id: 'frogs',    name: 'ぬまたフロッグス', animal: 'frog',    uni: '#4E8A4E', trim: '#E8F0C8', cap: '#2E5E34',
+  // a cream jersey with deep green trim: a green frog in a green jersey was
+  // one green blob from the outfield
+  { id: 'frogs',    name: 'ぬまたフロッグス', animal: 'frog',    uni: '#F3E9B8', trim: '#2F6B3B', cap: '#2F6B3B',
     tag: 'BALANCE', desc: 'すべてが平均的。クセがなく扱いやすい。', pow: 3, con: 3, spd: 3, def: 3 },
   { id: 'penguins', name: 'こおりやまペンギンズ', animal: 'penguin', uni: '#28405E', trim: '#F4F1E6', cap: '#1B2C42',
     tag: 'DEFENSE', desc: '守備が堅い。相手の打球をよく捕る。', pow: 3, con: 3, spd: 2, def: 5 },

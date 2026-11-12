@@ -41,6 +41,8 @@ function togglePause() {
    the models: the salmon had ears, a nose and a cap. */
 const PORTRAIT = { salmon: { ty: 0.42, d: 2.6, ry: -1.45 }, beetle: { ty: 0.95, d: 2.6, ry: -1.0 },
                    rabbit: { ty: 1.34, d: 2.6, ry: -0.28 },
+                   // the eyes on top are the frog: frame them, open
+                   frog: { ty: 1.40, d: 2.75, ry: -0.24, face: EXPR.idle },
                    // the bear's resting face is the one in the sketch
                    bear: { ty: 1.42, d: 2.6, ry: -0.28, face: EXPR.idle } };
 function paintPortrait(c, team) {
