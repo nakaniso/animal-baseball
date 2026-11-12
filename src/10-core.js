@@ -336,12 +336,33 @@ uniform mat4 uVP, uM;
 uniform float uOutline;
 uniform vec3 uCam;
 uniform vec4 uUVRect;
+uniform vec4 uBend;
 varying vec3 vN, vW;
 varying vec2 vUV;
 void main(){
   vUV = aUV * uUVRect.xy + uUVRect.zw;
-  vec4 w = uM * vec4(aPos,1.0);
-  vec3 n = (uM * vec4(aNor,0.0)).xyz;
+  vec3 p = aPos, q = aNor;
+  // opt-in spine bend (the salmon): everything below local y = uBend.x curls in
+  // the x/y plane by th(u) = u*(b.y + u*(b.z + u*b.w)). Zero skips it entirely.
+  if (uBend.y != 0.0 || uBend.z != 0.0 || uBend.w != 0.0) {
+    float u = uBend.x - p.y;
+    if (u > 0.0) {
+      float du = u * 0.125, th;
+      vec2 s = vec2(0.0);
+      for (int i = 0; i < 8; i++) {
+        float v = (float(i) + 0.5) * du;
+        th = v * (uBend.y + v * (uBend.z + v * uBend.w));
+        s += vec2(sin(th), cos(th));
+      }
+      s *= du;
+      th = u * (uBend.y + u * (uBend.z + u * uBend.w));
+      float c = cos(th), sn = sin(th);
+      p = vec3(s.x + p.x * c, uBend.x - s.y + p.x * sn, p.z);
+      q = vec3(q.x * c - q.y * sn, q.x * sn + q.y * c, q.z);
+    }
+  }
+  vec4 w = uM * vec4(p,1.0);
+  vec3 n = (uM * vec4(q,0.0)).xyz;
   float l = length(n);
   vN = n;
   // Inverted hull: push the shell out along the world normal, draw back faces.
@@ -421,6 +442,7 @@ void main(){
 const R = {
   gl: null, prog: null, u: {}, vp: m4(), _m: m4(), _t: m4(),
   eye: [0, 0, 0], w: 1, h: 1, dpr: 1, inkW: 0,
+  bend: null, _bend: null,   // R.bend: [pivotY, k1, k2, k3] curls a baked spine (the salmon); null = off
   gloss: 0, _gloss: 0,   // R.gloss: 0..1, set before drawing glossy parts, reset to 0 after
 
   init(canvas) {
@@ -442,7 +464,7 @@ const R = {
     }
     gl.useProgram(p);
     this.prog = p;
-    for (const n of ['uVP', 'uM', 'uColor', 'uLight', 'uSky', 'uGnd', 'uFog', 'uEye', 'uFogD', 'uUnlit', 'uAlpha', 'uOutline', 'uCam', 'uUseTex', 'uUVRect', 'uTex', 'uGloss'])
+    for (const n of ['uVP', 'uM', 'uColor', 'uLight', 'uSky', 'uGnd', 'uFog', 'uEye', 'uFogD', 'uUnlit', 'uAlpha', 'uOutline', 'uCam', 'uUseTex', 'uUVRect', 'uTex', 'uGloss', 'uBend'])
       this.u[n] = gl.getUniformLocation(p, n);
 
     const vb = gl.createBuffer();
@@ -561,6 +583,8 @@ const R = {
     this.inkW = 0;
     this.gloss = 0; this._gloss = 0;
     gl.uniform1f(this.u.uGloss, 0);
+    this.bend = null; this._bend = null;
+    gl.uniform4f(this.u.uBend, 0, 0, 0, 0);
   },
 
   /* ink line pass: call R.ink(w), draw the same parts again, then R.ink(0) */
@@ -579,13 +603,21 @@ const R = {
     if (g !== this._gloss) { this._gloss = g; this.gl.uniform1f(this.u.uGloss, g); }
   },
 
+  _bd() {
+    const b = this.bend;
+    if (b === this._bend) return;
+    this._bend = b;
+    if (b) this.gl.uniform4f(this.u.uBend, b[0], b[1], b[2], b[3]);
+    else this.gl.uniform4f(this.u.uBend, 0, 0, 0, 0);
+  },
+
   /* draw one primitive with a full transform */
   d(prim, x, y, z, rx, ry, rz, sx, sy, sz, c) {
     const gl = this.gl, part = GEO.parts[prim];
     mTRS(this._m, x, y, z, rx, ry, rz, sx, sy, sz);
     gl.uniformMatrix4fv(this.u.uM, false, this._m);
     gl.uniform3fv(this.u.uColor, this.inkW > 0 ? inkOf(c) : c);
-    this._g();
+    this._g(); this._bd();
     gl.drawElements(gl.TRIANGLES, part.count, gl.UNSIGNED_SHORT, part.offset);
   },
 
@@ -606,7 +638,7 @@ const R = {
     const gl = this.gl, part = GEO.parts[prim];
     gl.uniformMatrix4fv(this.u.uM, false, mat);
     gl.uniform3fv(this.u.uColor, c);
-    this._g();
+    this._g(); this._bd();
     gl.drawElements(gl.TRIANGLES, part.count, gl.UNSIGNED_SHORT, part.offset);
   },
 

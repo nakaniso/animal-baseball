@@ -236,148 +236,546 @@ def bez(a, b, c, n):
 
 
 # ------------------------------------------------------------------- salmon
-# Canonical pose: body axis along +Y with the snout up, dorsal toward -Z and
-# belly toward +Z, so it stands the way a Magikarp does. Scaled to about 1.3
-# tall, which puts it alongside the mammals.
+# A male chum salmon (シロザケ) on the spawning run: the real fish, not a toy.
+#
+# Canonical frame: the spine runs along +Y with the snout up (y = SAL_L at the
+# tip of the kype, 0 at the base of the tail), the back toward -Z, the belly
+# toward +Z, and +X is the fish's left flank. `t` counts from the snout (0) to
+# the base of the tail (1). Every marking, the eye, the gill cover and the fin
+# roots are solved on the same (t, e) map of the body — e is the elevation
+# round the section, +pi/2 the dorsal ridge, -pi/2 the keel — so nothing has to
+# be placed by eye and nothing floats.
+#
+# The game curls the body in the vertex shader (R.bend), about local y = SAL_PIV
+# and only behind it: the head is rigid, as a fish's is, so the jaw, the gill
+# covers and the pectorals hang off fixed hinges.
 
-SAL_DEPTH = [(0.00, 0.020), (0.04, 0.090), (0.10, 0.150), (0.18, 0.196),
-             (0.28, 0.226), (0.38, 0.234), (0.50, 0.222), (0.62, 0.194),
-             (0.74, 0.152), (0.84, 0.104), (0.92, 0.062), (0.97, 0.040),
-             (1.00, 0.032)]
-SAL_WIDTH = [(0.00, 0.016), (0.06, 0.070), (0.14, 0.098), (0.28, 0.106),
-             (0.44, 0.094), (0.62, 0.078), (0.80, 0.052), (0.92, 0.030),
-             (1.00, 0.022)]
-# the belly hangs below the axis; the back is nearly straight, as on the fish
-SAL_SHIFT = [(0.00, 0.010), (0.20, 0.030), (0.40, 0.040), (0.70, 0.026),
-             (1.00, 0.004)]
+SAL_L = 1.24
+SAL_PIV_T = 0.30
+SAL_E = 2.3            # superellipse exponent of the sections
+
+# dorsal edge, ventral edge (z, metres) and half width, by t. The head front is
+# only the upper jaw: its ventral edge is the mouth line, and the kype hooks
+# down past it at the very tip. Depth at the dorsal is 26% of the length, width
+# half the depth: deep, flat-sided, not a cigar.
+SAL_TOP = [(0.0, 0.062), (0.010, 0.030), (0.025, -0.008), (0.05, -0.034),
+           (0.10, -0.060), (0.15, -0.085), (0.20, -0.112), (0.25, -0.140),
+           (0.31, -0.158), (0.37, -0.175), (0.43, -0.180), (0.50, -0.172),
+           (0.60, -0.146), (0.70, -0.112), (0.80, -0.078), (0.87, -0.058),
+           (0.93, -0.052), (1.0, -0.058)]
+SAL_BOT = [(0.0, 0.072), (0.010, 0.074), (0.025, 0.056), (0.045, 0.039), (0.07, 0.033),
+           (0.10, 0.031), (0.15, 0.029), (0.175, 0.034), (0.20, 0.058),
+           (0.23, 0.086), (0.27, 0.106), (0.33, 0.125), (0.42, 0.140),
+           (0.52, 0.138), (0.62, 0.120), (0.70, 0.096), (0.78, 0.074),
+           (0.86, 0.056), (0.93, 0.050), (1.0, 0.056)]
+SAL_W = [(0.0, 0.008), (0.012, 0.015), (0.03, 0.022), (0.06, 0.030),
+         (0.10, 0.037), (0.15, 0.048), (0.21, 0.060), (0.28, 0.072),
+         (0.36, 0.079), (0.44, 0.080), (0.52, 0.076), (0.62, 0.066),
+         (0.72, 0.051), (0.82, 0.035), (0.90, 0.025), (0.96, 0.022),
+         (1.0, 0.023)]
 
 
-def salmon_rings(n=44, sec=18, swell=1.0):
+def sal_y(t):
+    return SAL_L * (1.0 - t)
+
+
+def sal_sec(t):
+    top = smooth_profile(t, SAL_TOP)
+    bot = smooth_profile(t, SAL_BOT)
+    w = smooth_profile(t, SAL_W)
+    return top, bot, w, top + 0.46 * (bot - top)
+
+
+def sal_ring_pt(t, a):
+    """The body surface at section angle a (0 = left flank, +pi/2 = keel)."""
+    top, bot, w, mid = sal_sec(t)
+    ca, sa = math.cos(a), math.sin(a)
+    k = 2.0 / SAL_E
+    x = math.copysign(abs(ca) ** k, ca) * w
+    z = mid + ((top - mid) if sa < 0 else (bot - mid)) * abs(sa) ** k
+    return (x, sal_y(t), z)
+
+
+def sal_a(e, side):
+    return -e if side > 0 else math.pi + e
+
+
+def sal_nrm(t, a):
+    h = 1e-4
+    p = sal_ring_pt(t, a)
+    pt = sal_ring_pt(min(1.0, t + h), a)
+    pt0 = sal_ring_pt(max(0.0, t - h), a)
+    pa = sal_ring_pt(t, a + h)
+    pa0 = sal_ring_pt(t, a - h)
+    u = [pt[i] - pt0[i] for i in range(3)]
+    v = [pa[i] - pa0[i] for i in range(3)]
+    n = (u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[1] * v[0])
+    L = math.sqrt(sum(c * c for c in n)) or 1.0
+    n = [c / L for c in n]
+    mid = sal_sec(t)[3]
+    if n[0] * p[0] + n[2] * (p[2] - mid) < 0:
+        n = [-c for c in n]
+    return n
+
+
+def sal_pt(t, e, side, off=0.0):
+    a = sal_a(e, side)
+    p = sal_ring_pt(t, a)
+    if not off:
+        return p
+    n = sal_nrm(t, a)
+    return (p[0] + n[0] * off, p[1] + n[1] * off, p[2] + n[2] * off)
+
+
+def jag(*k):
+    """A repeatable scatter in [-1, 1]."""
+    s = 0.0
+    for i, q in enumerate(k):
+        s += q * (12.9898 + 31.7 * i)
+    v = math.sin(s) * 43758.5453
+    return 2.0 * (v - math.floor(v)) - 1.0
+
+
+def sal_grid(rows, inside):
+    """Quads over a grid of points; faces turned away from `inside`, a function
+    giving a point under each vertex (the spine at that height)."""
+    m = Mesh()
+    idx = [[m.vert(*p) for p in r] for r in rows]
+    s = 0.0
+    for k in range(len(rows) - 1):
+        for i in range(len(rows[k]) - 1):
+            a, b, c, d = idx[k][i], idx[k][i + 1], idx[k + 1][i + 1], idx[k + 1][i]
+            m.quad(a, b, c, d)
+            pa, pb, pc = m.v[a], m.v[b], m.v[c]
+            u = [pb[j] - pa[j] for j in range(3)]
+            v = [pc[j] - pa[j] for j in range(3)]
+            n = (u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[1] * v[0])
+            q = inside(pa)
+            s += sum(n[j] * (pa[j] - q[j]) for j in range(3))
+    if s < 0:
+        m.f = [(a, c, b) for a, b, c in m.f]
+    return m
+
+
+def sal_axis(p):
+    t = max(0.0, min(1.0, 1.0 - p[1] / SAL_L))
+    return (0.0, p[1], sal_sec(t)[3])
+
+
+def sal_patch(fn, nr, nc, off):
+    """A skin patch: fn(r, c) -> (t, e, side) over r, c in [0, 1]."""
+    rows = []
+    for i in range(nr):
+        row = []
+        for j in range(nc):
+            t, e, side = fn(i / float(nr - 1), j / float(nc - 1))
+            row.append(sal_pt(t, e, side, off))
+        rows.append(row)
+    return sal_grid(rows, sal_axis)
+
+
+def sal_dome(t, e, side, R, off, dome, nr=4, nt=14):
+    """A round domed disc on the skin (an eye, a nostril), solved on the map so
+    its rim follows the body's curve."""
+    a = sal_a(e, side)
+    p = sal_ring_pt(t, a)
+    n = sal_nrm(t, a)
+    h = 1e-3
+    pt = sal_ring_pt(t + h, a)
+    pe = sal_pt(t, e + h, side)
+    Lt = math.dist(p, pt) / h
+    Le = math.dist(p, pe) / h
+    m = Mesh()
+    c0 = m.vert(p[0] + n[0] * (off + dome), p[1] + n[1] * (off + dome), p[2] + n[2] * (off + dome))
     rings = []
-    for i in range(n):
-        t = i / float(n - 1)
-        y = 1.30 - t * 1.30
-        d = lerp_profile(t, SAL_DEPTH) * swell
-        w = lerp_profile(t, SAL_WIDTH) * swell
-        cz = lerp_profile(t, SAL_SHIFT)
-        rings.append(section(0.0, y, cz, w, d, sec, e=2.35, back_flat=0.86))
-    return rings
+    for i in range(1, nr + 1):
+        rho = i / float(nr)
+        ring = []
+        for k in range(nt):
+            th = math.tau * k / nt
+            tt = t + R * rho * math.cos(th) / Lt
+            ee = e + R * rho * math.sin(th) / Le
+            q = sal_ring_pt(tt, sal_a(ee, side))
+            nn = sal_nrm(tt, sal_a(ee, side))
+            hh = off + dome * (1 - rho * rho)
+            ring.append(m.vert(q[0] + nn[0] * hh, q[1] + nn[1] * hh, q[2] + nn[2] * hh))
+        rings.append(ring)
+    for k in range(nt):
+        m.tri(c0, rings[0][k], rings[0][(k + 1) % nt])
+    for i in range(nr - 1):
+        a_, b_ = rings[i], rings[i + 1]
+        for k in range(nt):
+            j = (k + 1) % nt
+            m.quad(a_[k], b_[k], b_[j], a_[j])
+    return oriented_open(m, (0.0, p[1], sal_sec(t)[3]))
+
+
+def sal_fin(base, dirs, lens, th0, th1, nrm, rows=5, ridge=0.0, droop=None, split=None):
+    """A fin: rays fanned from points on the body, given a thickness that
+    tapers to the edge (a thin wedge, not a slab) and ridged every other ray so
+    the light picks the rays out. With `split`, returns (fin, margin) cut at
+    that share of the ray length, so the edge can take its own colour."""
+    nc = len(base)
+
+    def P(i, s, sgn):
+        b, d, L = base[i], dirs[i], lens[i]
+        th = (th0 + (th1 - th0) * s) * 0.5
+        if ridge and 0 < i < nc - 1:
+            th *= 1.0 + (ridge if i % 2 else -ridge) * min(1.0, s * 3.0)
+        n = nrm[i] if isinstance(nrm[0], (list, tuple)) else nrm
+        q = [b[k] + d[k] * L * s for k in range(3)]
+        if droop:
+            for k in range(3):
+                q[k] += droop[k] * L * s * s
+        return (q[0] + n[0] * th * sgn, q[1] + n[1] * th * sgn, q[2] + n[2] * th * sgn)
+
+    def solid(s0, s1, nrow):
+        m = Mesh()
+        ss = [s0 + (s1 - s0) * r / float(nrow) for r in range(nrow + 1)]
+        top = [[m.vert(*P(i, s, 1)) for i in range(nc)] for s in ss]
+        bot = [[m.vert(*P(i, s, -1)) for i in range(nc)] for s in ss]
+        for r in range(nrow):
+            for i in range(nc - 1):
+                m.quad(top[r][i], top[r][i + 1], top[r + 1][i + 1], top[r + 1][i])
+                m.quad(bot[r][i], bot[r + 1][i], bot[r + 1][i + 1], bot[r][i + 1])
+            m.quad(top[r][0], top[r + 1][0], bot[r + 1][0], bot[r][0])
+            m.quad(top[r][-1], bot[r][-1], bot[r + 1][-1], top[r + 1][-1])
+        for i in range(nc - 1):
+            m.quad(top[0][i], bot[0][i], bot[0][i + 1], top[0][i + 1])
+            m.quad(top[-1][i], top[-1][i + 1], bot[-1][i + 1], bot[-1][i])
+        return oriented(m)
+
+    if split is None:
+        return solid(0.0, 1.0, rows)
+    r0 = max(1, int(round(rows * split)))
+    return solid(0.0, split, r0), solid(split, 1.0, max(1, rows - r0))
+
+
+def _nz(v):
+    L = math.sqrt(sum(c * c for c in v)) or 1.0
+    return [c / L for c in v]
+
+
+def _cross(u, v):
+    return [u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[1] * v[0]]
+
+
+def sal_cone(b, d, L, r, n=5):
+    """A tooth: a recurved cone from base b along d."""
+    m = Mesh()
+    d = _nz(d)
+    u = _nz(_cross(d, [0.0, 1.0, 0.0] if abs(d[1]) < 0.9 else [1.0, 0.0, 0.0]))
+    v = _cross(d, u)
+    ring = []
+    for k in range(n):
+        a = math.tau * k / n
+        ring.append(m.vert(*[b[i] + (u[i] * math.cos(a) + v[i] * math.sin(a)) * r for i in range(3)]))
+    tip = m.vert(*[b[i] + d[i] * L + (-0.25 * L if i == 1 else 0.0) for i in range(3)])
+    for k in range(n):
+        m.tri(ring[k], ring[(k + 1) % n], tip)
+    return oriented_open(m, b)
+
+
+SAL_JAW_T = [(0.032, 0.041, 0.054, 0.009), (0.042, 0.042, 0.064, 0.014),
+             (0.060, 0.044, 0.072, 0.021), (0.100, 0.038, 0.079, 0.030),
+             (0.150, 0.033, 0.080, 0.039), (0.205, 0.032, 0.072, 0.044),
+             (0.235, 0.034, 0.066, 0.040)]
+
+
+def sal_jaw_sec(t):
+    keys = SAL_JAW_T
+    top = smooth_profile(t, [(k[0], k[1]) for k in keys])
+    bot = smooth_profile(t, [(k[0], k[2]) for k in keys])
+    w = smooth_profile(t, [(k[0], k[3]) for k in keys])
+    return top, bot, w
 
 
 def build_salmon():
     out = {}
-    rings = salmon_rings()
-    out['sal_body'] = loft(rings)
+    piv = sal_y(SAL_PIV_T)
 
-    # a thin shell over the dark of the back and another under the pale belly,
-    # pushed just proud of the body so they read as markings, not as geometry
-    sec = 18
-    for name, lo, hi, swell in (('sal_back', 11, 18, 1.035), ('sal_belly', 3, 10, 1.03)):
-        rs = salmon_rings(swell=swell)
-        band = [r[lo:hi + 1] for r in rs]
-        m = Mesh()
-        idx = [[m.vert(*p) for p in r] for r in band]
-        for k in range(len(band) - 1):
-            a, b = idx[k], idx[k + 1]
-            for i in range(len(a) - 1):
-                m.quad(a[i], a[i + 1], b[i + 1], b[i])
-        out[name] = m
+    # --- the body: 56 sections, packed toward the head where the kype is
+    rings = []
+    for i in range(56):
+        t = (i / 55.0) ** 1.25
+        rings.append([sal_ring_pt(t, math.tau * k / 24.0) for k in range(24)])
+    out['sal_body'] = oriented(loft(rings))
 
-    fins = Mesh()
-    # dorsal, along the back
-    root = [(0.0, 1.30 - t * 1.30, lerp_profile(t, SAL_SHIFT) - lerp_profile(t, SAL_DEPTH) * 0.86)
-            for t in [0.34, 0.40, 0.46, 0.52]]
-    tip = [(0.0, r[1] + 0.02, r[2] - 0.16 * math.sin(math.pi * (0.2 + 0.8 * i / 3.0)))
-           for i, r in enumerate(root)]
-    fins.merge(blade(root, tip, 0.012))
-    # anal fin, underneath and further back
-    root2 = [(0.0, 1.30 - t * 1.30, lerp_profile(t, SAL_SHIFT) + lerp_profile(t, SAL_DEPTH) * 0.92)
-             for t in [0.76, 0.80, 0.84]]
-    tip2 = [(0.0, r[1] - 0.01, r[2] + 0.09) for r in root2]
-    fins.merge(blade(root2, tip2, 0.010))
-    # the adipose fin, which is small and pointless and unmistakably salmonid
-    root3 = [(0.0, 1.30 - t * 1.30, lerp_profile(t, SAL_SHIFT) - lerp_profile(t, SAL_DEPTH) * 0.86)
-             for t in [0.70, 0.745]]
-    fins.merge(blade(root3, [(0.0, r[1], r[2] - 0.045) for r in root3], 0.008))
-    # caudal: forked, and the reason a salmon is not a trout at a glance
-    for s in (-1.0, 1.0):
-        rt = [(0.0, 0.02, 0.006), (0.0, 0.00, 0.006)]
-        tp = [(0.0, 0.02 + s * 0.20, -0.24), (0.0, 0.00 + s * 0.10, -0.20)]
-        fins.merge(blade(rt, tp, 0.011))
-    # pectorals, low on the flank where they belong
-    for s in (-1.0, 1.0):
-        rt = [(s * 0.070, 0.82, 0.03), (s * 0.070, 0.74, 0.03)]
-        tp = [(s * 0.150, 0.74, 0.10), (s * 0.150, 0.70, 0.07)]
-        fins.merge(blade(rt, tp, 0.009))
-    out['sal_fins'] = fins
+    # --- colour, as skin patches offset along the normal, stacked by height:
+    # belly < bars < back < lines. The back is dark olive down to the eye and
+    # well down the gill cover; its edge wanders a little, as a real one does.
+    def back_e(t, side):
+        h = smooth_profile(t, [(0.0, 2.4), (0.05, 2.0), (0.10, 1.40), (0.16, 1.08),
+                               (0.22, 1.02), (0.30, 1.08), (0.45, 1.14), (0.65, 1.20),
+                               (0.85, 1.30), (1.0, 1.36)])
+        return (math.pi / 2 - h + 0.035 * math.sin(t * 41 + side)
+                + 0.025 * math.sin(t * 97 + 2 * side))
 
-    # Eyes and markings go in the mesh too. Placed by hand against the old
-    # sphere model they floated off the surface; solved for the profile they
-    # sit where they belong at any angle.
-    def surface(t, k=0.82):
-        y = 1.30 - t * 1.30
-        return (lerp_profile(t, SAL_WIDTH) * k, y, lerp_profile(t, SAL_SHIFT))
+    def back_fn(r, c):
+        t = 0.002 + 0.996 * r ** 1.2
+        side = 1 if c < 0.5 else -1
+        k = abs(c - 0.5) * 2
+        e0 = back_e(t, side)
+        return t, math.pi / 2 - (math.pi / 2 - e0) * k, side
+    out['sal_back'] = sal_patch(back_fn, 46, 9, 0.0075)
 
-    eyes, iris = Mesh(), Mesh()
-    t_eye = 0.175
-    w = lerp_profile(t_eye, SAL_WIDTH)
-    ey = 1.30 - t_eye * 1.30
-    ez = lerp_profile(t_eye, SAL_SHIFT) - lerp_profile(t_eye, SAL_DEPTH) * 0.28
-    r = 0.036
-    for s2 in (-1.0, 1.0):
-        eyes.merge(ball(s2 * (w - r * 0.42), ey, ez, r, 10))
-        iris.merge(ball(s2 * (w - r * 0.12), ey, ez + 0.002, r * 0.58, 8))
-    out['sal_eye'] = eyes
-    out['sal_pupil'] = iris
+    def belly_e(t):
+        return -math.pi / 2 + smooth_profile(t, [(0.185, 0.50), (0.23, 0.76), (0.30, 0.90),
+                                                  (0.45, 0.94), (0.60, 0.86), (0.72, 0.66),
+                                                  (0.82, 0.50), (0.90, 0.28)])
 
-    # the flush a fish gets on the run upriver, a band along the flank only
-    # 46 rings of 9 along a smooth lens is nine hundred vertices spent on a
-    # stripe, and vertices here are bytes in the one HTML file the whole game
-    # ships as. At 24 by 7 it is the same shape and 13KB cheaper.
-    band = Mesh()
-    N, COLS = 24, 7
-    for a_c in (0.0, math.pi):
-        rows = []
-        for i in range(N):
-            u = i / float(N - 1)
-            t = 0.20 + u * 0.52
-            # a lens along the lateral line, not a coat of paint: at full width
-            # it wrapped most of the flank and the fish read as skinned
-            spread = 0.34 * math.sin(math.pi * u) ** 0.75
-            y = 1.30 - t * 1.30
-            d = lerp_profile(t, SAL_DEPTH) * 1.022
-            w = lerp_profile(t, SAL_WIDTH) * 1.022
-            cz = lerp_profile(t, SAL_SHIFT)
-            rows.append([band.vert(*section_pt(0.0, y, cz, w, d,
-                                               a_c + ((j / float(COLS - 1)) * 2 - 1) * spread,
-                                               e=2.35, back_flat=0.86))
-                         for j in range(COLS)])
-        for k in range(N - 1):
-            a, b = rows[k], rows[k + 1]
-            for i in range(COLS - 1):
-                band.quad(a[i], a[i + 1], b[i + 1], b[i])
-    out['sal_blush'] = band
+    def belly_fn(r, c):
+        t = 0.185 + 0.715 * r
+        side = 1 if c < 0.5 else -1
+        k = abs(c - 0.5) * 2
+        return t, -math.pi / 2 + (belly_e(t) + math.pi / 2) * k, side
+    out['sal_belly'] = sal_patch(belly_fn, 26, 7, 0.0035)
 
-    # the kit, hugging the body for the same reason the beetle's does
-    for name, lo, hi, sw in (('sal_band', 0.40, 0.66, 1.022),
-                             ('sal_collar', 0.34, 0.40, 1.028),
-                             ('sal_belt', 0.66, 0.71, 1.028)):
-        m = Mesh()
-        rows = []
-        for i in range(16):
-            t = lo + (hi - lo) * i / 15.0
-            rows.append(section(0.0, 1.30 - t * 1.30, lerp_profile(t, SAL_SHIFT),
-                                lerp_profile(t, SAL_WIDTH) * sw,
-                                lerp_profile(t, SAL_DEPTH) * sw,
-                                18, e=2.35, back_flat=0.86))
-        m.merge(loft(rows, cap_start=False, cap_end=False))
-        out[name] = m
+    # the spawning bars (ブナ毛): ragged vertical flames of maroon from under the
+    # dark back down the lower flank, with dusky green between them
+    bars, dbars = Mesh(), Mesh()
+    for side in (1, -1):
+        for k in range(8):
+            tc = 0.285 + k * 0.073 + 0.008 * jag(k, side)
+            e_lo = -0.62 - 0.22 * (0.5 + 0.5 * jag(k, 3, side))
 
-    # the kype: a spawning male's hooked lower jaw. Nothing else about the fish
-    # says "not cute" as loudly.
-    jaw = sweep(bez((0.0, 1.16, 0.055), (0.0, 1.10, 0.16), (0.0, 1.21, 0.215), 9),
-                [0.052, 0.050, 0.046, 0.041, 0.036, 0.031, 0.026, 0.021, 0.016], 9)
-    out['sal_jaw'] = jaw
+            def bar(r, c, tc=tc, e_lo=e_lo, k=k, side=side):
+                e_hi = back_e(tc, side) + 0.14
+                e = e_hi + (e_lo - e_hi) * r
+                hw = 0.021 * (1.0 + 0.30 * jag(k, 11, side)) * (1.0 + 0.25 * r) * (1.0 + 0.35 * jag(k, int(r * 12), side, c))
+                if r > 0.85:
+                    hw *= 1.0 - (r - 0.85) * 3.5
+                return tc + 0.016 * e + (c * 2 - 1) * hw, e, side
+            bars.merge(sal_patch(bar, 12, 2, 0.0055))
+        for k in range(7):
+            tc = 0.285 + k * 0.073 + 0.0365 + 0.005 * jag(k, 7, side)
+            e_lo = -0.30 - 0.45 * (0.5 + 0.5 * jag(k, 5, side))
+
+            def dbar(r, c, tc=tc, e_lo=e_lo, k=k, side=side):
+                e_hi = back_e(tc, side) + 0.10
+                e = e_hi + (e_lo - e_hi) * r
+                hw = 0.0085 * (1.0 + 0.9 * r) * (1.0 + 0.45 * jag(k, int(r * 9), side, c, 2))
+                if r > 0.8:
+                    hw *= 1.0 - (r - 0.8) * 4.0
+                return tc + 0.016 * e + (c * 2 - 1) * hw, e, side
+            dbars.merge(sal_patch(dbar, 10, 2, 0.006))
+    out['sal_bars'] = bars
+    out['sal_dbars'] = dbars
+
+    # --- the gill cover: a plate hinged at the preopercle, with a rounded rear
+    # edge. Under it a sliver of red gill, which shows when it flares.
+    def oper_t(e):
+        # the preopercle runs down behind the eye and sweeps forward under it
+        tf = 0.162 - 0.022 * max(0.0, -(e + 0.35)) ** 1.4
+        q = (e + 0.18) / 1.10
+        tr = 0.170 + 0.068 * max(0.0, 1.0 - q * q) ** 0.55
+        return tf, max(tr, tf + 0.008)
+    E0, E1 = 0.80, -1.22
+    for side, nm in ((1, 'l'), (-1, 'r')):
+        def oper(r, c, side=side):
+            e = E0 + (E1 - E0) * r
+            tf, tr = oper_t(e)
+            return tf + (tr - tf) * c, e, side
+        out['sal_oper' + nm] = sal_patch(oper, 12, 5, 0.0070)
+    gill, line = Mesh(), Mesh()
+    for side in (1, -1):
+        def gl_(r, c, side=side):
+            e = E0 - 0.02 + (E1 + 0.04 - E0) * r
+            tr = oper_t(e)[1]
+            return tr - 0.024 + 0.022 * c, e, side
+        gill.merge(sal_patch(gl_, 11, 2, 0.0045))
+
+        def rim(r, c, side=side):
+            e = E0 + (E1 - E0) * r
+            tr = oper_t(e)[1]
+            return tr - 0.003 + 0.008 * c, e, side
+        line.merge(sal_patch(rim, 11, 2, 0.0080))
+
+        def pre(r, c, side=side):
+            e = 0.45 + (-1.15 - 0.45) * r
+            tf = oper_t(e)[0]
+            return tf - 0.003 + 0.006 * c, e, side
+        line.merge(sal_patch(pre, 9, 2, 0.0098))
+
+        # the lateral line, dark and straight from the gill to the tail
+        def ll(r, c, side=side):
+            t = 0.245 + 0.71 * r
+            e = 0.06 + 0.10 * (1 - r) ** 3 + (c * 2 - 1) * 0.022
+            return t, e, side
+        line.merge(sal_patch(ll, 30, 2, 0.0095))
+        for tn, en in ((0.036, 0.44), (0.050, 0.42)):
+            line.merge(sal_dome(tn, en, side, 0.0062, 0.0095, 0.0, 2, 8))
+    out['sal_gill'] = gill
+    out['sal_line'] = line
+
+    # --- the eye: small, set high over the long jaw, under a domed cornea
+    eye, iris, pupil = Mesh(), Mesh(), Mesh()
+    TE, EE = 0.098, 0.20
+    for side in (1, -1):
+        eye.merge(sal_dome(TE, EE, side, 0.0235, 0.0090, 0.004, 3, 16))
+        iris.merge(sal_dome(TE, EE, side, 0.0172, 0.0105, 0.007, 4, 16))
+        pupil.merge(sal_dome(TE, EE, side, 0.0098, 0.0160, 0.0040, 3, 14))
+    out['sal_eye'] = eye
+    out['sal_iris'] = iris
+    out['sal_pupil'] = pupil
+
+    # --- the mouth: dark roof under the upper jaw, the lower jaw on its hinge,
+    # and teeth. A spawning male's are long at the front of both jaws.
+    def palate(r, c):
+        t = 0.010 + 0.18 * r
+        side = 1 if c < 0.5 else -1
+        k = abs(c - 0.5) * 2
+        return t, -math.pi / 2 + 0.30 * k, side
+    out['sal_mouth'] = sal_patch(palate, 16, 5, 0.0015)
+
+    jr = []
+    for i in range(16):
+        t = 0.235 - (0.235 - 0.032) * (i / 15.0) ** 0.8
+        top, bot, w = sal_jaw_sec(t)
+        mid = 0.5 * (top + bot)
+        ring = []
+        for k in range(12):
+            a = math.tau * k / 12.0
+            ca, sa = math.cos(a), math.sin(a)
+            ring.append((math.copysign(abs(ca) ** 0.8, ca) * w, sal_y(t),
+                         mid + math.copysign(abs(sa) ** 0.8, sa) * (bot - top) * 0.5))
+        jr.append(ring)
+    out['sal_jaw'] = oriented(loft(jr))
+    jaw_hinge = (sal_y(0.195), 0.040)
+
+    teeth, lteeth = Mesh(), Mesh()
+    for side in (1, -1):
+        for t, L in ((0.014, 0.030), (0.025, 0.024), (0.041, 0.013), (0.060, 0.015),
+                     (0.073, 0.010), (0.092, 0.013), (0.104, 0.009), (0.124, 0.011),
+                     (0.139, 0.008), (0.156, 0.009)):
+            b = sal_pt(t, -1.26, side, -0.002)
+            teeth.merge(sal_cone(b, (-side * 0.12, -0.10, 1.0), L, L * 0.30))
+        for t, L in ((0.034, 0.028), (0.045, 0.021), (0.063, 0.013), (0.077, 0.010),
+                     (0.096, 0.012), (0.110, 0.009), (0.128, 0.010), (0.143, 0.008)):
+            top, bot, w = sal_jaw_sec(t)
+            b = (side * w * 0.72, sal_y(t), top + 0.003)
+            lteeth.merge(sal_cone(b, (side * 0.10, 0.10, -1.0), L, L * 0.30))
+    out['sal_teeth'] = teeth
+    out['sal_lteeth'] = lteeth
+
+    # --- fins
+    def ridge_pt(t, top=True, inset=0.006):
+        a, b_, w, m_ = sal_sec(t)
+        return (0.0, sal_y(t), (a + inset) if top else (b_ - inset))
+
+    X = [1.0, 0.0, 0.0]
+    # dorsal: a raked trapezoid of 12 rays, the second and third the longest
+    n = 12
+    base = [ridge_pt(0.405 + 0.125 * i / (n - 1)) for i in range(n)]
+    dirs = []
+    lens = []
+    for i in range(n):
+        r = 0.32 + 0.62 * i / (n - 1)
+        dirs.append((0.0, -math.sin(r), -math.cos(r)))
+        u = i / (n - 1.0)
+        lens.append((0.118 if i == 0 else 0.140 - 0.085 * u ** 1.1) * (1 + 0.05 * jag(i, 1)))
+    out['sal_dorsal'], out['sal_dorsal_m'] = sal_fin(
+        base, dirs, lens, 0.026, 0.009, X, 6, 0.30, (0.0, -0.10, 0.0), split=0.78)
+
+    # adipose: a small fleshy lobe, no rays — the salmonid signature
+    n = 7
+    base = [ridge_pt(0.785 + 0.055 * i / (n - 1), inset=0.005) for i in range(n)]
+    dirs = [(0.0, -math.sin(0.85 + 0.5 * i / (n - 1)), -math.cos(0.85 + 0.5 * i / (n - 1)))
+            for i in range(n)]
+    lens = [0.012 + 0.032 * math.sin(math.pi * (i + 0.6) / (n + 0.2)) for i in range(n)]
+    out['sal_adipose'] = sal_fin(base, dirs, lens, 0.022, 0.012, X, 3, 0.0, (0.0, -0.3, 0.0))
+
+    # caudal: broad and shallowly forked, rays fanned from the end of the
+    # peduncle, with a dark trailing edge
+    n = 17
+    tb = 0.985
+    a_, b_, w, m_ = sal_sec(tb)
+    base = [(0.0, sal_y(tb), (a_ + 0.006) + (b_ - a_ - 0.012) * i / (n - 1)) for i in range(n)]
+    dirs, lens = [], []
+    for i in range(n):
+        ph = -0.62 + 1.24 * i / (n - 1)
+        dirs.append((0.0, -math.cos(ph), math.sin(ph)))
+        q = abs(ph) / 0.62
+        L = 0.165 + 0.105 * q ** 1.6
+        if i in (0, n - 1):
+            L *= 0.90
+        lens.append(L * (1 + 0.03 * jag(i, 4)))
+    out['sal_caudal'], out['sal_caudal_m'] = sal_fin(
+        base, dirs, lens, 0.036, 0.009, X, 6, 0.28, split=0.80)
+
+    # anal: under the adipose, raked back, a white leading tip
+    n = 9
+    base = [ridge_pt(0.712 + 0.080 * i / (n - 1), top=False) for i in range(n)]
+    dirs, lens = [], []
+    for i in range(n):
+        r = 0.45 + 0.55 * i / (n - 1)
+        dirs.append((0.0, -math.sin(r), math.cos(r)))
+        lens.append((0.105 - 0.062 * (i / (n - 1.0)) ** 0.9) * (1 + 0.05 * jag(i, 6)))
+    out['sal_anal'], out['sal_anal_m'] = sal_fin(
+        base, dirs, lens, 0.022, 0.009, X, 5, 0.28, (0.0, -0.08, 0.0), split=0.84)
+
+    # pelvics (paired, under the dorsal) with the small axillary process
+    pel, pel_m, axil = Mesh(), Mesh(), Mesh()
+    for side in (1, -1):
+        n = 7
+        base = [sal_pt(0.492 + 0.042 * i / (n - 1), -1.18, side, -0.004) for i in range(n)]
+        d = _nz((side * 0.38, -0.82, 0.46))
+        nr = _nz(_cross([0.0, -1.0, 0.0], d))
+        dirs = [d] * n
+        lens = [(0.098 - 0.034 * i / (n - 1.0)) * (1 + 0.04 * jag(i, 8, side)) for i in range(n)]
+        a1, a2 = sal_fin(base, dirs, lens, 0.020, 0.008, nr, 5, 0.28, split=0.84)
+        pel.merge(a1)
+        pel_m.merge(a2)
+        base = [sal_pt(0.482 + 0.020 * i / 2.0, -1.02, side, -0.003) for i in range(3)]
+        d = _nz((side * 0.16, -0.97, 0.12))
+        nr = sal_nrm(0.50, sal_a(-1.02, side))
+        axil.merge(sal_fin(base, [d] * 3, [0.040, 0.046, 0.036], 0.014, 0.006, nr, 3))
+    out['sal_pelvic'] = pel
+    out['sal_pelvic_m'] = pel_m
+    out['sal_axil'] = axil
+
+    # pectorals, low behind the gill cover, each its own mesh so it can flick
+    pec_axis = None
+    for side, nm in ((1, 'l'), (-1, 'r')):
+        n = 8
+        base = [sal_pt(0.242 + 0.016 * i / (n - 1), -0.60 - 0.26 * i / (n - 1), side, -0.004)
+                for i in range(n)]
+        d = _nz((side * 0.42, -0.86, 0.26))
+        nr = _nz(_cross(_nz([base[-1][k] - base[0][k] for k in range(3)]), d))
+        lens = [(0.150 - 0.075 * (i / (n - 1.0)) ** 0.8) * (1 + 0.04 * jag(i, 9, side))
+                for i in range(n)]
+        out['sal_pec' + nm] = sal_fin(base, [d] * n, lens, 0.022, 0.008, nr, 5, 0.28,
+                                      (0.0, -0.10, 0.10))
+        if side > 0:
+            pec_axis = base[0] + base[-1]
+
+    # the one piece of kit: a narrow ribbon round the peduncle, like a tag
+    band = []
+    for i in range(3):
+        t = 0.905 + 0.026 * i / 2.0
+        ring = []
+        for k in range(24):
+            a = math.tau * k / 24.0
+            p, nn = sal_ring_pt(t, a), sal_nrm(t, a)
+            ring.append((p[0] + nn[0] * 0.006, p[1] + nn[1] * 0.006, p[2] + nn[2] * 0.006))
+        band.append(ring)
+    out['sal_band'] = oriented(loft(band))
+
+    # the spine, the hinges and the ground-contact table the game needs
+    oa = sal_pt(oper_t(E0)[0], E0, 1, 0.009)
+    ob = sal_pt(oper_t(E1)[0], E1, 1, 0.009)
+    sec = []
+    for t in (0.0, 0.08, 0.18, 0.30, 0.42, 0.55, 0.68, 0.80, 0.90, 1.0):
+        top, bot, w, mid = sal_sec(t)
+        sec.append('[%.3f,%.3f,%.3f,%.3f,%.3f]' % (sal_y(t), top, bot, w, mid))
+    sec.append('[%.3f,%.3f,%.3f,%.3f,%.3f]' % (-0.20, -0.02, 0.02, 0.012, 0.0))
+    DATA.append('/* the salmon: bend pivot, hinges (jaw, gill cover, pectoral) and')
+    DATA.append('   sections [y, top, bottom, half width, mid] for ground contact */')
+    DATA.append('const SAL = { piv: %.4f, jaw: [%.4f, %.4f], oper: [%s], pec: [%s],'
+                % (piv, jaw_hinge[0], jaw_hinge[1], ','.join('%.4f' % v for v in oa + ob),
+                   ','.join('%.4f' % v for v in pec_axis)))
+    DATA.append('  sec: [%s] };' % ','.join(sec))
+    DATA.append('')
     return out
 
 

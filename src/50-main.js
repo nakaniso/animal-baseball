@@ -39,7 +39,8 @@ function togglePause() {
 /* The team's own player, drawn by the game's renderer into a corner of the
    canvas and copied out. The 2D sketches these replace could not keep up with
    the models: the salmon had ears, a nose and a cap. */
-const PORTRAIT = { salmon: { ty: 0.42, d: 2.6, ry: -1.45 }, beetle: { ty: 0.95, d: 2.6, ry: -1.0 },
+// the salmon is a specimen plate: the whole fish side on, back up, still
+const PORTRAIT = { salmon: { ty: 0.24, d: 1.25, ex: 0.20, tx: 0.20, ry: -1.74, pose: { still: 1 } }, beetle: { ty: 0.95, d: 2.6, ry: -1.0 },
                    rabbit: { ty: 1.30, d: 2.35, ry: -0.28 },
                    // the eyes on top are the frog: frame them, open
                    frog: { ty: 1.30, d: 2.75, ry: -0.24, face: EXPR.idle },
@@ -51,7 +52,8 @@ function paintPortrait(c, team) {
   R.resize();
   if (!R.w || R.w < w || R.h < h) return;
   const A = ANIMALS[team.animal], P = PORTRAIT[team.animal] || { ty: 1.2, d: 2.35, ry: -0.28 };
-  const cam = { ex: -1.15, ey: P.ty + 0.25, ez: P.d, tx: -0.30, ty: P.ty, tz: 0, fov: 34 };
+  const cam = { ex: P.ex !== undefined ? P.ex : -1.15, ey: P.ty + 0.25, ez: P.d,
+               tx: P.tx !== undefined ? P.tx : -0.30, ty: P.ty, tz: 0, fov: 34 };
   R.begin(cam, { light: [0.45, 0.75, 0.50], skyTint: '#DDEBF5', gndTint: '#6A7A5C',
                  fog: '#20303F', fogDist: 1000 }, w, h);
   // pennant stripes behind him, in the uniform colour
@@ -63,7 +65,7 @@ function paintPortrait(c, team) {
   const look = { animal: team.animal, uni: team.uni, trim: team.trim, cap: team.cap, pin: team.pin };
   // the rabbit's resting face is the one drawn by hand, so that is the one shown
   const face = P.face !== undefined ? P.face : FACE_SCANS[team.animal + ':0'] ? EXPR.idle : EXPR.happy;
-  drawAnimal(0.18, 0, P.ry, look, { armL: 0.25, armR: -0.25, face }, 0);
+  drawAnimal(0.18, 0, P.ry, look, Object.assign({ armL: 0.25, armR: -0.25, face }, P.pose), 0);
   SHADOWS.length = 0;
   const g = c.getContext('2d');
   g.drawImage(R.canvas, 0, R.canvas.height - h, w, h, 0, 0, w, h);

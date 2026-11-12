@@ -75,6 +75,22 @@ const SETS = {
     view('ヘル 3/4',      { ry: Math.PI * 0.74, dist: 2.3, fr: 0.50, ty: 1.44, ey: 1.30,
                             pose: { helmet: 1 } }),
   ],
+  // the salmon's own: a specimen plate (side, top, the head), the flop at
+  // rest and thrashing, and the swing frame by frame
+  g: [
+    view('標本 横',       { ry: Math.PI / 2, dist: 4, fr: 0.85, tx: 0.08, ex: 0.08, ty: 0.24, ey: 0.30, pose: { still: 1 } }),
+    view('標本 真上',     { ry: Math.PI / 2, dist: 0.4, fr: 0.09, tx: 0.08, ex: 0.08, ty: 0.2, ey: 4.0, pose: { still: 1 } }),
+    view('頭 横',         { ry: Math.PI / 2, dist: 2.2, fr: 0.20, tx: 0.50, ex: 0.50, ty: 0.20, ey: 0.24, pose: { still: 1 } }),
+    view('頭 3/4',        { ry: Math.PI * 0.30, dist: 2.2, fr: 0.20, tx: 0.42, ex: 0.42, ty: 0.20, ey: 0.40, pose: { still: 1 } }),
+  ],
+  h: [
+    view('休み rest',     { ry: Math.PI * 0.62, ey: 2.0, ty: 0.2, fr: 0.95, pose: { flopT: 5.5 } }),
+    view('跳ね flop',     { ry: Math.PI * 0.62, ey: 2.0, ty: 0.2, fr: 0.95, pose: { flopT: 2.05 } }),
+    view('跳ね 2',        { ry: Math.PI * 0.62, ey: 2.0, ty: 0.2, fr: 0.95, pose: { flopT: 2.19 } }),
+    view('転倒 fall',     { ry: Math.PI * 0.62, ey: 2.0, ty: 0.2, fr: 0.95, pose: { fall: 1.35 } }),
+  ],
+  i: [0.03, 0.05, 0.09, 0.20, 0.40, 0.75].map((t) =>
+    view('swing ' + t, { ry: Math.PI * 0.5, dist: 4.4, tx: 0.5, ex: 0.5, ey: 1.4, ty: 0.55, fr: 1.15, pose: { swingT: t } })),
 };
 let VIEWS = SETS.a;
 
@@ -88,7 +104,7 @@ function renderAll(animal) {
   VIEWS.forEach((v, i) => {
     const d = v.dist;
     const fov = 2 * Math.atan(v.fr / d) * 180 / Math.PI;
-    R.begin({ ex: 0, ey: v.ey, ez: -d, tx: 0, ty: v.ty, tz: 0, fov: fov }, ENV);
+    R.begin({ ex: v.ex || 0, ey: v.ey, ez: -d, tx: v.tx || 0, ty: v.ty, tz: 0, fov: fov }, ENV);
     drawAnimal(0, 0, v.ry, LOOKS[animal], v.pose, 0);
     const x = (i % COLS) * TW, y = Math.floor(i / COLS) * TH;
     sctx.drawImage(glc, x, y, TW, TH);

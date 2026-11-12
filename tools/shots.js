@@ -55,7 +55,7 @@ async function check(browser) {
     const out = [];
     for (const name in ANIMALS) {
       if (!LOOKS[name]) continue;
-      for (const v of ['a', 'b', 'c', 'd', 'e', 'f']) {
+      for (const v of ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i']) {
         window.LAB(name, v);
         const e = R.gl.getError();
         if (e) out.push(name + '/' + v + ' glError ' + e);

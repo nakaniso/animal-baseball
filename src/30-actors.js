@@ -153,10 +153,13 @@ const ANIMALS = {
 
   // Drawn as the real animal rather than a round cartoon of one, and given no
   // face cell, so they never change expression. Their eyes are in the mesh.
+  // a male chum on the spawning run: dark olive back, grey-green flanks under
+  // ragged maroon and dusky-green bars, a dirty cream belly, dusky fins
   salmon:  { ink: 0.013, body: 'fish', ear: 'none', tail: 'none', noHat: 1, shadow: 1.5,
              noGlove: 1, noBat: 1,
-             fur: '#B4C2CB', fur2: '#EFF2F0', back: '#3C5E71', blush: '#B0524C',
-             fin: '#7F909B', jaw: '#9DAAB2' },
+             fur: '#7E8976', fur2: '#BDB59E', back: '#2C3427', bar: '#58293A', bar2: '#323D2C',
+             line: '#3A4034', oper: '#68705A', jaw: '#484A3F',
+             fin: '#555A48', finEdge: '#25271F', finTip: '#CFCBB6' },
 
   beetle:  { ink: 0.013, body: 'beetle', ear: 'none', tail: 'none', capY: -0.20, capS: 0.40,
              noGlove: 1, noBat: 1,
@@ -735,42 +738,130 @@ function faceRect(animal, exp, muz) {
    camera, the shadow, knockdowns and slides all still work on them.
    ============================================================ */
 
-/* The flop. A salmon out of water does not stand up — it lies over on its side
-   and thrashes, slapping itself clear of the ground every other beat.
+/* The flop. A salmon out of water lies on its flank and thrashes: the body
+   curls into a C and back (R.bend, so it is the spine that bends, not a plank
+   that tips), the tail slaps, the head lifts. Between bursts he lies still and
+   gasps — the jaw drops and the gill covers lift.
 
-   `pitch` is how far it has gone over from upright (about 68 degrees at rest),
-   and the body turns about a point partway up rather than about its tail, so
-   the nose does not swing a metre across the infield every time it twitches. */
-const SAL_PIVOT = 0.60;
+   Channels: `side` rolls him about his own spine (0 = left flank up, -pi/2 =
+   upright, back to the sky), `tilt` lifts the nose, `yaw` turns him on the
+   dirt, `bend` is the curl [k1, k2, k3] (rad/m, see R.bend), `up`/`fwd` move
+   the body's middle. The ground is solved each frame (salLift), so whatever
+   the curl, he lies on the dirt rather than through it or above it. */
+const SAL_REST = { side: 0.30, tilt: 0.04, yaw: 0, up: 0, fwd: 0, bend: [0, 0, 0],
+                   gape: 0.10, flare: 0.04, pec: 0.15, h: null };
 
-function fishFlop(seed) {
-  const t = clock * 5.4 + seed;
-  const s = Math.sin(t);
+function fishFlop(seed, tq) {
+  const T = (tq !== undefined ? tq : clock) + seed;
+  // he thrashes in bursts and lies still between them
+  const env = clamp(Math.sin(T * 0.62) * 1.7 + 0.35, 0, 1);
+  const ph = T * 11.0, s = Math.sin(ph);
+  const gasp = 0.5 + 0.5 * Math.sin(T * 2.6);
   return {
-    pitch: 1.19 + s * 0.27,                          // over on its side, whipping
-    roll: Math.sin(t * 1.63 + 1.1) * 0.40,           // the sideways snap
-    up: Math.max(0, s) * Math.max(0, s) * 0.30,      // and it gets air
+    side: 0.30 + env * 0.22 * Math.sin(ph + 0.8),
+    tilt: 0.04 + env * 0.16 * Math.max(0, Math.sin(ph + 0.5)),
+    yaw: env * 0.10 * Math.sin(ph * 0.5),
+    up: env * 0.07 * Math.pow(Math.max(0, s), 3),
     fwd: 0,
+    bend: [env * 0.95 * s, env * 0.85 * Math.sin(ph - 1.3), 0],
+    gape: 0.02 + 0.16 * gasp * (1 - env * 0.6),
+    flare: 0.03 + 0.22 * Math.max(0, Math.sin(T * 2.6 - 0.9)) * (1 - env * 0.5),
+    pec: (0.10 + 0.25 * env) * Math.sin(T * 7.3) + 0.12,
+    h: null,
   };
 }
 
-/* The swing. He has no bat and no arms, so he throws the whole fish at the
-   ball: coils up off the dirt, launches, and cartwheels away after contact. */
+/* The swing. No bat and no arms: he throws the whole fish at the ball the way
+   a salmon clears a weir — rolls upright and curls into a C (the start of a
+   real fish's leap), snaps straight through the zone at SWING_LAG, cartwheels
+   once and lands back on his flank. `tilt` winds a whole turn, so the landing
+   is the resting pose and not a pop; G.batSwingT keeps counting for seconds
+   after the swing, so this has to settle on its own. */
 function fishSwing(st) {
-  const u = clamp(st / SWING_LAG, 0, 1);
-  const rear = Math.max(0, 1 - u * 2.3);          // the brief coil off the dirt
-  const fire = Math.sin(u * Math.PI * 0.5);       // and then all of it at once
-  const v = clamp((st - SWING_LAG) / 0.66, 0, 1), w = v * v;
-  // Every channel comes back to where the flop rests, and the pitch winds a
-  // whole extra turn, so the cartwheel lands in the resting orientation
-  // instead of popping. G.batSwingT keeps counting for seconds after the
-  // swing, so this has to settle on its own.
-  return {
-    pitch: 1.19 - rear * 0.44 + fire * 0.50 * (1 - w) + w * Math.PI * 2,
-    roll: Math.sin(w * Math.PI) * 2.4 - rear * 0.18,
-    up: 0.06 + fire * 0.66 * (1 - w),
-    fwd: -rear * 0.32 + fire * 0.92 * (1 - w),
-  };
+  const L = SWING_LAG;
+  // [time, side, tilt, fwd, h (height of the middle), k1, k2, gape]
+  const K = [[0, 0.30, 0.04, 0, 0.0, 0, 0, 0.10],
+             [0.05, -1.25, 0.20, -0.22, 0.30, 1.4, 0.3, 0.30],
+             [L, -1.57, 0.02, 0.62, 0.70, -0.5, -0.9, 0.42],
+             [L + 0.22, -1.40, -2.4, 0.78, 0.95, 0.6, -0.4, 0.30],
+             [L + 0.46, -0.40, -5.2, 0.40, 0.42, -0.5, 0.3, 0.20],
+             [L + 0.66, 0.30, 0.04 - Math.PI * 2, 0, 0.0, 0, 0, 0.10]];
+  let i = 0;
+  while (i < K.length - 2 && st > K[i + 1][0]) i++;
+  const u = clamp((st - K[i][0]) / (K[i + 1][0] - K[i][0]), 0, 1), e = u * u * (3 - 2 * u);
+  const a = K[i], b = K[i + 1], m = (j) => lerp(a[j], b[j], e);
+  const h = m(4);
+  return { side: m(1), tilt: m(2), yaw: 0, up: 0, fwd: m(3), h: h > 0.001 ? h : null,
+           bend: [m(5), m(6), 0], gape: m(7), flare: 0.25 * Math.sin(Math.PI * clamp(st / (L + 0.4), 0, 1)),
+           pec: 0.5 * Math.sin(Math.PI * clamp(st / (L + 0.3), 0, 1)) };
+}
+
+/* the spine of the bent body at local height y, the same sums the vertex
+   shader does: [x, y, angle] */
+function salSpine(y, b) {
+  const u = SAL.piv - y;
+  if (u <= 0 || !(b[0] || b[1] || b[2])) return [0, y, 0];
+  const du = u / 8;
+  let sx = 0, sy = 0, th = 0;
+  for (let i = 0; i < 8; i++) {
+    const v = (i + 0.5) * du;
+    th = v * (b[0] + v * (b[1] + v * b[2]));
+    sx += Math.sin(th); sy += Math.cos(th);
+  }
+  th = u * (b[0] + u * (b[1] + u * b[2]));
+  return [sx * du, SAL.piv - sy * du, th];
+}
+
+/* how far below the middle of the fish his lowest point is, for this pose:
+   each section of the table, bent, turned and dropped onto the ground */
+function salDrop(M, b) {
+  let lo = 1e9;
+  // world down, back in the fish's own axes (M's rotation is orthonormal)
+  const dx = -M[1], dy = -M[5], dz = -M[9];
+  for (const s of SAL.sec) {
+    const sp = salSpine(s[0], b), c = Math.cos(sp[2]), sn = Math.sin(sp[2]);
+    // down in the section's own (unbent) axes
+    const lx = dx * c + dy * sn, lz = dz;
+    const hz = lz < 0 ? s[4] - s[1] : s[2] - s[4], w = s[3];
+    const q = Math.hypot(w * lx, hz * lz) || 1e-6;
+    const px = w * w * lx / q, pz = s[4] + hz * hz * lz / q;
+    const X = sp[0] + px * c, Y = sp[1] + px * sn, Z = pz;
+    const wy = M[1] * X + M[5] * Y + M[9] * Z;
+    if (wy < lo) lo = wy;
+  }
+  return lo;
+}
+
+const _sm = { o: m4(), i: m4(), M: m4(), h: m4(), t: m4(), j: m4() };
+/* M ← world · placement; the fish's mesh hangs about local y = pl */
+function salMatrix(f, fl, Y, pl) {
+  const [wx, wz] = L2W(f, 0, fl.fwd);
+  mTRS(_sm.o, wx, Y, wz, fl.tilt, f.ry + fl.yaw, 0, 1, 1, 1);
+  const b = fl.side, I = _sm.i, cb = Math.cos(b), sb = Math.sin(b);
+  // mesh x (left flank) up when side = 0, the spine forward, the back toward -x
+  I.fill(0);
+  I[0] = -sb; I[1] = cb;
+  I[6] = 1;
+  I[8] = cb; I[9] = sb;
+  I[14] = -pl; I[15] = 1;
+  return mMul(_sm.M, _sm.o, I);
+}
+
+/* a hinge inside the fish: rotate by `ang` about the line a→b (mesh space) */
+function salHinge(M, a, b, ang, out) {
+  let x = b[0] - a[0], y = b[1] - a[1], z = b[2] - a[2];
+  const L = Math.hypot(x, y, z) || 1;
+  x /= L; y /= L; z /= L;
+  const c = Math.cos(ang), s = Math.sin(ang), k = 1 - c, H = _sm.h;
+  H[0] = c + x * x * k;     H[1] = y * x * k + z * s; H[2] = z * x * k - y * s; H[3] = 0;
+  H[4] = x * y * k - z * s; H[5] = c + y * y * k;     H[6] = z * y * k + x * s; H[7] = 0;
+  H[8] = x * z * k + y * s; H[9] = y * z * k - x * s; H[10] = c + z * z * k;    H[11] = 0;
+  // keep a on the spot
+  H[12] = a[0] - (H[0] * a[0] + H[4] * a[1] + H[8] * a[2]);
+  H[13] = a[1] - (H[1] * a[0] + H[5] * a[1] + H[9] * a[2]);
+  H[14] = a[2] - (H[2] * a[0] + H[6] * a[1] + H[10] * a[2]);
+  H[15] = 1;
+  return mMul(out, M, H);
 }
 
 
@@ -797,37 +888,77 @@ function beetleSwing(st) {
 }
 
 /* ---------- 鮭 ---------- */
-function drawSalmon(f, A, look, p, y, big) {
-  const flank = col(A.fur), back = col(A.back), belly = col(A.fur2);
-  const finC = col(A.fin), jaw = col(A.jaw);
-  const uni = col(look.uni), trim = col(look.trim);
+function drawSalmon(f, A, look, p, y) {
   const sw = p.swingT;
-  const fl = p.fall ? { pitch: 1.50, roll: 0.55, up: 0, fwd: 0 }
-    : (sw >= 0 && sw <= SWING_LAG + 0.66 ? fishSwing(sw) : fishFlop(f.ry * 3.1));
-  // keep the pivot point on the spot; the rest of the fish swings around it
-  const cp = Math.cos(fl.pitch), sp = Math.sin(fl.pitch);
-  const by = y + 0.30 + fl.up - SAL_PIVOT * cp;
-  const bz = fl.fwd - SAL_PIVOT * sp;
-  const rx = fl.pitch + (p.lean || 0), rz = fl.roll;
-  const put = (prim, c) => part(f, prim, 0, by, bz, 1, 1, 1, c, rx, rz);
+  let fl;
+  if (p.still) fl = Object.assign({}, SAL_REST, { side: -Math.PI / 2, tilt: 0, gape: 0.04, pec: 0.25, h: 0.20 });
+  else if (p.fall) fl = Object.assign({}, SAL_REST, { side: 0.38, bend: [0.35, 0, 0], gape: 0.32, flare: 0.16 });
+  else if (sw >= 0 && sw <= SWING_LAG + 0.66) fl = fishSwing(sw);
+  else {
+    fl = fishFlop(p.flopT !== undefined ? 0 : f.ry * 3.1, p.flopT);
+    // just after the swing, ease back into the thrash rather than snapping
+    if (sw > 0) {
+      const k = clamp((sw - SWING_LAG - 0.66) / 0.6, 0, 1);
+      fl.bend = fl.bend.map((v) => v * k); fl.side = lerp(SAL_REST.side, fl.side, k);
+      fl.tilt = lerp(SAL_REST.tilt, fl.tilt, k); fl.up *= k; fl.yaw *= k;
+    }
+  }
+  const PL = 0.56;                           // the middle of the body, where it is held
+  const M = salMatrix(f, fl, 0, PL);
+  const b = fl.bend;
+  // lie on the dirt: the lowest point of this pose goes to the ground
+  const lift = -salDrop(M, b);
+  M[13] = y + Math.max(lift, fl.h || 0) + fl.up;
 
-  put('sal_body', flank);
-  put('sal_back', back);
-  put('sal_belly', belly);
-  put('sal_fins', finC);
-  put('sal_jaw', jaw);
+  const ink = R.inkW > 0;
+  const put = (prim, c, mat) => R.m(prim, mat || M, ink ? inkOf(col(c)) : col(c));
+  R.bend = (b[0] || b[1] || b[2]) ? [SAL.piv, b[0], b[1], b[2]] : null;
 
-  // the flush he gets on the run upriver, and the eyes — both solved against
-  // the body profile in the baker, so they stay on the surface at any angle
-  put('sal_blush', col(A.blush));
-  put('sal_eye', col('#D6C489'));
-  put('sal_pupil', col('#0E0B09'));
-
-  // team colour, hugging the body: a sphere laid over a fish this narrow just
-  // bulges out of it as a ball
-  put('sal_band', uni);
-  put('sal_collar', trim);
-  put('sal_belt', trim);
+  // wet skin: the body and its markings, then the fins a little duller
+  R.gloss = 0.32;
+  put('sal_body', A.fur);
+  put('sal_belly', A.fur2);
+  put('sal_bars', A.bar);
+  put('sal_dbars', A.bar2);
+  put('sal_back', A.back);
+  put('sal_line', A.line);
+  put('sal_band', look.uni);
+  put('sal_gill', '#9E2A34');
+  // the gill covers lift on their hinge at the preopercle
+  const O = SAL.oper, fa = fl.flare || 0;
+  put('sal_operl', A.oper, salHinge(M, [O[0], O[1], O[2]], [O[3], O[4], O[5]], fa, _sm.t));
+  put('sal_operr', A.oper, salHinge(M, [-O[0], O[1], O[2]], [-O[3], O[4], O[5]], -fa, _sm.t));
+  put('sal_mouth', '#3B262B');
+  // the lower jaw drops about its hinge under the eye; its teeth come with it
+  const J = SAL.jaw, mJ = salHinge(M, [0, J[0], J[1]], [1, J[0], J[1]], fl.gape || 0, _sm.j);
+  R.gloss = 0.18;
+  put('sal_jaw', A.jaw, mJ);
+  put('sal_dorsal', A.fin);
+  put('sal_dorsal_m', A.finEdge);
+  put('sal_adipose', A.back);
+  put('sal_caudal', A.fin);
+  put('sal_caudal_m', A.finEdge);
+  put('sal_anal', A.fin);
+  put('sal_anal_m', A.finTip);
+  put('sal_pelvic', A.fin);
+  put('sal_pelvic_m', A.finTip);
+  put('sal_axil', A.fin);
+  // pectorals flick on their own root
+  const P = SAL.pec, pa = fl.pec || 0;
+  put('sal_pecl', A.fin, salHinge(M, [P[0], P[1], P[2]], [P[3], P[4], P[5]], pa, _sm.t));
+  put('sal_pecr', A.fin, salHinge(M, [-P[0], P[1], P[2]], [-P[3], P[4], P[5]], -pa, _sm.t));
+  // teeth and the eye carry no outline: at this size the line would swallow them
+  if (!ink) {
+    R.gloss = 0.3;
+    put('sal_teeth', '#E9DFC4');
+    put('sal_lteeth', '#E9DFC4', mJ);
+    R.gloss = 0.9;
+    put('sal_eye', '#262A22');
+    put('sal_iris', '#B39446');
+    put('sal_pupil', '#0A0908');
+  }
+  R.gloss = 0;
+  R.bend = null;
 }
 
 /* ---------- カブトムシ ---------- */
@@ -1154,7 +1285,7 @@ function drawAnimal(x, z, ry, look, pose, y0) {
   }
 
   // torso
-  if (A.body === 'fish') drawSalmon(f, A, look, p, y, big);
+  if (A.body === 'fish') drawSalmon(f, A, look, p, y);
   else if (A.body === 'beetle') drawBeetle(f, A, look, p, y, big);
   else if (A.mesh) {
     // the kit is baked as slices of the same profile as the body: laying a
