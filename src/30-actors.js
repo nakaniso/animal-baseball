@@ -44,7 +44,7 @@ function limb(f, jx, jy, jz, rx, rz, len, rad, c, endC, endS, flat) {
 
 /* Two-bone IK in world space: the hand lands exactly on the target, so whatever
    it is holding stays held. Cartoon arms stretch rather than fall short. */
-function armIK(sx, sy, sz, hx, hy, hz, L1, L2, pole, rad, c, handC) {
+function armIK(sx, sy, sz, hx, hy, hz, L1, L2, pole, rad, c, handC, slv) {
   let dx = hx - sx, dy = hy - sy, dz = hz - sz;
   let d = Math.hypot(dx, dy, dz) || 1e-4;
   if (d > (L1 + L2) * 0.995) {
@@ -73,6 +73,14 @@ function armIK(sx, sy, sz, hx, hy, hz, L1, L2, pole, rad, c, handC) {
   R.seg('cyl', sx, sy, sz, ex, ey, ez, rad, c);
   R.seg('cyl', ex, ey, ez, hx, hy, hz, rad * 0.9, c);
   R.b('sphere', ex, ey, ez, rad * 2, rad * 2, rad * 2, c);
+  // `slv` = {sleeve, cuff, c, trim}: the species' baked sleeve, hung from the
+  // shoulder along the upper arm (it is authored pointing down -Y)
+  if (slv) {
+    const qx = sx - ex, qy = sy - ey, qz = sz - ez, ql = Math.hypot(qx, qy, qz) || 1;
+    const rx = Math.acos(clamp(qy / ql, -1, 1)), ry = Math.atan2(qx, qz);
+    R.d(slv.sleeve, sx, sy, sz, rx, ry, 0, 1, 1, 1, slv.c);
+    R.d(slv.cuff, sx, sy, sz, rx, ry, 0, 1, 1, 1, slv.trim);
+  }
   if (handC !== null) R.b('sphere', hx, hy, hz, rad * 2.2, rad * 2.1, rad * 2.2, handC || c);
   return [hx, hy, hz];
 }
@@ -104,11 +112,13 @@ const ANIMALS = {
   // puffed sleeve (`sleeve`), and the cap is a toy cap perched on the crown.
   rabbit:  { ink: 0.022, ear: 'bunny', fur: '#F4F0E8', fur2: '#F6D7DA', tail: 'cotton',
              head: 'sphere', hw: 1.08, hh: 1.06, hd: 0.98,
-             legs: 'bunny', earX: 0.148, earY: 0.18, earTilt: 0.13,
-             earIn: '#F6D7DA', torso: 'rabbit', tailY: 0.62, tailZ: -0.285,
-             sleeve: 'rabbit', armX: 0.255, armLen: 0.27, armW: 0.074, handS: 0.180,
-             capS: 0.62, capY: 0.13, capZ: -0.045, billW: 0.78,
-             helm: { s: 0.72, y: 0.065, z: -0.03 } },
+             legs: 'bunny', earX: 0.128, earY: 0.18, earTilt: 0.09,
+             earIn: '#F6D7DA', torso: 'rabbit', tailY: 0.48, tailZ: -0.275,
+             headS: 1.22, headUp: -0.013,     // 1.22x about a chin lowered to y+0.90
+             sleeve: 'rabbit', armX: 0.235, armY: 0.80, armRz: 0.42, armLen: 0.25,
+             armW: 0.074, handS: 0.21,
+             capS: 0.70, capY: 0.087, capZ: 0.01, capT: -0.12, billW: 0.78,
+             helm: { s: 0.80, y: 0.0, z: -0.03, bill: 1.0 } },
 
   cat:     { ink: 0.022, ear: 'point', fur: '#E0A44F', fur2: '#F7EDDD', tail: 'long',
              head: 'rbox', hw: 1.10, hh: 0.98, hd: 0.94,
@@ -779,7 +789,7 @@ function drawAnimal(x, z, ry, look, pose, y0) {
     // white jersey on white fur: the pink trim is what draws him
     const ln = p.lean || 0;
     part(f, 'rabbit_body', 0, y + 0.74, 0, 1, 1, 1, uni, ln);
-    for (const m of ['rabbit_collar', 'rabbit_belt', 'rabbit_placket'])
+    for (const m of ['rabbit_collar', 'rabbit_placket'])
       part(f, m, 0, y + 0.74, 0, 1, 1, 1, trim, ln);
     part(f, 'rabbit_button', 0, y + 0.74, 0, 1, 1, 1, col('#FFFFFF'), ln);
   } else {
@@ -799,16 +809,19 @@ function drawAnimal(x, z, ry, look, pose, y0) {
   }
 
   // arms — either swung by rotation, or aimed at a world-space grip
-  const shY = y + 0.94;
+  const shY = y + (A.armY || 0.94);
   // `armX`/`armLen`/`armW` for a smaller body; with `sleeve` the arm is fur
   // and a baked sleeve, hung from the same joint, swings with it
   const AX = (A.armX || 0.33) * big, AL = A.armLen || 0.34, AW = A.armW || 0.112;
+  const AZ = A.armRz || 0.30;
   const armC = A.sleeve ? fur : uni;
   const sleeve = (s, rx) => {
     if (!A.sleeve) return;
-    part(f, A.sleeve + '_sleeve', s * AX, shY, 0, 1, 1, 1, uni, rx, s * 0.30);
-    part(f, A.sleeve + '_cuff', s * AX, shY, 0, 1, 1, 1, trim, rx, s * 0.30);
+    part(f, A.sleeve + '_sleeve', s * AX, shY, 0, 1, 1, 1, uni, rx, s * AZ);
+    part(f, A.sleeve + '_cuff', s * AX, shY, 0, 1, 1, 1, trim, rx, s * AZ);
   };
+  const slv = A.sleeve ? { sleeve: A.sleeve + '_sleeve', cuff: A.sleeve + '_cuff', c: uni, trim }
+                       : undefined;
   let hl, hr;
   if (A.body) { hl = [x, y + 0.9, z]; hr = [x, y + 0.9, z]; }
   else if (p.handL || p.handR) {
@@ -820,19 +833,19 @@ function drawAnimal(x, z, ry, look, pose, y0) {
     const poleL = p.pole || [0, -1, 0], poleR = p.pole || [0, -1, 0];
     const hand = p.gloveC ? col(p.gloveC) : paw;
     hl = p.handL
-      ? armIK(slx, shY, slz, p.handL[0], p.handL[1], p.handL[2], BONE, BONE, poleL, 0.075, uni,
-              p.noPawL ? null : hand)
-      : (sleeve(-1, p.armL || 0), limb(f, -AX, shY, 0, p.armL || 0, -0.30, AL, AW, armC, paw, hs));
+      ? armIK(slx, shY, slz, p.handL[0], p.handL[1], p.handL[2], BONE, BONE, poleL, 0.075, armC,
+              p.noPawL ? null : hand, slv)
+      : (sleeve(-1, p.armL || 0), limb(f, -AX, shY, 0, p.armL || 0, -AZ, AL, AW, armC, paw, hs));
     hr = p.handR
-      ? armIK(srx, shY, srz, p.handR[0], p.handR[1], p.handR[2], BONE, BONE, poleR, 0.075, uni,
-              p.noPawR ? null : hand)
-      : (sleeve(1, p.armR || 0), limb(f, AX, shY, 0, p.armR || 0, 0.30, AL, AW, armC,
+      ? armIK(srx, shY, srz, p.handR[0], p.handR[1], p.handR[2], BONE, BONE, poleR, 0.075, armC,
+              p.noPawR ? null : hand, slv)
+      : (sleeve(1, p.armR || 0), limb(f, AX, shY, 0, p.armR || 0, AZ, AL, AW, armC,
              p.noPawR ? null : paw, hs));
   } else {
     sleeve(-1, p.armL || 0); sleeve(1, p.armR || 0);
-    hl = limb(f, -AX, shY, 0, p.armL || 0, -0.30, AL, AW, armC,
+    hl = limb(f, -AX, shY, 0, p.armL || 0, -AZ, AL, AW, armC,
               p.noPawL ? null : paw, hs);
-    hr = limb(f, AX, shY, 0, p.armR || 0, 0.30, AL, AW, armC,
+    hr = limb(f, AX, shY, 0, p.armR || 0, AZ, AL, AW, armC,
               p.noPawR ? null : paw, hs);
   }
 
@@ -840,12 +853,16 @@ function drawAnimal(x, z, ry, look, pose, y0) {
   // ball). The fish and the beetle have no neck to turn it on: taking the
   // batter's head turn left the beetle's cap twisted 90 degrees on his shell.
   const fh = p.headRy && !A.body ? yawFrame(x, z, ry + p.headRy) : f;
-  const hy = y + 1.34;
-  const HW = A.hw || 1, HH = A.hh || 1, HD = A.hd || 1;
+  // `headS` scales the whole head (skull, face patch, ears, cap) uniformly
+  // about its centre, and `headUp` lifts that centre so the chin stays put:
+  // the drawn face lands on the same spot of a bigger ball
+  const HS = A.headS || 1;
+  const hy = y + 1.34 + (A.headUp || 0);
+  const HW = (A.hw || 1) * HS, HH = (A.hh || 1) * HS, HD = (A.hd || 1) * HS;
   const hzF = 0.32 * HD + 0.02;                 // where the front of the face is
   if (A.mesh) part(fh, A.mesh + '_head', 0, hy, 0, 1, 1, 1, fur);   // ears included
   else if (!A.body)
-    part(fh, A.head || 'sphere', 0, hy, 0.02, 0.68 * big * HW, 0.66 * HH, 0.64 * big * HD, fur);
+    part(fh, A.head || 'sphere', 0, hy, 0.02 * HS, 0.68 * big * HW, 0.66 * HH, 0.64 * big * HD, fur);
 
   if (A.patch) {                                // panda mask
     for (const s of [-1, 1])
@@ -873,7 +890,7 @@ function drawAnimal(x, z, ry, look, pose, y0) {
       part(fh, 'facep', 0, hy - 0.02, hzF - 0.10,  // the skull, so sit on that
            fp[0] * k, fp[1] * k, fp[2] * k, fur);
     } else {
-      part(fh, A.head === 'rbox' ? 'facepr' : 'facep', 0, hy, 0.02,
+      part(fh, A.head === 'rbox' ? 'facepr' : 'facep', 0, hy, 0.02 * HS,
            0.68 * big * HW * k, 0.66 * HH * k, 0.64 * big * HD * k, fur);
     }
     R.decal(null);
@@ -928,7 +945,7 @@ function drawAnimal(x, z, ry, look, pose, y0) {
     // `earY` is where the root goes — the length is the mesh's business. They
     // stay separate parts rather than going into the head: a rabbit's ears
     // have to be able to move.
-    const exx = A.earX || 0.148, eyy = A.earY || 0.18;
+    const exx = (A.earX || 0.148) * HS, eyy = (A.earY || 0.18) * HS;
     const tl = A.earTilt === undefined ? 0.13 : A.earTilt;
     // and they lean back when the legs are going. Driven by the pose, not by
     // `clock` — that lives in 50-main.js, which the face lab does not load.
@@ -942,8 +959,8 @@ function drawAnimal(x, z, ry, look, pose, y0) {
     for (const s of [-1, 1]) {
       const lean = s > 0 ? 0.07 : 0, bk = back + (s > 0 ? 0.05 : 0) + Math.max(0, sag) * 0.6;
       const rz = -s * (tl + lean + sag);
-      part(fh, 'rabbit_ear', s * exx, hy + eyy, -0.02, 1, 1, 1, fur, -bk, rz);
-      part(fh, 'rabbit_earin', s * exx, hy + eyy, -0.02, 1, 1, 1, inC, -bk, rz);
+      part(fh, 'rabbit_ear', s * exx, hy + eyy, -0.02 * HS, HS, HS, HS, fur, -bk, rz);
+      part(fh, 'rabbit_earin', s * exx, hy + eyy, -0.02 * HS, HS, HS, HS, inC, -bk, rz);
     }
   }
   if (A.ear === 'toad') {
@@ -977,10 +994,11 @@ function drawAnimal(x, z, ry, look, pose, y0) {
     // read as a chimney; it is sunk into the shell now.
     // `helm` ({s, y, z}) lets a species whose cap is a toy wear a real helmet
     const H = A.helm || {};
-    const cy = H.y !== undefined ? H.y : A.capY || 0, cs = H.s || A.capS || 1, cz = H.z || 0;
+    const cy = (H.y !== undefined ? H.y : A.capY || 0) * HS, cs = (H.s || A.capS || 1) * HS;
+    const cz = (H.z || 0) * HS;
     const shy = hy + cy - 0.014 * cs;
     part(fh, 'cap_crown', 0, shy, cz, 1.055 * big * cs, 1.05 * cs, 1.055 * big * cs, cap);
-    part(fh, 'cap_bill', 0, shy, cz, 1.06 * big * cs * (A.billW || 1), 1.05 * cs, 0.70 * big * cs, cap);
+    part(fh, 'cap_bill', 0, shy, cz, 1.06 * big * cs * (A.billW || 1), 1.05 * cs, (H.bill || 0.70) * big * cs, cap);
     // the flap covers the ear turned toward the pitcher (local +x)
     part(fh, 'sphere', 0.345 * big * cs, hy + 0.10 * cs + cy, 0.01 + cz,
          0.15 * cs, 0.34 * cs, 0.42 * cs, cap);
@@ -992,10 +1010,14 @@ function drawAnimal(x, z, ry, look, pose, y0) {
     // lip and a shoulder, and the bill curves down its length and up across
     // its width so it is still a bill when seen edge-on.
     // `capZ` sets it back on the crown, `billW` narrows the bill
-    const cy = A.capY || 0, cs = A.capS || 1, cz = A.capZ || 0, bw = A.billW || 1;
-    part(fh, 'cap_crown', 0, hy + cy, cz, big * cs, cs, big * cs, cap);
-    part(fh, 'cap_bill', 0, hy + cy, cz, big * cs * bw, cs, big * cs, cap);
-    part(fh, 'sphere', 0, hy + 0.492 * cs + cy, 0.012 * cs + cz,
+    // and `capT` rocks it back about the skull so the bill shows its top
+    const cy = (A.capY || 0) * HS, cs = (A.capS || 1) * HS, cz = (A.capZ || 0) * HS;
+    const bw = A.billW || 1, ct = A.capT || 0;
+    part(fh, 'cap_crown', 0, hy + cy, cz, big * cs, cs, big * cs, cap, ct);
+    part(fh, 'cap_bill', 0, hy + cy, cz, big * cs * bw, cs, big * cs, cap, ct);
+    const by = 0.492 * cs, bz = 0.012 * cs;
+    part(fh, 'sphere', 0, hy + cy + by * Math.cos(ct) - bz * Math.sin(ct),
+         cz + by * Math.sin(ct) + bz * Math.cos(ct),
          0.082 * cs, 0.082 * cs, 0.082 * cs, trim);
   }
 

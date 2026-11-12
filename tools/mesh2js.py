@@ -1389,11 +1389,15 @@ def build_rabbit():
 # a rabbit toy has no neck any more than the bear does.
 # About the torso anchor (y+0.74), so the hem is at y+0.34 and the top is
 # buried in the head at y+1.10.
-RAB_LO, RAB_HI = -0.400, 0.360
-RAB_W = [(0.00, 0.120), (0.04, 0.198), (0.09, 0.246), (0.16, 0.278),
-         (0.25, 0.294), (0.35, 0.298), (0.46, 0.293), (0.57, 0.277),
-         (0.67, 0.252), (0.76, 0.234), (0.84, 0.218), (0.91, 0.204),
-         (0.96, 0.192), (1.00, 0.176)]
+# Round 2: the hem came down to y+0.20 so the haunches are swallowed when he
+# stands and only a little fluff and the big shoes show; the widest point
+# went down with it (y+0.43) and the shoulders narrowed, so the longer sack
+# reads as a squat pear and not a capsule. The chin sits at y+0.95.
+RAB_LO, RAB_HI = -0.540, 0.320
+RAB_W = [(0.00, 0.100), (0.03, 0.192), (0.07, 0.250), (0.12, 0.290),
+         (0.19, 0.316), (0.27, 0.324), (0.36, 0.315), (0.46, 0.292),
+         (0.56, 0.260), (0.66, 0.224), (0.75, 0.196), (0.83, 0.176),
+         (0.90, 0.161), (0.96, 0.150), (1.00, 0.142)]
 RAB_D = 0.90                         # depth as a share of width: an egg, not a board
 RAB_Z = [(0.00, 0.000), (0.35, 0.016), (0.62, 0.012), (1.00, -0.010)]
 
@@ -1440,7 +1444,7 @@ def rab_dot(a_c, t_c, r, out, n=10):
 def build_rabbit_torso():
     out = {}
     out['rabbit_body'] = oriented(rab_patch(rab_body_pt, 0.0, math.tau, 0.0, 1.0, 0.0,
-                                            20, 15, closed=True))
+                                            20, 17, closed=True))
     b = out['rabbit_body']
     for ring_t, rev in ((0.0, True), (1.0, False)):     # close hem and top
         nr = [i for i, v in enumerate(b.v) if abs(v[1] - (RAB_LO + ring_t * (RAB_HI - RAB_LO))) < 1e-9]
@@ -1454,11 +1458,10 @@ def build_rabbit_torso():
     # The trim is what lets white jersey over white fur read at all. A neckline
     # mostly under the chin (shows as a smile of pink below the head), a thin
     # belt where the hips start, a placket and three buttons.
-    out['rabbit_collar'] = rab_patch(rab_body_pt, 0.0, math.tau, 0.905, 0.97, 0.007, 20, 1, True)
-    out['rabbit_belt'] = rab_patch(rab_body_pt, 0.0, math.tau, 0.215, 0.265, 0.007, 20, 1, True)
-    out['rabbit_placket'] = rab_patch(rab_body_pt, -0.075, 0.075, 0.27, 0.87, 0.006, 2, 6)
+    out['rabbit_collar'] = rab_patch(rab_body_pt, 0.0, math.tau, 0.79, 0.85, 0.007, 20, 1, True)
+    out['rabbit_placket'] = rab_patch(rab_body_pt, -0.075, 0.075, 0.10, 0.79, 0.006, 2, 8)
     dots = Mesh()
-    for t in (0.42, 0.57, 0.72):
+    for t in (0.35, 0.49, 0.63):
         dots.merge(rab_dot(0.0, t, 0.026, 0.011))
     out['rabbit_button'] = dots
 
