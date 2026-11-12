@@ -114,9 +114,12 @@ const ANIMALS = {
              head: 'rbox', hw: 1.24, hh: 0.86, hd: 1.02,
              earR: 0.285, earX: 0.275, earY: 0.13, earZ: 0.24 },
 
-  penguin: { ink: 0.022, ear: 'none', fur: '#2E3B4A', fur2: '#F4F1E6', tail: 'nub',
-             beak: '#F2A93B', head: 'sphere', hw: 1.02, hh: 1.08, hd: 0.98,
-             facePatch: [0.54, 0.58, 0.30] },
+  // One soft egg with a round head, flippers and orange feet: everything is
+  // baked (penguin_*), and drawPenguin draws all of it. The white face is art
+  // in the face cell, not a ball stuck on the front.
+  penguin: { ink: 0.022, form: 'penguin', ear: 'none', tail: 'none',
+             fur: '#34475E', fur2: '#F7F5EE', beak: '#F29A35', foot: '#EE9338',
+             capS: 0.64, capY: 0.200 },
 
   fox:     { ink: 0.022, ear: 'point', fur: '#D96F3A', fur2: '#F6EFE2', tail: 'bushy',
              head: 'rbox', hw: 1.04, hh: 0.96, hd: 1.08,
@@ -171,7 +174,7 @@ const FACES = {
   cat:     { eye: 'almond', eyeX: 0.205, eyeY: 0.355, eyeR: 0.092, tilt: 0.16, whisk: '#B0895A',
              nose: 'tri',   noseC: '#C2705E', noseY: 0.295, noseR: 0.140, mouth: 'w' },
   frog:    { eye: 'none',   headMouth: 'wide', mouthC: '#3E6B33' },
-  penguin: { eye: 'bead',   eyeX: 0.250, eyeY: 0.300, eyeR: 0.076, onPatch: 1 },
+  penguin: { paintHead: penguinHeadCell },
   fox:     { eye: 'almond', eyeX: 0.205, eyeY: 0.350, eyeR: 0.084, tilt: 0.20,
              nose: 'tri',   noseC: '#3C2A20', noseY: 0.300, noseR: 0.175, mouth: 'w',
              mouthY: 0.560, mouthW: 0.200 },
@@ -431,6 +434,79 @@ function bearSnoutCell(g, F, exp) {
   g.fill();
 }
 
+/* ---------- the penguin's face ----------
+   The whole white mask is in the cell: a heart with its point at the chin and
+   a widow's peak of dark between the eyes. The cell is laid over the skull's
+   own (az, el) patch, which is about 0.92m across and 0.62m tall, so the art
+   is drawn in metres about the patch centre (y down) and comes out round. */
+const PEN_CELL = [0.92, 0.62];
+function penguinHeadCell(g, F, exp) {
+  g.save();
+  g.translate(0.5, 0.5);
+  g.scale(1 / PEN_CELL[0], 1 / PEN_CELL[1]);
+
+  // the mask
+  g.fillStyle = '#F7F5EE';
+  g.beginPath();
+  g.moveTo(0, -0.150);
+  for (const s of [1, -1]) {
+    if (s < 0) g.moveTo(0, -0.150);
+    g.bezierCurveTo(s * 0.040, -0.235, s * 0.150, -0.262, s * 0.215, -0.205);
+    g.bezierCurveTo(s * 0.300, -0.135, s * 0.305, 0.000, s * 0.275, 0.080);
+    g.bezierCurveTo(s * 0.240, 0.180, s * 0.120, 0.270, 0, 0.300);
+    g.lineTo(0, -0.150);
+  }
+  g.fill();
+
+  // cheeks
+  g.fillStyle = 'rgba(244,150,160,0.55)';
+  for (const s of [-1, 1]) {
+    g.beginPath(); g.ellipse(s * 0.205, 0.020, 0.046, 0.026, 0, 0, Math.PI * 2); g.fill();
+  }
+
+  // eyes: wide set, round, a shine in each
+  const ink = '#1C2430';
+  for (const s of [-1, 1]) {
+    const ex = s * 0.135, ey = -0.070, r = 0.040;
+    if (exp === EXPR.happy) {                       // closed, curved up
+      fStroke(g, ink, 0.018);
+      g.beginPath(); g.arc(ex, ey + 0.012, r * 0.95, Math.PI * 1.15, Math.PI * 1.85); g.stroke();
+      continue;
+    }
+    const down = exp === EXPR.down, focus = exp === EXPR.focus;
+    g.fillStyle = ink;
+    g.beginPath();
+    g.ellipse(ex, ey + (down ? 0.010 : 0), r * 0.92, r * (focus ? 0.86 : 1.06), 0, 0, Math.PI * 2);
+    g.fill();
+    if (down) {                                    // a heavy lid, sliding down
+      g.fillStyle = '#F7F5EE';
+      g.beginPath();
+      g.moveTo(ex - r * 1.3, ey - r * 1.4);
+      g.lineTo(ex + r * 1.3, ey - r * 1.4);
+      g.lineTo(ex + r * 1.3, ey - r * (0.05 - s * 0.35));
+      g.lineTo(ex - r * 1.3, ey - r * (0.05 + s * 0.35));
+      g.fill();
+      fStroke(g, ink, 0.010);
+      g.beginPath();
+      g.moveTo(ex - r * 1.0, ey - r * (0.05 + s * 0.30));
+      g.lineTo(ex + r * 1.0, ey - r * (0.05 - s * 0.30));
+      g.stroke();
+    } else {
+      g.fillStyle = '#FFFFFF';
+      g.beginPath(); g.ellipse(ex + r * 0.30, ey - r * 0.36, r * 0.32, r * 0.32, 0, 0, Math.PI * 2); g.fill();
+      g.beginPath(); g.ellipse(ex - r * 0.30, ey + r * 0.42, r * 0.13, r * 0.13, 0, 0, Math.PI * 2); g.fill();
+    }
+    if (focus) {                                   // a stern little brow
+      fStroke(g, ink, 0.016);
+      g.beginPath();
+      g.moveTo(ex - s * r * 1.00, ey - r * 1.25);
+      g.lineTo(ex + s * r * 1.10, ey - r * 1.80);
+      g.stroke();
+    }
+  }
+  g.restore();
+}
+
 /* built once at boot; nothing here runs per frame */
 function drawMuzCell(g, F, exp) {
   if (F.paintSnout) return F.paintSnout(g, F, exp);
@@ -687,6 +763,145 @@ function drawBeetle(f, A, look, p, y, big) {
   part(f, 'bee_cband', 0, y, 0, 1, 1, 1, trim, ln);
 }
 
+/* ---------- ペンギン ----------
+   One soft egg with a round head on it. The legs are inside him: the hips stay
+   at the rig's y+0.44 and only the feet come out from under the hem, so he
+   waddles by construction. The arms are flippers, still driven by the shared
+   pose (swung by `armL/armR`, or aimed at a grip with `handL/handR`), so the
+   bat, the glove, the throw and the cheer all work as they do on everyone. */
+const PEN_SH = [0.300, 0.935, -0.010];      // shoulder: out, up, back
+const PEN_SPLAY = 0.50, PEN_TWIST = 0.45;
+
+/* a local point to world, tilt and all — where part() would put it */
+function penW(f, lx, ly, lz) {
+  let Y = ly, Z = lz;
+  if (f.t) {
+    const dy = ly - f.pivot;
+    Y = f.pivot + dy * f.ct - lz * f.st;
+    Z = dy * f.st + lz * f.ct;
+  }
+  const [wx, wz] = L2W(f, lx, Z);
+  return [wx, Y, wz];
+}
+
+/* part() with a yaw of its own — the feet turn out a little */
+function penPart(f, prim, lx, ly, lz, c, rx, rz, yaw) {
+  const w = penW(f, lx, ly, lz);
+  R.d(prim, w[0], w[1], w[2], (rx || 0) + f.t, f.ry + (yaw || 0), rz || 0, 1, 1, 1, c);
+}
+
+/* a flipper from the shoulder straight at a world-space point. It does not
+   bend, so it stretches a little instead, the way the cartoon arms do */
+function penFlipTo(sx, sy, sz, hx, hy, hz, c) {
+  let dx = hx - sx, dy = hy - sy, dz = hz - sz;
+  const d = Math.hypot(dx, dy, dz) || 1e-4;
+  const L = clamp(d, 0.26, 0.78);
+  dx /= d; dy /= d; dz /= d;
+  // the mesh hangs along -y, so aim -y at the hand
+  R.d('penguin_flip', sx, sy, sz, Math.acos(clamp(-dy, -1, 1)), Math.atan2(-dx, -dz), 0,
+      1, L / PEN.flip, 1, c);
+  return [sx + dx * L, sy + dy * L, sz + dz * L];
+}
+
+function drawPenguin(x, z, ry, f, A, look, p, y, FC) {
+  const fur = col(A.fur), white = col(A.fur2), orange = col(A.foot);
+  const uni = col(look.uni), trim = col(look.trim), cap = col(look.cap);
+  const sp = (p.spread || 0) * 0.5;
+  // He leans as one piece, about a point just above his feet: tipping only
+  // the egg about its middle swings the hem back and bares the legs.
+  if (!f.t && p.lean) {
+    f.t = p.lean * 0.75; f.ct = Math.cos(f.t); f.st = Math.sin(f.t); f.pivot = y + 0.12;
+  }
+  const lL = p.legL || 0, lR = p.legR || 0;
+  // the waddle: he rocks onto whichever foot is under him
+  const wad = (lL - lR) * 0.06;
+
+  // legs: short orange stubs, nearly all of them inside the egg, and the feet
+  for (const s of [-1, 1]) {
+    const jx = s * (0.150 + sp), lr = s < 0 ? lL : lR;
+    const e = limb(f, jx, y + 0.44, 0, lr, s * 0.04, 0.36, 0.062, orange, null, 0);
+    penPart(f, 'penguin_foot', e[0], e[1], e[2], orange, lr * 0.7, s * 0.04, s * 0.26);
+  }
+
+  // the egg: dark below the hem with the white belly on it, the jersey above
+  const B = (prim, c) => part(f, prim, 0, y + 0.74, 0, 1, 1, 1, c, 0, wad);
+  B('penguin_body', fur);
+  B('penguin_belly', white);
+  B('penguin_jersey', uni);
+  B('penguin_hem', trim);
+  B('penguin_placket', trim);
+  // a little point of a tail, low at the back
+  part(f, 'cone', 0, y + 0.19, -0.290, 0.13, 0.12, 0.07, fur, 1.25);
+
+  // flippers, under a short sleeve
+  let hl, hr;
+  const [shx, shy, shz] = PEN_SH, sy = y + shy;
+  for (const s of [-1, 1]) {
+    const tgt = s < 0 ? p.handL : p.handR;
+    let e;
+    if (tgt) {
+      // reaching: from a shoulder pulled in a little toward the chest
+      const w = penW(f, s * (shx - 0.06), sy, shz + 0.04);
+      e = penFlipTo(w[0], w[1], w[2], tgt[0], tgt[1], tgt[2], fur);
+    } else {
+      // turned a little about the vertical so the broad side shows head-on:
+      // square to the body, a flipper is a thin stick from the front
+      const rx = (s < 0 ? p.armL : p.armR) || 0, rz = s * PEN_SPLAY, tw = -s * PEN_TWIST;
+      penPart(f, 'penguin_flip', s * shx, sy, shz, fur, rx, rz, tw);
+      const t = limbTip(0, 0, 0, rx, rz, PEN.flip), c = Math.cos(tw), n = Math.sin(tw);
+      e = [s * shx + t[0] * c + t[2] * n, sy + t[1], shz - t[0] * n + t[2] * c];
+    }
+    part(f, 'sphere', s * (shx - 0.030), sy + 0.000, shz, 0.160, 0.160, 0.180, uni);
+    if (s < 0) hl = e; else hr = e;
+  }
+
+  // the head: may turn on its own (a batter watching the pitcher)
+  const fh = p.headRy ? yawFrame(x, z, ry + p.headRy) : f;
+  if (fh !== f && f.t) Object.assign(fh, { t: f.t, ct: f.ct, st: f.st, pivot: f.pivot });
+  const hy = y + 1.34;
+  part(fh, 'penguin_head', 0, hy, 0, 1, 1, 1, fur);
+  if (FC && R.atlas && R.inkW === 0) {
+    // the white mask, the eyes and the blush, painted on the skull's own patch
+    R.decal(faceRect(look.animal, p.face || 0, 0));
+    part(fh, 'penguin_face', 0, hy, 0, 1, 1, 1, white);
+    R.decal(null);
+  }
+  // the beak: two halves of one soft cone; the lower one drops open when he
+  // is pleased with himself
+  const open = p.face === EXPR.happy ? 0.55 : 0;
+  const [by, bz, bt] = PEN.beak;
+  part(fh, 'penguin_beak', 0, hy + by, bz, 1, 1, 1, col(A.beak), bt);
+  part(fh, 'penguin_beak', 0, hy + by - 0.002, bz - 0.004, 0.94, 0.82, 0.94,
+       shade(A.beak, 0.90), bt + open, Math.PI);
+  // and when it is open there is something in there
+  if (open && R.inkW === 0)
+    part(fh, 'sphere', 0, hy + by - 0.016, bz + 0.010, 0.095, 0.050, 0.120, col('#B4474A'), bt + open * 0.5);
+
+  // headwear: the shared crown and bill at his own (smaller) size, perched on
+  // top and tipped back so the bill never reaches the eyes
+  if (!p.noHat) {
+    const cy = A.capY || 0, cs = A.capS || 1, tip = 0.06;
+    if (p.helmet) {
+      // a size up and lower on the head, the bill a stub: a helmet is a cap
+      // that swallowed the head
+      const hs = 0.90, hy2 = hy + 0.030, hz = 0.030;
+      part(fh, 'cap_crown', 0, hy2, hz, hs, hs, hs, cap);
+      part(fh, 'cap_bill', 0, hy2 - 0.010, hz + 0.348 * hs * 0.48, hs * 0.80, hs * 1.10, hs * 0.52, trim);
+      part(fh, 'sphere', 0.33 * hs, hy2 + 0.12 * hs, hz, 0.13 * hs, 0.30 * hs, 0.38 * hs, cap);
+    } else {
+      // The bill is scaled shorter in z, and a scale in z also pulls its root
+      // back inside the crown — so it is slid forward by what the scale took.
+      // Thickened in y, or the outline pass eats it (two A.ink, CLAUDE.md).
+      const by2 = (0.222 + 0.026) * (cs - cs * 1.3);
+      part(fh, 'cap_crown', 0, hy + cy, -0.01, cs, cs, cs, cap, tip);
+      part(fh, 'cap_bill', 0, hy + cy + by2, -0.01 + 0.348 * cs * 0.22, cs * 0.86, cs * 1.3, cs * 0.78,
+           trim, tip);
+      part(fh, 'sphere', 0, hy + cy + 0.492 * cs, -0.01 - 0.06 * cs, 0.09 * cs, 0.09 * cs, 0.09 * cs, trim);
+    }
+  }
+  return { f, hl, hr, hy, y };
+}
+
 /* pose: { armL, armR, legL, legR, lean, bob, ry } — all radians */
 const IDLE = { armL: 0.12, armR: -0.12, legL: 0, legR: 0, lean: 0, bob: 0 };
 
@@ -720,6 +935,7 @@ function drawAnimal(x, z, ry, look, pose, y0) {
   const trim2 = shade(look.trim, 0.72);
 
   shadow(x, z, (p.fall ? 0.72 : 0.44) * big * (A.shadow || 1), 0.34);
+  if (A.form === 'penguin') return drawPenguin(x, z, ry, f, A, look, p, y, FC);
 
   // legs (local -x is the character's right side, +x their left)
   const sp = p.spread || 0;
@@ -829,10 +1045,6 @@ function drawAnimal(x, z, ry, look, pose, y0) {
     for (const s of [-1, 1])
       part(fh, 'sphere', s * 0.17, hy + 0.08, hzF - 0.07, 0.27, 0.29, 0.16, fur2);
   }
-  if (A.facePatch) {                            // the penguin's white face
-    const fp = A.facePatch;
-    part(fh, 'sphere', 0, hy - 0.02, hzF - 0.10, fp[0], fp[1], fp[2], fur2);
-  }
   if (A.cheek) {                                // fluffy cheeks
     for (const s of [-1, 1])
       part(fh, 'sphere', s * 0.29, hy - 0.09, 0.09, A.cheek, A.cheek * 0.94, A.cheek * 0.88,
@@ -846,10 +1058,6 @@ function drawAnimal(x, z, ry, look, pose, y0) {
       // the patch was baked out of the same (azimuth, elevation) map as the
       // skull, so it lies on the surface rather than being fitted to it
       part(fh, A.mesh + '_face', 0, hy, 0, 1, 1, 1, fur);
-    } else if (FC.onPatch && A.facePatch) {
-      const fp = A.facePatch;                      // the patch stands proud of
-      part(fh, 'facep', 0, hy - 0.02, hzF - 0.10,  // the skull, so sit on that
-           fp[0] * k, fp[1] * k, fp[2] * k, fur);
     } else {
       part(fh, A.head === 'rbox' ? 'facepr' : 'facep', 0, hy, 0.02,
            0.68 * big * HW * k, 0.66 * HH * k, 0.64 * big * HD * k, fur);
@@ -865,9 +1073,6 @@ function drawAnimal(x, z, ry, look, pose, y0) {
       part(fh, A.mesh + '_snout', 0, hy, 0, 1, 1, 1, fur);
       R.decal(null);
     }
-  } else if (A.beak) {
-    part(fh, 'cone', 0, hy - 0.045, hzF - 0.03, 0.27, 0.32, 0.27, col(A.beak), -Math.PI / 2);
-    part(fh, 'box', 0, hy - 0.045, hzF + 0.07, 0.19, 0.022, 0.16, shade(A.beak, 0.62));
   } else if (A.muz) {
     const mz = A.muz, my = hy + (A.muzY === undefined ? -0.09 : A.muzY);
     const mzz = A.muzZ === undefined ? 0.26 : A.muzZ;
@@ -1059,7 +1264,8 @@ const TEAMS = [
     tag: 'CONTACT', desc: 'バットは持たないが、当てるのはうまい。四球も選ぶ。', pow: 3, con: 5, spd: 3, def: 3 },
   { id: 'frogs',    name: 'ぬまたフロッグス', animal: 'frog',    uni: '#4E8A4E', trim: '#E8F0C8', cap: '#2E5E34',
     tag: 'BALANCE', desc: 'すべてが平均的。クセがなく扱いやすい。', pow: 3, con: 3, spd: 3, def: 3 },
-  { id: 'penguins', name: 'こおりやまペンギンズ', animal: 'penguin', uni: '#28405E', trim: '#F4F1E6', cap: '#1B2C42',
+  // ice blue with navy trim: a navy jersey on a navy bird was one dark lump
+  { id: 'penguins', name: 'こおりやまペンギンズ', animal: 'penguin', uni: '#BFE0EE', trim: '#22395A', cap: '#BFE0EE',
     tag: 'DEFENSE', desc: '守備が堅い。相手の打球をよく捕る。', pow: 3, con: 3, spd: 2, def: 5 },
   { id: 'beetles',  name: 'くぬぎカブトズ', animal: 'beetle', uni: '#D6A63E', trim: '#F6E7BC', cap: '#241408',
     tag: 'PITCHING',desc: '投手陣が強力。変化球のキレがちがう。', pow: 3, con: 3, spd: 3, def: 4, arm: 5 },
