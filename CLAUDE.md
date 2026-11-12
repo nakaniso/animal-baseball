@@ -133,6 +133,10 @@ git checkout --ours animal-baseball.html && sh build.sh && git add animal-baseba
 - 保存形式は**位置Int16・法線Int8・インデックスUint16をbase64**。
   ランタイムの `geoMesh()` が既存の頂点バッファに流し込むので、
   `part(f, 'sal_body', ...)` と球とまったく同じ書き方で描ける。**スケール1が原寸**。
+- **インデックスは差分のランレングスで保存する**（`pack_index`）。格子状の
+  メッシュは6要素前との差が「+1」の連続になるので、`lag|base64` の短い列に
+  縮む（全41個がこの形、生Uint16より小さい場合だけ生base64に戻る）。
+  `geoMesh()` が元の配列に**完全に同じ順序**で復元する。
 - **UVも焼ける**（Uint16、`geoMesh` の第7引数）。`Mesh.vert(x,y,z,u,v)` で
   付けたメッシュだけが持つ。これがあるので**焼いた頭に顔のアトラスを貼れる**。
 

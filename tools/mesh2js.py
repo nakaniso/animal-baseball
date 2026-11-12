@@ -1397,6 +1397,43 @@ def load_obj(path):
     return m
 
 
+def _varint(v, out):
+    while v >= 128:
+        out.append((v & 127) | 128)
+        v >>= 7
+    out.append(v)
+
+
+def rle_index(flat, lag):
+    """Index stream as runs of a constant difference from the entry `lag`
+    back. A grid of quads repeats +1 every 6 entries, so a whole ring of the
+    loft collapses to one run. Token = (zigzag(delta) << 1 | repeated), then
+    the run length - 2 if repeated. The runtime in geoMesh() undoes it."""
+    out = bytearray()
+    r = [q - (flat[k - lag] if k >= lag else 0) for k, q in enumerate(flat)]
+    k = 0
+    while k < len(r):
+        n = 1
+        while k + n < len(r) and r[k + n] == r[k]:
+            n += 1
+        z = (r[k] << 1) ^ (r[k] >> 63)
+        _varint((z << 1) | (n > 1), out)
+        if n > 1:
+            _varint(n - 2, out)
+        k += n
+    return '%d|%s' % (lag, base64.b64encode(bytes(out)).decode())
+
+
+def pack_index(flat, raw64):
+    """The smallest of: raw Uint16 base64, or RLE-of-differences at the best lag."""
+    best = raw64
+    for lag in range(1, 13):
+        e = rle_index(flat, lag)
+        if len(e) < len(best):
+            best = e
+    return best
+
+
 def pack(m):
     nor = m.normals()
     xs = [v[0] for v in m.v]
@@ -1414,12 +1451,13 @@ def pack(m):
     ib = bytearray()
     for a, b, c in m.f:
         ib += struct.pack('<HHH', a, b, c)
+    flat = [q for f in m.f for q in f]
     off = [lo[i] + 16000 * sc[i] for i in range(3)]
     d = {
         'sc': sc, 'off': off,
         'p': base64.b64encode(bytes(pb)).decode(),
         'n': base64.b64encode(bytes(nb)).decode(),
-        'i': base64.b64encode(bytes(ib)).decode(),
+        'i': pack_index(flat, base64.b64encode(bytes(ib)).decode()),
         'nv': len(m.v), 'nf': len(m.f),
     }
     # UVs ride along only on the patches that carry a face decal; Uint16 over

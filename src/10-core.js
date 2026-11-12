@@ -109,7 +109,20 @@ function geoMesh(name, sc, off, p64, n64, i64, t64) {
   };
   const P = new Int16Array(bin(p64).buffer);
   const N = new Int8Array(bin(n64).buffer);
-  const I = new Uint16Array(bin(i64).buffer);
+  let I;
+  const q = i64.split('|');
+  if (q.length < 2) I = new Uint16Array(bin(i64).buffer);
+  else {
+    // runs of a constant difference from the entry `lag` back (see mesh2js.py)
+    const lag = +q[0], u = bin(q[1]);
+    let p = 0;
+    const rd = () => { let v = 0, s = 0, b; do { b = u[p++]; v += (b & 127) * 2 ** s; s += 7; } while (b & 128); return v; };
+    I = [];
+    while (p < u.length) {
+      const t = rd(), z = t >> 1, d = (z >> 1) ^ -(z & 1);
+      for (let n = t & 1 ? rd() + 2 : 1; n--;) I.push((I.length >= lag ? I[I.length - lag] : 0) + d);
+    }
+  }
   // only face patches carry UVs; everything else is flat-shaded geometry
   const T = t64 ? new Uint16Array(bin(t64).buffer) : null;
   const start = GEO.idx.length, base = GEO.pos.length / 3;
