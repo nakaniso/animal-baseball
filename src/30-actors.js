@@ -126,12 +126,17 @@ const ANIMALS = {
              earR: 0.255, earX: 0.235, earY: 0.36, earT: 0.26 },
 
   // A wide low pebble of a head with the eyes on two domes on top — baked
-  // like the bear's, one surface. The torso is the bear's egg (`torso`), in a
-  // plain jersey: no pinstripe, that is the bear's. A small cap perches
-  // between the domes, and the feet are flat webbed pads.
-  frog:    { ink: 0.022, mesh: 'frog', torso: 'bear', noStripe: 1, tail: 'none',
-             legs: 'frog', legW: 0.118, handS: 0.215, capS: 0.54, capSY: 0.74, capY: 0.150,
-             fur: '#86C25A', fur2: '#F8F4B4', paw: '#79B551', earIn: '#FBF8EC', foot: '#5E9A43' },
+  // like the bear's, one surface. The torso is the frog's own squat egg in a
+  // plain jersey, the arms green in the rabbit's puffed sleeve, the hands
+  // round pads. A small cap perches between the domes; the feet are flat
+  // webbed pads, turned out, and almost all the leg is under the jersey.
+  // `lidHappy`: the happy face shuts the eyes, so the baked whites go.
+  frog:    { ink: 0.022, mesh: 'frog', noStripe: 1, tail: 'none', lidHappy: 1,
+             legs: 'frog', legW: 0.112, hipX: 0.175, headUp: -0.105,
+             sleeve: 'rabbit', armX: 0.255, armY: 0.80, armRz: 0.44, armLen: 0.24,
+             armW: 0.074, handS: 0.20,
+             capS: 0.54, capSY: 0.74, capY: 0.150,
+             fur: '#86C25A', fur2: '#F8F4B2', paw: '#86C25A', earIn: '#FCFAF0', foot: '#6FAE4C' },
 
   penguin: { ink: 0.022, ear: 'none', fur: '#2E3B4A', fur2: '#F4F1E6', tail: 'nub',
              beak: '#F2A93B', head: 'sphere', hw: 1.02, hh: 1.08, hd: 0.98,
@@ -191,7 +196,7 @@ const FACES = {
              nose: 'tri',   noseC: '#C2705E', noseY: 0.295, noseR: 0.140, mouth: 'w' },
   // its own painters; where everything goes comes from the baker (FROG_FACE)
   frog:    Object.assign({ paintHead: frogHeadCell, paintSnout: frogSnoutCell,
-                           ink: '#22401F', fur: ANIMALS.frog.fur }, FROG_FACE),
+                           ink: '#22401F', lip: '#2E3A1E', fur: ANIMALS.frog.fur }, FROG_FACE),
   penguin: { eye: 'bead',   eyeX: 0.250, eyeY: 0.300, eyeR: 0.076, onPatch: 1 },
   fox:     { eye: 'almond', eyeX: 0.205, eyeY: 0.350, eyeR: 0.084, tilt: 0.20,
              nose: 'tri',   noseC: '#3C2A20', noseY: 0.300, noseR: 0.175, mouth: 'w',
@@ -445,23 +450,31 @@ function bearSnoutCell(g, F, exp) {
 
 /* ---------- the frog ----------
    A decal writes no depth, so whatever is drawn after it paints over it. The
-   head cell goes down before the eye whites and the pale throat, so it only
-   carries what lies on bare skin: the nostrils and the blush. The muzzle
-   cell goes down last, and carries the pupils (a quarter of the cell each, at
-   the top) and the mouth (the bottom half). The layout is the baker's
-   (FROG_FACE): a circle in an eye's quarter is a circle on the dome, and the
-   mouth runs exactly along the top edge of the pale throat.
-   The whites themselves are geometry (frog_earin). Lids are painted in the
-   skin colour — the decal is lit like the dome under it, so painted skin is
-   skin. */
+   head cell goes down before the eye whites and the pale chin, so it only
+   carries what lies on bare skin: the nostrils (its left half, a patch of
+   their own so they come out as crisp dots) and the two blushes (a quarter
+   each). The muzzle cell goes down last and carries the pupils (a quarter of
+   the cell each, at the top) and the mouth (the bottom half). The layout is
+   the baker's (FROG_FACE): a circle in an eye's quarter is a circle on the
+   dome, and the mouth runs along the line the chin was baked under.
+   The whites are geometry (frog_earin) and the decal does not paint them
+   again: painted, their edge was the texture's, soft and a pixel wide. Lids
+   are painted in the skin colour — the decal is lit like the dome under it,
+   so painted skin is skin. */
 function frogHeadCell(g, F, exp) {
-  g.fillStyle = 'rgba(248,150,150,0.85)';         // blush, faint and wide
+  // two nostrils: small dots. Their patch lies on its side in the left half
+  // (x runs down the face, y across it), so the texels come out square
+  const N = F.nose;
+  g.fillStyle = F.ink;
   for (const s of [-1, 1]) {
-    g.beginPath(); g.ellipse(0.5 + s * F.cheek[0], F.cheek[1], 0.050, 0.20, 0, 0, Math.PI * 2); g.fill();
+    g.beginPath(); g.ellipse(N[0], 0.5 + s * N[1], N[2], N[3], 0, 0, Math.PI * 2); g.fill();
   }
-  g.fillStyle = F.ink;                            // two nostrils
-  for (const s of [-1, 1]) {
-    g.beginPath(); g.ellipse(0.5 + s * F.nose[0], F.nose[1], 0.014, 0.085, 0, 0, Math.PI * 2); g.fill();
+  for (const u of [0.625, 0.875]) {               // blush, soft-edged
+    for (let k = 0; k < 4; k++) {
+      g.fillStyle = 'rgba(246,140,140,' + (0.28 + k * 0.10).toFixed(2) + ')';
+      const w = 1 - k * 0.18;
+      g.beginPath(); g.ellipse(u, 0.5, 0.048 * w, 0.36 * w, 0, 0, Math.PI * 2); g.fill();
+    }
   }
 }
 
@@ -469,31 +482,28 @@ function frogHeadCell(g, F, exp) {
 function frogEye(g, F, exp, s) {
   const r = F.eyeR, ink = F.ink;
   if (exp === EXPR.happy) {                       // shut, smiling: ^ ^
-    g.fillStyle = F.fur;
-    g.beginPath(); g.arc(0, 0, r * 1.15, 0, Math.PI * 2); g.fill();
-    fStroke(g, ink, r * 0.24);
+    // (the baked whites are not drawn for this face: see drawAnimal)
+    fStroke(g, ink, r * 0.34);
     g.beginPath();
-    g.moveTo(-r * 0.68, r * 0.26);
-    g.quadraticCurveTo(0, -r * 0.62, r * 0.68, r * 0.26);
+    g.moveTo(-r * 0.70, r * 0.30);
+    g.quadraticCurveTo(0, -r * 0.70, r * 0.70, r * 0.30);
     g.stroke();
     return;
   }
   const focus = exp === EXPR.focus, down = exp === EXPR.down;
   g.save();
-  g.beginPath(); g.arc(0, 0, r * 1.02, 0, Math.PI * 2); g.clip();
-  // the white again, over the baked one: the decal stands a few mm off it, and
-  // from a camera under the eyes (the usual one) that parallax shifts the
-  // pupil up — painting the white with it keeps the two together
-  g.fillStyle = '#FBF8EC'; g.fillRect(-r * 1.1, -r * 1.1, r * 2.2, r * 2.2);
-  // the pupil: big, round and dead centre, which is the deadpan
-  const pr = r * 0.52, px = focus ? s * r * 0.08 : 0, py = down ? r * 0.44 : focus ? r * 0.18 : r * 0.12;
+  g.beginPath(); g.arc(0, 0, r * 0.995, 0, Math.PI * 2); g.clip();
+  // The pupil: big and round, and looking straight out — both a little in
+  // toward the nose. The shine is in the same place on both eyes; mirrored,
+  // it made them look in two directions.
+  const pr = r * 0.60, px = focus ? s * r * 0.12 : -s * r * 0.08;
+  const py = down ? r * 0.40 : focus ? r * 0.12 : r * 0.04;
   g.fillStyle = '#1B2420';
   g.beginPath();
-  g.ellipse(px, py, pr * (focus ? 1.08 : 1), pr * (focus ? 0.66 : 1), 0, 0, Math.PI * 2);
+  g.ellipse(px, py, pr * (focus ? 1.04 : 1), pr * (focus ? 0.70 : 1), 0, 0, Math.PI * 2);
   g.fill();
   g.fillStyle = SHINE;
-  g.beginPath(); g.arc(px - pr * 0.34, py - pr * (focus ? 0.20 : 0.36), pr * 0.30, 0, Math.PI * 2); g.fill();
-  g.beginPath(); g.arc(px + pr * 0.40, py + pr * 0.32, pr * 0.13, 0, Math.PI * 2); g.fill();
+  g.beginPath(); g.arc(px - pr * 0.36, py - pr * (focus ? 0.22 : 0.38), pr * 0.28, 0, Math.PI * 2); g.fill();
   // the lid: level and low when set, half down and drooping when beaten
   if (focus || down) {
     const lid = focus ? -r * 0.40 : r * 0.06, tilt = down ? s * r * 0.24 : -s * r * 0.12;
@@ -518,9 +528,12 @@ function frogSnoutCell(g, F, exp) {
     g.restore();
   }
 
-  const M = F.mouth, n = M.length / 2, ink = F.ink;
-  const pt = (i) => [M[2 * i], M[2 * i + 1]];
-  const bend = (k) => (i) => { const u = i / (n - 1) * 2 - 1; return k * u * u; };
+  // The mouth's half of the cell is ~4x longer in metres across than up, so
+  // it is drawn squeezed by `mouthK`: a stroke is then as thick along the
+  // line as across it, and the corners curl instead of ending in a smear.
+  const M = F.mouth, n = M.length / 2, ink = F.lip, K = F.mouthK;
+  const pt = (i) => [M[2 * i] * K, M[2 * i + 1]];
+  const flat = () => 0;
   // the curve through the baker's points, smoothed through the midpoints
   const trace = (from, to, dy) => {
     let p = pt(from);
@@ -532,27 +545,36 @@ function frogSnoutCell(g, F, exp) {
     p = pt(to);
     g.lineTo(p[0], p[1] + dy(to));
   };
+  // a little hook up at each corner, into the blush (d points inward)
+  const curl = (i, d) => {
+    const p = pt(i);
+    g.moveTo(p[0], p[1]);
+    g.quadraticCurveTo(p[0] - d * 0.030, p[1] - 0.004, p[0] - d * 0.034, p[1] - 0.050);
+  };
   g.beginPath(); g.rect(0, 0.5, 1, 0.5); g.clip();
-  if (exp === EXPR.happy) {                       // open wide, pink inside
-    const deep = (i) => { const u = i / (n - 1) * 2 - 1; return 0.20 * Math.max(0, 1 - u * u) ** 0.8; };
-    g.beginPath(); trace(1, n - 2, bend(0));
-    for (let i = n - 2; i >= 1; i--) { const p = pt(i); g.lineTo(p[0], p[1] + deep(i)); }
+  g.scale(1 / K, 1);
+  if (exp === EXPR.happy) {                       // open wide: a clean crescent
+    const deep = (i) => { const u = i / (n - 1) * 2 - 1; return 0.17 * (1 - u * u) ** 1.2; };
+    g.beginPath(); trace(2, n - 3, flat);
+    for (let i = n - 3; i >= 2; i--) { const p = pt(i); g.lineTo(p[0], p[1] + deep(i)); }
     g.closePath();
-    g.fillStyle = '#E8837F'; g.fill();
-    fStroke(g, ink, 0.020); g.stroke();
-    fStroke(g, ink, 0.026);
-    g.beginPath(); trace(0, n - 1, bend(0)); g.stroke();
+    g.fillStyle = '#E2797A'; g.fill();
+    fStroke(g, ink, 0.040); g.stroke();
+    fStroke(g, ink, 0.064);
+    g.beginPath(); trace(0, n - 1, flat); curl(0, 1); curl(n - 1, -1); g.stroke();
     return;
   }
   if (exp === EXPR.down) {                        // a short frown, corners down
-    fStroke(g, ink, 0.026);
+    fStroke(g, ink, 0.058);
     g.beginPath(); trace(3, n - 4, (i) => { const u = i / (n - 1) * 2 - 1; return 0.36 * u * u - 0.05; });
     g.stroke();
     return;
   }
-  // the long smile; set, it presses flatter at the ends
-  fStroke(g, ink, exp === EXPR.focus ? 0.030 : 0.026);
-  g.beginPath(); trace(0, n - 1, bend(exp === EXPR.focus ? 0.025 : 0)); g.stroke();
+  // the long smile; set, it presses flatter and loses the curls
+  fStroke(g, ink, exp === EXPR.focus ? 0.070 : 0.064);
+  g.beginPath(); trace(0, n - 1, flat);
+  if (exp !== EXPR.focus) { curl(0, 1); curl(n - 1, -1); }
+  g.stroke();
 }
 
 /* built once at boot; nothing here runs per frame */
@@ -858,12 +880,12 @@ function drawAnimal(x, z, ry, look, pose, y0) {
       part(f, 'rabbit_foot', e[0], e[1], e[2], 1, 1, 1, shoe, lr, s * 0.04);
     }
   } else if (A.legs === 'frog') {
-    // a stub in the trouser colour and a flat webbed foot, laid on the ground
+    // a green stub and a flat webbed foot, turned out and laid on the ground
     // from the ankle the way the rabbit's is
     for (const s of [-1, 1]) {
       const rx = (s < 0 ? p.legL : p.legR) || 0, rz = s * 0.04;
-      const e = limb(f, s * (0.155 * big + sp), y + 0.44, 0, rx, rz, 0.36, A.legW, pant, null, 0);
-      part(f, 'frog_foot', e[0], e[1], e[2], 1, 1, 1, col(A.foot), rx, rz);
+      const e = limb(f, s * (A.hipX * big + sp), y + 0.44, 0, rx, rz, 0.36, A.legW, fur, null, 0);
+      part(f, s < 0 ? 'frog_foot_r' : 'frog_foot_l', e[0], e[1], e[2], 1, 1, 1, col(A.foot), rx, rz);
     }
   } else if (!A.body) {             // the fish has none and the beetle has six
     // `legW` / `footS` let a species be stumpier without moving the hip: the
@@ -887,8 +909,7 @@ function drawAnimal(x, z, ry, look, pose, y0) {
   else if (A.mesh) {
     // the kit is baked as slices of the same profile as the body: laying a
     // sphere over a shaped torso makes it bulge out rather than cover
-    // `torso` borrows another species' jersey when the egg is the right shape
-    const M = (A.torso || A.mesh) + '_', ln = p.lean || 0;
+    const M = A.mesh + '_', ln = p.lean || 0;
     part(f, M + 'body', 0, y + 0.74, 0, 1, 1, 1, uni, ln);
     if (!A.noStripe) part(f, M + 'stripe', 0, y + 0.74, 0, 1, 1, 1, look.pin ? col(look.pin) : shade(look.uni, 0.80), ln);
     part(f, M + 'placket', 0, y + 0.74, 0, 1, 1, 1, trim, ln);
@@ -901,7 +922,8 @@ function drawAnimal(x, z, ry, look, pose, y0) {
     // cannot reach it: the torso is tall enough there, just not wide enough,
     // and widening the whole ring only makes him square. A cap over the joint
     // is what a set-in sleeve looks like anyway.
-    for (const s of [-1, 1])
+    // (a baked `sleeve` has a dome of its own and needs none)
+    if (!A.sleeve) for (const s of [-1, 1])
       part(f, 'sphere', s * 0.318 * big, y + 0.948, 0.004, 0.268, 0.248, 0.274, uni, ln);
   } else if (A.torso === 'rabbit') {
     // white jersey on white fur: the pink trim is what draws him
@@ -1016,7 +1038,8 @@ function drawAnimal(x, z, ry, look, pose, y0) {
 
   if (A.mesh) {
     part(fh, A.mesh + '_muz', 0, hy, 0, 1, 1, 1, fur2);     // the pale mask
-    part(fh, A.mesh + '_earin', 0, hy, 0, 1, 1, 1, A.earIn ? col(A.earIn) : fur2);
+    if (!(A.lidHappy && p.face === EXPR.happy))
+      part(fh, A.mesh + '_earin', 0, hy, 0, 1, 1, 1, A.earIn ? col(A.earIn) : fur2);
     if (FC && !FC.onHead && R.atlas && R.inkW === 0) {
       R.decal(faceRect(look.animal, p.face || 0, 1));
       part(fh, A.mesh + '_snout', 0, hy, 0, 1, 1, 1, fur);

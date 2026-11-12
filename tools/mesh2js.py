@@ -1485,16 +1485,19 @@ def build_rabbit_torso():
 # a wide, low pebble with two eye domes swelling out of its top corners. The
 # domes are the frog's ears as far as the silhouette goes, so they are part
 # of the skull rather than balls set on it — no seam, no crease, and the eye
-# whites, the pupils, the pale throat and the mouth are all patches of the
-# same domain, so they sit on the surface by construction.
+# whites, the pupils, the pale chin and the mouth are all patches of the same
+# domain, so they sit on the surface by construction.
 #
-# The torso is the bear's (the egg is the right shape for both of them); only
-# the head, the eyes, the throat and the feet are baked here.
-FROG_X, FROG_Y, FROG_Z = 0.545, 0.315, 0.420    # 1.25 : 0.85 wide to tall, with domes
+# Round 2: the head went up to 40x26 (it was 24x16 and every silhouette edge
+# was a run of straight segments), got shorter front to back (a loaf from the
+# side), and the domes got a longer front-to-back footprint so they are humps
+# in profile and not wedges. The torso is the frog's own now: a squat egg,
+# lower and rounder than the bear's, with the belly forward.
+FROG_X, FROG_Y, FROG_Z = 0.590, 0.345, 0.385    # wide and low, shallow front to back
 FROG_N = 2.5                     # rounder than the bear's box: a river pebble
 FROG_UP = 0.030                  # sits on the jersey, overhanging it
 DOME_AZ, DOME_EL = 0.78, 0.70    # the top corners, a little forward
-DOME_RA, DOME_RE = 0.46, 0.50    # footprint, in (az, el)
+DOME_RA, DOME_RE = 0.46, 0.64    # footprint, in (az, el): long front to back
 DOME_AMP = 0.180
 
 
@@ -1514,7 +1517,7 @@ def frog_head_pt(az, el, out=0.0):
     # stand as two pegs. Half and half reads as eyes on top of a head.
     q = ((abs(az) - DOME_AZ) / DOME_RA) ** 2 + ((el - DOME_EL) / DOME_RE) ** 2
     d = bump(q, DOME_AMP)
-    ux, uy, uz = x / L * 0.55 + math.copysign(0.12, az), y / L * 0.55 + 0.80, z / L * 0.55 + 0.10
+    ux, uy, uz = x / L * 0.50 + math.copysign(0.10, az), y / L * 0.50 + 0.85, z / L * 0.50
     Lu = math.sqrt(ux * ux + uy * uy + uz * uz)
     # a soft valley between the domes, where the cap perches
     d2 = -0.018 * bump((az / 0.40) ** 2 + ((el - 1.05) / 0.45) ** 2, 1.0)
@@ -1528,17 +1531,17 @@ def frog_head_pt(az, el, out=0.0):
 def frog_surface(fn, naz, nel):
     """surface_of(), but with the samples packed where the detail is: rows
     toward the top, where the domes are, and columns toward the face. The
-    chin and the back of the head are plain curves and need few."""
+    chin and the back of the head are plain curves and need fewer."""
     m = Mesh()
     rows = []
 
     def az_of(j):
         w = (j / float(naz)) * 2 - 1                  # -1 .. 1, the face at 0
-        return math.pi * w * (0.55 + 0.45 * w * w)    # dense in front, sparse behind
+        return math.pi * w * (0.65 + 0.35 * w * w)    # dense in front, sparse behind
 
     for i in range(nel + 1):
         s = i / float(nel)
-        s = s ** 0.80                                 # more rows high up
+        s = s ** 0.85                                 # more rows high up
         el = -math.pi / 2 + math.pi * s
         if i == 0 or i == nel:
             rows.append([m.vert(*fn(0.0, el))] * naz)
@@ -1570,26 +1573,75 @@ def _metric(fn, az, el):
 # The eyes: on the front of each dome, big. Sized in metres and converted to
 # (az, el) through the local metric, so an oval in the patch is a circle on
 # the dome rather than whatever the map's stretch happens to make it.
-EYE_FAZ, EYE_FEL = 0.62, 0.60    # the white's centre on the right-hand dome
-EYE_MW, EYE_MH = 0.118, 0.126    # its half width and height, metres
+EYE_FAZ, EYE_FEL = 0.62, 0.58    # the white's centre on the right-hand dome
+EYE_MW, EYE_MH = 0.128, 0.134    # its half width and height, metres
 _ea, _ee = _metric(frog_head_pt, EYE_FAZ, EYE_FEL)
 EYE_WAZ, EYE_WEL = EYE_MW / _ea, EYE_MH / _ee
 EYE_PAD = 1.30                   # the decal patch is this much bigger than the white
 
-# The mouth: one long curve low across the face, corners up. The pale chin is
-# an oval under it with a band of green lip left between them: when the pale
-# reached right up to the mouth line it read as a gaping beak, not a throat.
+# The mouth: one long curve low across the face, corners up.
 MOUTH_EL, MOUTH_UP, MOUTH_AZ = -0.17, 0.13, 1.06
-THROAT_EL, THROAT_AZ, THROAT_ER = -0.72, 0.90, 0.40   # the pale chin, an oval under the mouth
+# The pale chin: a crescent under the mouth, its top edge running parallel to
+# the mouth a lip's width below it and its horns rounding off toward the
+# cheeks. A plain oval read as a grey hexagon pasted on the jaw; the first
+# lens that reached right up to the mouth line read as a gaping beak.
+CHIN_EL, CHIN_AZ, CHIN_ER, CHIN_BEND = -0.76, 1.00, 0.50, 0.48
 # the decal patches, as (az centre, az radius, el centre, el radius)
-MOUTH_P = (0.0, MOUTH_AZ * 1.06, MOUTH_EL - 0.04, 0.20)
-CHEEK_P = (0.0, 1.06, 0.05, 0.22)
+MOUTH_P = (0.0, MOUTH_AZ * 1.10, MOUTH_EL + 0.02, 0.22)
 NOSE_AZ, NOSE_EL = 0.11, 0.17                      # two dots, high on the snout
+NOSE_P = (0.0, 0.16, NOSE_EL, 0.10)
+NOSE_R = (0.0075, 0.0062)                          # a dot, metres: up, across
 CHEEK_AZ, CHEEK_UP = 0.84, 0.10                    # blush just above the corners
+CHEEK_R = (0.22, 0.13)
 
 
 def mouth_el(az):
     return MOUTH_EL + MOUTH_UP * (az / MOUTH_AZ) ** 2
+
+
+def chin_pt(rho, th):
+    c = math.cos(th)
+    return (rho * c * CHIN_AZ, CHIN_EL + rho * math.sin(th) * CHIN_ER + rho * CHIN_BEND * c * c)
+
+
+class _FacingMesh(Mesh):
+    """A patch whose shading normals lean toward the camera side. The chin is
+    the underside of the head: lit by its true normals it fell into the
+    shadow band and the cool shift, and a pale cream came out mustard. A
+    painted toy keeps its bib one bright colour all round."""
+    lean = (0.0, 0.35, 1.0)
+    k = 0.85
+
+    def normals(self):
+        out = []
+        for n in Mesh.normals(self):
+            x, y, z = (n[i] + self.lean[i] * self.k for i in range(3))
+            L = math.sqrt(x * x + y * y + z * z) or 1.0
+            out.append((x / L, y / L, z / L))
+        return out
+
+
+def frog_chin(out, nr=5, nt=40):
+    """The crescent, as a fan in (rho, theta) of the head's own map."""
+    m = _FacingMesh()
+    az, el = chin_pt(0.0, 0.0)
+    rings = [[m.vert(*lifted(frog_head_pt, az, el, out))] * nt]
+    for r in range(1, nr + 1):
+        rho = r / float(nr)
+        ring = []
+        for j in range(nt):
+            az, el = chin_pt(rho, math.tau * j / nt)
+            ring.append(m.vert(*lifted(frog_head_pt, az, el, out)))
+        rings.append(ring)
+    for r in range(nr):
+        a, b = rings[r], rings[r + 1]
+        for j in range(nt):
+            k = (j + 1) % nt
+            if r == 0:
+                m.tri(a[0], b[j], b[k])
+            else:
+                m.quad(a[j], b[j], b[k], a[k])
+    return m
 
 
 def uv_sub(fn, P, out, u0, u1, v0, v1, n, mm):
@@ -1600,21 +1652,23 @@ def uv_sub(fn, P, out, u0, u1, v0, v1, n, mm):
     return m
 
 
-def frog_foot():
-    """A webbed foot, from the ankle forward: flat, wide, three soft toes.
+def frog_foot(yaw):
+    """A webbed foot, from the ankle forward: flat, wide, three soft toes,
+    turned out by `yaw` (the feet splay, the way a frog sits).
 
     The outline is a fan of three lobes; the section is a flat superellipse
     so it lies on the ground like a pad instead of standing like a shoe.
     """
     m_rings = []
-    NZ, NS = 6, 10
+    NZ, NS = 9, 16
+    cy_, sy_ = math.cos(yaw), math.sin(yaw)
     for i in range(NZ):
         t = i / float(NZ - 1)
-        z = -0.07 + t * 0.30
-        hw = 0.075 + 0.105 * math.sin(min(1.0, t * 1.15) * math.pi * 0.5) ** 1.2
-        if t > 0.85:
-            hw *= 1.0 - (t - 0.85) / 0.15 * 0.55
-        top = 0.040 - t * 0.050
+        z = -0.08 + t * 0.34
+        hw = 0.095 + 0.140 * math.sin(min(1.0, t * 1.15) * math.pi * 0.5) ** 1.2
+        if t > 0.80:
+            hw *= 1.0 - ((t - 0.80) / 0.20) ** 2 * 0.60
+        top = 0.022 - t * 0.040
         bot = -0.080
         ring = []
         for k in range(NS):
@@ -1623,45 +1677,101 @@ def frog_foot():
             x = math.copysign(abs(ca) ** (2.0 / 2.6), ca) * hw
             # three toes: the front edge scalloped by the angle across
             zz = z
-            if t > 0.55:
+            if t > 0.50:
                 lobe = 0.5 + 0.5 * math.cos(3 * math.pi * (x / max(hw, 1e-6)))
-                zz += 0.040 * (t - 0.55) / 0.45 * lobe
+                zz += 0.045 * (t - 0.50) / 0.50 * lobe
             cy, hh = (top + bot) * 0.5, (top - bot) * 0.5
             y = cy + math.copysign(abs(sa) ** (2.0 / 2.6), sa) * hh
-            ring.append((x, y, zz))
+            ring.append((x * cy_ + zz * sy_, y, -x * sy_ + zz * cy_))
         m_rings.append(ring)
     return oriented(loft(m_rings))
 
 
-def build_frog():
+# ---- the frog's torso: a squat egg, the belly forward ----------------------
+# Lower and rounder than the bear's: the hem comes down to y+0.20 so the
+# visible leg is a stub, the widest point sits low, and the top is buried in
+# the head (no neck). About the torso anchor (y+0.74).
+FB_LO, FB_HI = -0.590, 0.270
+FB_W = [(0.00, 0.150), (0.04, 0.236), (0.09, 0.287), (0.16, 0.318),
+        (0.25, 0.334), (0.35, 0.340), (0.47, 0.330), (0.59, 0.306),
+        (0.71, 0.276), (0.82, 0.250), (0.92, 0.232), (1.00, 0.224)]
+FB_D = 0.93
+FB_Z = [(0.00, 0.000), (0.30, 0.030), (0.50, 0.034), (0.80, 0.004), (1.00, -0.020)]
+
+
+def frog_body_pt(a, t, out=0.0):
+    """`a` from the middle of the chest (0) round toward his left, `t` from
+    the hem (0) to the top (1)."""
+    y = FB_LO + t * (FB_HI - FB_LO)
+    hw = lerp_profile(t, FB_W)
+    hd = hw * FB_D + out
+    hw += out
+    sa, ca = math.sin(a), math.cos(a)
+    # the belly leads: the front half pushes forward, the back stays round
+    return (sa * hw, y, ca * hd + lerp_profile(t, FB_Z) * max(0.0, ca))
+
+
+def build_frog_torso():
     out = {}
-    out['frog_head'] = frog_surface(frog_head_pt, 24, 16)
+    b = rab_patch(frog_body_pt, 0.0, math.tau, 0.0, 1.0, 0.0, 28, 20, closed=True)
+    for ring_t, rev in ((0.0, True), (1.0, False)):     # close hem and top
+        yy = FB_LO + ring_t * (FB_HI - FB_LO)
+        nr = [i for i, v in enumerate(b.v) if abs(v[1] - yy) < 1e-9]
+        c = b.vert(sum(b.v[i][0] for i in nr) / len(nr), yy,
+                   sum(b.v[i][2] for i in nr) / len(nr))
+        for j in range(len(nr)):
+            p, q = nr[j], nr[(j + 1) % len(nr)]
+            b.tri(c, q, p) if rev else b.tri(c, p, q)
+    out['frog_body'] = oriented(b)
+    # The neckline is under the chin, the hem trim right at the bottom edge —
+    # a band round the widest part cut him in two, as it did the rabbit
+    out['frog_collar'] = rab_patch(frog_body_pt, 0.0, math.tau, 0.86, 0.93, 0.007, 28, 1, True)
+    out['frog_belt'] = rab_patch(frog_body_pt, 0.0, math.tau, 0.035, 0.085, 0.007, 28, 1, True)
+    out['frog_placket'] = rab_patch(frog_body_pt, -0.065, 0.065, 0.12, 0.86, 0.006, 2, 9)
+    return out
+
+
+def build_frog():
+    out = build_frog_torso()
+    out['frog_head'] = frog_surface(frog_head_pt, 40, 26)
 
     # The eye whites are geometry — crisp at any distance, and inked by the
-    # outline pass like any other part. The decal on top only has to carry
-    # the pupils and the lids.
+    # outline pass like any other part. The decal on top only carries the
+    # pupils and the lids, and sits close (2.5mm): further out, the parallax
+    # from a camera under the eyes slid the pupils up the whites.
     whites = Mesh()
     for s in (-1.0, 1.0):
         whites.merge(oval_patch(frog_head_pt, s * EYE_FAZ, EYE_FEL, EYE_WAZ, EYE_WEL,
-                                0.010, nr=2, nt=18))
+                                0.010, nr=3, nt=30))
     out['frog_earin'] = whites
-    out['frog_muz'] = oval_patch(frog_head_pt, 0.0, THROAT_EL, THROAT_AZ, THROAT_ER, 0.012, nr=3, nt=16)
+    out['frog_muz'] = frog_chin(0.012)
 
-    # Draw order decides which cell goes where. The head cell's patch goes
-    # down before the whites and the throat, which would paint over it (a
-    # decal writes no depth), so it gets what lies on bare skin: the nostrils
-    # and the blush. The muzzle cell's patch goes down last, so it carries
-    # the pupils (top half, a quarter each) and the mouth (bottom half).
-    out['frog_face'] = uv_sub(frog_head_pt, CHEEK_P, 0.012, 0, 1, 0, 1, 6, 3)
+    # Draw order decides which cell goes where. The head cell's patches go
+    # down before the whites and the chin, which would paint over them (a
+    # decal writes no depth), so they get what lies on bare skin: the nostrils
+    # (a small patch of their own, so they are crisp) and the two blushes.
+    # The muzzle cell's patch goes down last, so it carries the pupils (top
+    # half, a quarter each) and the mouth (bottom half).
+    # The nostrils' patch lies on its side in the cell: (u, v) = (down, across).
+    # Upright it spent 128 texels on 7cm of height and 64 on 19cm of width, and
+    # a dot came out as a smudged dash; turned, a texel is about as tall as wide.
+    face = uv_patch(frog_head_pt, NOSE_P[0], NOSE_P[1], NOSE_P[2], NOSE_P[3], 0.012, 6, 4)
+    face.t = [(0.5 * (1 - t[1]), t[0]) for t in face.t]
+    for s, u0 in ((-1.0, 0.5), (1.0, 0.75)):
+        face.merge(uv_sub(frog_head_pt, (s * CHEEK_AZ, CHEEK_R[0],
+                                         mouth_el(CHEEK_AZ) + CHEEK_UP, CHEEK_R[1]),
+                          0.012, u0, u0 + 0.25, 0, 1, 4, 3))
+    out['frog_face'] = face
     snout = Mesh()
     for s in (-1.0, 1.0):
         u0 = 0.0 if s < 0 else 0.5
         snout.merge(uv_sub(frog_head_pt, (s * EYE_FAZ, EYE_WAZ * EYE_PAD, EYE_FEL,
-                                          EYE_WEL * EYE_PAD), 0.015, u0, u0 + 0.5, 0, 0.5, 7, 7))
-    snout.merge(uv_sub(frog_head_pt, MOUTH_P, 0.013, 0, 1, 0.5, 1, 9, 4))
+                                          EYE_WEL * EYE_PAD), 0.0125, u0, u0 + 0.5, 0, 0.5, 9, 9))
+    snout.merge(uv_sub(frog_head_pt, MOUTH_P, 0.013, 0, 1, 0.5, 1, 16, 5))
     out['frog_snout'] = snout
 
-    out['frog_foot'] = frog_foot()
+    out['frog_foot_r'] = frog_foot(-0.30)     # his right foot (-x) turns out to -x
+    out['frog_foot_l'] = frog_foot(0.30)
 
     # the layout the face painters need, in each patch's own 0..1 cell
     def cell(P, az, el, v0=0.0, v1=1.0):
@@ -1669,16 +1779,24 @@ def build_frog():
         v = 0.5 - (el - P[2]) / (2 * P[3])
         return u, v0 + (v1 - v0) * v
     mouth = []
-    for j in range(13):
-        az = (j / 12.0 * 2 - 1) * MOUTH_AZ
+    for j in range(17):
+        az = (j / 16.0 * 2 - 1) * MOUTH_AZ
         mouth.append('%.4f,%.4f' % cell(MOUTH_P, az, mouth_el(az), 0.5, 1.0))
-    nose = cell(CHEEK_P, NOSE_AZ, NOSE_EL)
-    cheek = cell(CHEEK_P, CHEEK_AZ, mouth_el(CHEEK_AZ) + CHEEK_UP)
+    nose = cell(NOSE_P, NOSE_AZ, NOSE_EL)
+    na, ne = _metric(frog_head_pt, NOSE_AZ, NOSE_EL)
+    nrx = NOSE_R[0] / (2 * NOSE_P[3] * ne / 0.5)       # cell x runs down the face
+    nry = NOSE_R[1] / (2 * NOSE_P[1] * na)             # cell y runs across it
     DATA.append('/* the frog\'s face layout, solved off the head map */')
     DATA.append('const FROG_FACE = { eyeR: %.4f, mouth: [%s],'
                 % (0.5 / EYE_PAD, ','.join(mouth)))
-    DATA.append('  nose: [%.4f, %.4f], cheek: [%.4f, %.4f] };'
-                % (nose[0] - 0.5, nose[1], cheek[0] - 0.5, cheek[1]))
+    # nostrils in the head cell's left half; each blush fills its own quarter
+    # metres per unit of u over metres per unit of v, in the mouth's half of
+    # the cell: the painter draws in a space squeezed by this, so a stroke is
+    # as thick across as along and the corner curls come out round
+    ma, me = _metric(frog_head_pt, 0.0, MOUTH_EL)
+    mk = (2 * MOUTH_P[1] * ma) / (2 * MOUTH_P[3] * me / 0.5)
+    DATA.append('  nose: [%.4f, %.4f, %.4f, %.4f], mouthK: %.3f };'
+                % (0.5 * nose[1], nose[0] - 0.5, nrx, nry, mk))
     DATA.append('')
     return out
 
