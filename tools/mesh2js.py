@@ -496,9 +496,9 @@ def build_salmon():
 
     # --- the body: 56 sections, packed toward the head where the kype is
     rings = []
-    for i in range(56):
-        t = (i / 55.0) ** 1.25
-        rings.append([sal_ring_pt(t, math.tau * k / 24.0) for k in range(24)])
+    for i in range(48):
+        t = (i / 47.0) ** 1.25
+        rings.append([sal_ring_pt(t, math.tau * k / 22.0) for k in range(22)])
     out['sal_body'] = oriented(loft(rings))
 
     # --- colour, as skin patches offset along the normal, stacked by height:
@@ -517,7 +517,7 @@ def build_salmon():
         k = abs(c - 0.5) * 2
         e0 = back_e(t, side)
         return t, math.pi / 2 - (math.pi / 2 - e0) * k, side
-    out['sal_back'] = sal_patch(back_fn, 46, 9, 0.0075)
+    out['sal_back'] = sal_patch(back_fn, 36, 9, 0.0075)
 
     def belly_e(t):
         return -math.pi / 2 + smooth_profile(t, [(0.185, 0.50), (0.23, 0.76), (0.30, 0.90),
@@ -546,7 +546,7 @@ def build_salmon():
                 if r > 0.85:
                     hw *= 1.0 - (r - 0.85) * 3.5
                 return tc + 0.016 * e + (c * 2 - 1) * hw, e, side
-            bars.merge(sal_patch(bar, 12, 2, 0.0055))
+            bars.merge(sal_patch(bar, 10, 2, 0.0055))
         for k in range(7):
             tc = 0.285 + k * 0.073 + 0.0365 + 0.005 * jag(k, 7, side)
             e_lo = -0.30 - 0.45 * (0.5 + 0.5 * jag(k, 5, side))
@@ -558,7 +558,7 @@ def build_salmon():
                 if r > 0.8:
                     hw *= 1.0 - (r - 0.8) * 4.0
                 return tc + 0.016 * e + (c * 2 - 1) * hw, e, side
-            dbars.merge(sal_patch(dbar, 10, 2, 0.006))
+            dbars.merge(sal_patch(dbar, 8, 2, 0.006))
     out['sal_bars'] = bars
     out['sal_dbars'] = dbars
 
@@ -570,7 +570,7 @@ def build_salmon():
         q = (e + 0.18) / 1.10
         tr = 0.170 + 0.068 * max(0.0, 1.0 - q * q) ** 0.55
         return tf, max(tr, tf + 0.008)
-    E0, E1 = 0.80, -1.22
+    E0, E1 = 0.56, -1.22
     for side, nm in ((1, 'l'), (-1, 'r')):
         def oper(r, c, side=side):
             e = E0 + (E1 - E0) * r
@@ -602,7 +602,7 @@ def build_salmon():
             t = 0.245 + 0.71 * r
             e = 0.06 + 0.10 * (1 - r) ** 3 + (c * 2 - 1) * 0.022
             return t, e, side
-        line.merge(sal_patch(ll, 30, 2, 0.0095))
+        line.merge(sal_patch(ll, 20, 2, 0.0095))
         for tn, en in ((0.036, 0.44), (0.050, 0.42)):
             line.merge(sal_dome(tn, en, side, 0.0062, 0.0095, 0.0, 2, 8))
     out['sal_gill'] = gill
@@ -675,7 +675,7 @@ def build_salmon():
         u = i / (n - 1.0)
         lens.append((0.118 if i == 0 else 0.140 - 0.085 * u ** 1.1) * (1 + 0.05 * jag(i, 1)))
     out['sal_dorsal'], out['sal_dorsal_m'] = sal_fin(
-        base, dirs, lens, 0.026, 0.009, X, 6, 0.30, (0.0, -0.10, 0.0), split=0.78)
+        base, dirs, lens, 0.026, 0.009, X, 6, 0.30, (0.0, -0.10, 0.0), split=0.84)
 
     # adipose: a small fleshy lobe, no rays — the salmonid signature
     n = 7
@@ -768,7 +768,8 @@ def build_salmon():
     for t in (0.0, 0.08, 0.18, 0.30, 0.42, 0.55, 0.68, 0.80, 0.90, 1.0):
         top, bot, w, mid = sal_sec(t)
         sec.append('[%.3f,%.3f,%.3f,%.3f,%.3f]' % (sal_y(t), top, bot, w, mid))
-    sec.append('[%.3f,%.3f,%.3f,%.3f,%.3f]' % (-0.20, -0.02, 0.02, 0.012, 0.0))
+    sec.append('[-0.200,-0.020,0.020,0.012,0.000]')
+    sec.append('[-0.265,-0.010,0.010,0.006,0.000]')
     DATA.append('/* the salmon: bend pivot, hinges (jaw, gill cover, pectoral) and')
     DATA.append('   sections [y, top, bottom, half width, mid] for ground contact */')
     DATA.append('const SAL = { piv: %.4f, jaw: [%.4f, %.4f], oper: [%s], pec: [%s],'

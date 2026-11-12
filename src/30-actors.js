@@ -159,7 +159,7 @@ const ANIMALS = {
              noGlove: 1, noBat: 1,
              fur: '#7E8976', fur2: '#BDB59E', back: '#2C3427', bar: '#58293A', bar2: '#323D2C',
              line: '#3A4034', oper: '#68705A', jaw: '#484A3F',
-             fin: '#555A48', finEdge: '#25271F', finTip: '#CFCBB6' },
+             fin: '#474C3C', finEdge: '#23251E', finTip: '#CFCBB6' },
 
   beetle:  { ink: 0.013, body: 'beetle', ear: 'none', tail: 'none', capY: -0.20, capS: 0.40,
              noGlove: 1, noBat: 1,
@@ -749,7 +749,7 @@ function faceRect(animal, exp, muz) {
    the body's middle. The ground is solved each frame (salLift), so whatever
    the curl, he lies on the dirt rather than through it or above it. */
 const SAL_REST = { side: 0.30, tilt: 0.04, yaw: 0, up: 0, fwd: 0, bend: [0, 0, 0],
-                   gape: 0.10, flare: 0.04, pec: 0.15, h: null };
+                   gape: 0.10, flare: 0, pec: 0.15, h: null };
 
 function fishFlop(seed, tq) {
   const T = (tq !== undefined ? tq : clock) + seed;
@@ -765,7 +765,7 @@ function fishFlop(seed, tq) {
     fwd: 0,
     bend: [env * 0.95 * s, env * 0.85 * Math.sin(ph - 1.3), 0],
     gape: 0.02 + 0.16 * gasp * (1 - env * 0.6),
-    flare: 0.03 + 0.22 * Math.max(0, Math.sin(T * 2.6 - 0.9)) * (1 - env * 0.5),
+    flare: 0.20 * Math.max(0, Math.sin(T * 2.6 - 0.9)) * (1 - env * 0.5),
     pec: (0.10 + 0.25 * env) * Math.sin(T * 7.3) + 0.12,
     h: null,
   };

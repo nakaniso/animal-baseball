@@ -88,6 +88,8 @@ const SETS = {
     view('跳ね flop',     { ry: Math.PI * 0.62, ey: 2.0, ty: 0.2, fr: 0.95, pose: { flopT: 2.05 } }),
     view('跳ね 2',        { ry: Math.PI * 0.62, ey: 2.0, ty: 0.2, fr: 0.95, pose: { flopT: 2.19 } }),
     view('転倒 fall',     { ry: Math.PI * 0.62, ey: 2.0, ty: 0.2, fr: 0.95, pose: { fall: 1.35 } }),
+    view('休み 地面',     { ry: Math.PI * 0.5, ey: 0.12, ty: 0.12, fr: 0.5, pose: { flopT: 5.5 } }),
+    view('跳ね 地面',     { ry: Math.PI * 0.5, ey: 0.12, ty: 0.12, fr: 0.5, pose: { flopT: 2.19 } }),
   ],
   i: [0.03, 0.05, 0.09, 0.20, 0.40, 0.75].map((t) =>
     view('swing ' + t, { ry: Math.PI * 0.5, dist: 4.4, tx: 0.5, ex: 0.5, ey: 1.4, ty: 0.55, fr: 1.15, pose: { swingT: t } })),
