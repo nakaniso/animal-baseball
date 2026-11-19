@@ -109,7 +109,20 @@ function geoMesh(name, sc, off, p64, n64, i64, t64) {
   };
   const P = new Int16Array(bin(p64).buffer);
   const N = new Int8Array(bin(n64).buffer);
-  const I = new Uint16Array(bin(i64).buffer);
+  let I;
+  const q = i64.split('|');
+  if (q.length < 2) I = new Uint16Array(bin(i64).buffer);
+  else {
+    // runs of a constant difference from the entry `lag` back (see mesh2js.py)
+    const lag = +q[0], u = bin(q[1]);
+    let p = 0;
+    const rd = () => { let v = 0, s = 0, b; do { b = u[p++]; v += (b & 127) * 2 ** s; s += 7; } while (b & 128); return v; };
+    I = [];
+    while (p < u.length) {
+      const t = rd(), z = t >> 1, d = (z >> 1) ^ -(z & 1);
+      for (let n = t & 1 ? rd() + 2 : 1; n--;) I.push((I.length >= lag ? I[I.length - lag] : 0) + d);
+    }
+  }
   // only face patches carry UVs; everything else is flat-shaded geometry
   const T = t64 ? new Uint16Array(bin(t64).buffer) : null;
   const start = GEO.idx.length, base = GEO.pos.length / 3;
@@ -323,12 +336,33 @@ uniform mat4 uVP, uM;
 uniform float uOutline;
 uniform vec3 uCam;
 uniform vec4 uUVRect;
+uniform vec4 uBend;
 varying vec3 vN, vW;
 varying vec2 vUV;
 void main(){
   vUV = aUV * uUVRect.xy + uUVRect.zw;
-  vec4 w = uM * vec4(aPos,1.0);
-  vec3 n = (uM * vec4(aNor,0.0)).xyz;
+  vec3 p = aPos, q = aNor;
+  // opt-in spine bend (the salmon): everything below local y = uBend.x curls in
+  // the x/y plane by th(u) = u*(b.y + u*(b.z + u*b.w)). Zero skips it entirely.
+  if (uBend.y != 0.0 || uBend.z != 0.0 || uBend.w != 0.0) {
+    float u = uBend.x - p.y;
+    if (u > 0.0) {
+      float du = u * 0.125, th;
+      vec2 s = vec2(0.0);
+      for (int i = 0; i < 8; i++) {
+        float v = (float(i) + 0.5) * du;
+        th = v * (uBend.y + v * (uBend.z + v * uBend.w));
+        s += vec2(sin(th), cos(th));
+      }
+      s *= du;
+      th = u * (uBend.y + u * (uBend.z + u * uBend.w));
+      float c = cos(th), sn = sin(th);
+      p = vec3(s.x + p.x * c, uBend.x - s.y + p.x * sn, p.z);
+      q = vec3(q.x * c - q.y * sn, q.x * sn + q.y * c, q.z);
+    }
+  }
+  vec4 w = uM * vec4(p,1.0);
+  vec3 n = (uM * vec4(q,0.0)).xyz;
   float l = length(n);
   vN = n;
   // Inverted hull: push the shell out along the world normal, draw back faces.
@@ -349,7 +383,7 @@ precision mediump float;
 varying vec3 vN, vW;
 varying vec2 vUV;
 uniform vec3 uColor, uLight, uSky, uGnd, uFog, uEye;
-uniform float uFogD, uUnlit, uAlpha, uUseTex;
+uniform float uFogD, uUnlit, uAlpha, uUseTex, uGloss;
 uniform sampler2D uTex;
 void main(){
   vec3 base = uColor;
@@ -362,12 +396,44 @@ void main(){
   if (uUnlit > 0.5) { gl_FragColor = vec4(base, a); return; }
   vec3 n = normalize(vN);
   float d = dot(n, uLight);
-  // three soft cel bands keeps forms readable without looking flat
-  float s = smoothstep(-0.35, -0.05, d) * 0.22
-          + smoothstep(0.10, 0.30, d) * 0.30
-          + smoothstep(0.55, 0.75, d) * 0.22 + 0.52;
+  // two wide soft bands. Light, unsaturated colours (white / cream uniforms) get a
+  // lower peak and a deeper relative shadow so they keep form without clipping.
+  float bl = dot(base, vec3(0.30, 0.59, 0.11));
+  float lk = smoothstep(0.78, 0.90, bl) * (1.0 - smoothstep(0.10, 0.30, max(base.r, max(base.g, base.b)) - min(base.r, min(base.g, base.b))));
+  float top = mix(1.20, 0.88, lk), bot = mix(0.80, 0.73, lk), w = (top - bot) * 0.5;
+  float s = smoothstep(-0.50, 0.10, d) * w + smoothstep(0.15, 0.80, d) * w + bot;
+  float lit = (s - bot) / (top - bot);
   vec3 hemi = mix(uGnd, uSky, n.y * 0.5 + 0.5);
   vec3 c = base * s * (0.80 + 0.42 * hemi);
+  // shadows shift hue (cool, a touch more saturated), light leans warm
+  vec3 cool = mix(vec3(0.90, 0.85, 0.95), vec3(0.84, 0.86, 0.96), lk);
+  c *= mix(cool, vec3(1.0), smoothstep(0.0, 0.65, lit))
+     * mix(vec3(1.0), vec3(1.03, 1.0, 0.95), lit);
+  float lum = dot(c, vec3(0.30, 0.59, 0.11));
+  c = mix(vec3(lum), c, mix(1.10, 1.0, lit));
+  // soft sky-coloured rim, fades with distance and on flat up-facing surfaces so the field stays as it was
+  vec3 v = normalize(uEye - vW);
+  float rimD = 1.0 - smoothstep(30.0, 70.0, length(uEye - vW));
+  c += uSky * pow(1.0 - max(dot(n, v), 0.0), 3.0) * (n.y * 0.5 + 0.5) * 0.14 * rimD * (1.0 - smoothstep(0.85, 0.98, n.y));
+  // opt-in gloss (fish skin, chitin). uGloss 0 skips all of it; decals and white/cream stay matte.
+  if (uGloss > 0.0 && uUseTex < 0.5) {
+    float g = uGloss * (1.0 - lk);
+    float dist = length(uEye - vW);
+    // lacquer: a deeper, more saturated shadow side
+    float dk = g * (1.0 - lit);
+    c *= 1.0 - 0.16 * dk;
+    float l2 = dot(c, vec3(0.30, 0.59, 0.11));
+    c = mix(vec3(l2), c, 1.0 + 0.30 * dk);
+    // stronger sky reflection at grazing angles
+    float nv = max(dot(n, v), 0.0);
+    c += uSky * pow(1.0 - nv, 3.0) * g * 0.42;
+    // specular on the half vector; the lobe widens with distance so it cannot sparkle
+    vec3 h = normalize(normalize(uLight + 1.6 * v) + v);   // key light leaned toward the camera so a low view still catches it
+    float e = max(122.9 * g - 12.9, 6.0) * mix(1.0, 0.3, smoothstep(25.0, 100.0, dist));
+    float lg = log2(max(dot(n, h), 0.0001));
+    float sp = (smoothstep(0.03, 0.30, exp2(e * lg)) * 0.85 + 0.55 * exp2(e * 0.2 * lg)) * smoothstep(-0.05, 0.25, d);
+    c += mix(vec3(1.0), uSky, 0.25) * sp * g * 1.25;
+  }
   float f = clamp(length(vW - uEye) / uFogD, 0.0, 1.0);
   c = mix(c, uFog, f * f * 0.85);
   gl_FragColor = vec4(c, a);
@@ -376,6 +442,8 @@ void main(){
 const R = {
   gl: null, prog: null, u: {}, vp: m4(), _m: m4(), _t: m4(),
   eye: [0, 0, 0], w: 1, h: 1, dpr: 1, inkW: 0,
+  bend: null, _bend: null,   // R.bend: [pivotY, k1, k2, k3] curls a baked spine (the salmon); null = off
+  gloss: 0, _gloss: 0,   // R.gloss: 0..1, set before drawing glossy parts, reset to 0 after
 
   init(canvas) {
     const gl = canvas.getContext('webgl', { antialias: true, alpha: false });
@@ -396,7 +464,7 @@ const R = {
     }
     gl.useProgram(p);
     this.prog = p;
-    for (const n of ['uVP', 'uM', 'uColor', 'uLight', 'uSky', 'uGnd', 'uFog', 'uEye', 'uFogD', 'uUnlit', 'uAlpha', 'uOutline', 'uCam', 'uUseTex', 'uUVRect', 'uTex'])
+    for (const n of ['uVP', 'uM', 'uColor', 'uLight', 'uSky', 'uGnd', 'uFog', 'uEye', 'uFogD', 'uUnlit', 'uAlpha', 'uOutline', 'uCam', 'uUseTex', 'uUVRect', 'uTex', 'uGloss', 'uBend'])
       this.u[n] = gl.getUniformLocation(p, n);
 
     const vb = gl.createBuffer();
@@ -431,6 +499,7 @@ const R = {
     gl.uniform1i(this.u.uTex, 0);
     gl.uniform1f(this.u.uUseTex, 0);
     gl.uniform4f(this.u.uUVRect, 1, 1, 0, 0);
+    gl.uniform1f(this.u.uGloss, 0);
 
     gl.enable(gl.DEPTH_TEST);
     gl.enable(gl.CULL_FACE);
@@ -512,6 +581,10 @@ const R = {
     gl.uniform1f(this.u.uAlpha, 1);
     gl.uniform1f(this.u.uOutline, 0);
     this.inkW = 0;
+    this.gloss = 0; this._gloss = 0;
+    gl.uniform1f(this.u.uGloss, 0);
+    this.bend = null; this._bend = null;
+    gl.uniform4f(this.u.uBend, 0, 0, 0, 0);
   },
 
   /* ink line pass: call R.ink(w), draw the same parts again, then R.ink(0) */
@@ -524,12 +597,27 @@ const R = {
     gl.cullFace(this.inkW > 0 ? gl.FRONT : gl.BACK);
   },
 
+  /* upload R.gloss only when the effective value changes; the ink pass is always 0 */
+  _g() {
+    const g = this.inkW > 0 ? 0 : this.gloss;
+    if (g !== this._gloss) { this._gloss = g; this.gl.uniform1f(this.u.uGloss, g); }
+  },
+
+  _bd() {
+    const b = this.bend;
+    if (b === this._bend) return;
+    this._bend = b;
+    if (b) this.gl.uniform4f(this.u.uBend, b[0], b[1], b[2], b[3]);
+    else this.gl.uniform4f(this.u.uBend, 0, 0, 0, 0);
+  },
+
   /* draw one primitive with a full transform */
   d(prim, x, y, z, rx, ry, rz, sx, sy, sz, c) {
     const gl = this.gl, part = GEO.parts[prim];
     mTRS(this._m, x, y, z, rx, ry, rz, sx, sy, sz);
     gl.uniformMatrix4fv(this.u.uM, false, this._m);
-    gl.uniform3fv(this.u.uColor, this.inkW > 0 ? INK_COL : c);
+    gl.uniform3fv(this.u.uColor, this.inkW > 0 ? inkOf(c) : c);
+    this._g(); this._bd();
     gl.drawElements(gl.TRIANGLES, part.count, gl.UNSIGNED_SHORT, part.offset);
   },
 
@@ -550,6 +638,7 @@ const R = {
     const gl = this.gl, part = GEO.parts[prim];
     gl.uniformMatrix4fv(this.u.uM, false, mat);
     gl.uniform3fv(this.u.uColor, c);
+    this._g(); this._bd();
     gl.drawElements(gl.TRIANGLES, part.count, gl.UNSIGNED_SHORT, part.offset);
   },
 
@@ -568,20 +657,36 @@ const R = {
 };
 
 const INK_COL = [0.09, 0.07, 0.06];
+/* 輪郭線の色は部品自身の色から作る：暗く、少し暖かく、彩度を上げた版 */
+const _ink = [0, 0, 0];
+function inkOf(c) {
+  const l = c[0] * 0.30 + c[1] * 0.59 + c[2] * 0.11;
+  for (let i = 0; i < 3; i++) {
+    const k = (l + (c[i] - l) * 1.35) * 0.30;      // c*0.30, saturation pushed
+    _ink[i] = INK_COL[i] * 0.35 + Math.max(0, k) * 0.65;
+  }
+  _ink[0] *= 1.06; _ink[2] *= 0.92;                // warm
+  // light parts get a clear warm grey-brown line (~#5A4A44), not a faint one
+  const w = Math.min(1, Math.max(0, (l - 0.55) / 0.35));
+  _ink[0] += (0.35 - _ink[0]) * w; _ink[1] += (0.29 - _ink[1]) * w; _ink[2] += (0.265 - _ink[2]) * w;
+  return _ink;
+}
 
 /* soft contact shadow — a flat disc, drawn in a blended pass */
 const SHADOWS = [];
-function shadow(x, z, r, a) {
+/* `kz` stretches it along the heading `ry` (a beetle is long and low) */
+function shadow(x, z, r, a, kz, ry) {
   if (R.inkW > 0) return;                       // not during the outline pass
-  SHADOWS.push(x, z, r, a === undefined ? 0.3 : a);
+  SHADOWS.push(x, z, r, a === undefined ? 0.3 : a, kz || 1, ry || 0);
 }
 function flushShadows(groundY) {
   if (!SHADOWS.length) return;
   R.unlit(true, 0.34);
   const c = [0.05, 0.09, 0.06];
-  for (let i = 0; i < SHADOWS.length; i += 4) {
+  for (let i = 0; i < SHADOWS.length; i += 6) {
     R.gl.uniform1f(R.u.uAlpha, SHADOWS[i + 3]);
-    R.b('disc', SHADOWS[i], groundY + 0.055, SHADOWS[i + 1], SHADOWS[i + 2] * 2, 1, SHADOWS[i + 2] * 2, c);
+    R.d('disc', SHADOWS[i], groundY + 0.055, SHADOWS[i + 1], 0, SHADOWS[i + 5], 0,
+        SHADOWS[i + 2] * 2, 1, SHADOWS[i + 2] * 2 * SHADOWS[i + 4], c);
   }
   SHADOWS.length = 0;
   R.unlit(false);

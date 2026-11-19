@@ -236,148 +236,560 @@ def bez(a, b, c, n):
 
 
 # ------------------------------------------------------------------- salmon
-# Canonical pose: body axis along +Y with the snout up, dorsal toward -Z and
-# belly toward +Z, so it stands the way a Magikarp does. Scaled to about 1.3
-# tall, which puts it alongside the mammals.
+# A male chum salmon (シロザケ) on the spawning run: the real fish, not a toy.
+#
+# Canonical frame: the spine runs along +Y with the snout up (y = SAL_L at the
+# tip of the kype, 0 at the base of the tail), the back toward -Z, the belly
+# toward +Z, and +X is the fish's left flank. `t` counts from the snout (0) to
+# the base of the tail (1). Every marking, the eye, the gill cover and the fin
+# roots are solved on the same (t, e) map of the body — e is the elevation
+# round the section, +pi/2 the dorsal ridge, -pi/2 the keel — so nothing has to
+# be placed by eye and nothing floats.
+#
+# The game curls the body in the vertex shader (R.bend), about local y = SAL_PIV
+# and only behind it: the head is rigid, as a fish's is, so the jaw, the gill
+# covers and the pectorals hang off fixed hinges.
 
-SAL_DEPTH = [(0.00, 0.020), (0.04, 0.090), (0.10, 0.150), (0.18, 0.196),
-             (0.28, 0.226), (0.38, 0.234), (0.50, 0.222), (0.62, 0.194),
-             (0.74, 0.152), (0.84, 0.104), (0.92, 0.062), (0.97, 0.040),
-             (1.00, 0.032)]
-SAL_WIDTH = [(0.00, 0.016), (0.06, 0.070), (0.14, 0.098), (0.28, 0.106),
-             (0.44, 0.094), (0.62, 0.078), (0.80, 0.052), (0.92, 0.030),
-             (1.00, 0.022)]
-# the belly hangs below the axis; the back is nearly straight, as on the fish
-SAL_SHIFT = [(0.00, 0.010), (0.20, 0.030), (0.40, 0.040), (0.70, 0.026),
-             (1.00, 0.004)]
+SAL_L = 1.24
+SAL_PIV_T = 0.30
+SAL_E = 2.3            # superellipse exponent of the sections
+
+# dorsal edge, ventral edge (z, metres) and half width, by t. The head front is
+# only the upper jaw: its ventral edge is the mouth line, and the kype hooks
+# down past it at the very tip. Depth at the dorsal is 26% of the length, width
+# half the depth: deep, flat-sided, not a cigar.
+SAL_TOP = [(0.0, 0.066), (0.010, 0.032), (0.025, -0.012), (0.05, -0.048),
+           (0.08, -0.098), (0.12, -0.148), (0.17, -0.172), (0.23, -0.194),
+           (0.30, -0.207), (0.37, -0.219), (0.43, -0.221), (0.50, -0.210),
+           (0.60, -0.174), (0.70, -0.128), (0.80, -0.086), (0.87, -0.060),
+           (0.93, -0.053), (1.0, -0.058)]
+SAL_BOT = [(0.0, 0.084), (0.010, 0.090), (0.025, 0.070), (0.045, 0.052), (0.07, 0.045),
+           (0.10, 0.043), (0.15, 0.042), (0.175, 0.050), (0.20, 0.086),
+           (0.23, 0.114), (0.27, 0.133), (0.33, 0.155), (0.42, 0.174),
+           (0.52, 0.171), (0.62, 0.146), (0.70, 0.112), (0.78, 0.082),
+           (0.86, 0.058), (0.93, 0.050), (1.0, 0.056)]
+SAL_W = [(0.0, 0.009), (0.012, 0.016), (0.03, 0.024), (0.06, 0.034),
+         (0.10, 0.044), (0.15, 0.054), (0.21, 0.066), (0.28, 0.079),
+         (0.36, 0.088), (0.44, 0.091), (0.52, 0.087), (0.62, 0.075),
+         (0.72, 0.057), (0.82, 0.037), (0.90, 0.025), (0.96, 0.022),
+         (1.0, 0.023)]
 
 
-def salmon_rings(n=44, sec=18, swell=1.0):
+def sal_y(t):
+    return SAL_L * (1.0 - t)
+
+
+def sal_sec(t):
+    top = smooth_profile(t, SAL_TOP)
+    bot = smooth_profile(t, SAL_BOT)
+    w = smooth_profile(t, SAL_W)
+    return top, bot, w, top + 0.46 * (bot - top)
+
+
+def sal_ring_pt(t, a):
+    """The body surface at section angle a (0 = left flank, +pi/2 = keel)."""
+    top, bot, w, mid = sal_sec(t)
+    ca, sa = math.cos(a), math.sin(a)
+    k = 2.0 / SAL_E
+    x = math.copysign(abs(ca) ** k, ca) * w
+    z = mid + ((top - mid) if sa < 0 else (bot - mid)) * abs(sa) ** k
+    return (x, sal_y(t), z)
+
+
+def sal_a(e, side):
+    return -e if side > 0 else math.pi + e
+
+
+def sal_nrm(t, a):
+    h = 1e-4
+    p = sal_ring_pt(t, a)
+    pt = sal_ring_pt(min(1.0, t + h), a)
+    pt0 = sal_ring_pt(max(0.0, t - h), a)
+    pa = sal_ring_pt(t, a + h)
+    pa0 = sal_ring_pt(t, a - h)
+    u = [pt[i] - pt0[i] for i in range(3)]
+    v = [pa[i] - pa0[i] for i in range(3)]
+    n = (u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[1] * v[0])
+    L = math.sqrt(sum(c * c for c in n)) or 1.0
+    n = [c / L for c in n]
+    mid = sal_sec(t)[3]
+    if n[0] * p[0] + n[2] * (p[2] - mid) < 0:
+        n = [-c for c in n]
+    return n
+
+
+def sal_pt(t, e, side, off=0.0):
+    a = sal_a(e, side)
+    p = sal_ring_pt(t, a)
+    if not off:
+        return p
+    n = sal_nrm(t, a)
+    return (p[0] + n[0] * off, p[1] + n[1] * off, p[2] + n[2] * off)
+
+
+def jag(*k):
+    """A repeatable scatter in [-1, 1]."""
+    s = 0.0
+    for i, q in enumerate(k):
+        s += q * (12.9898 + 31.7 * i)
+    v = math.sin(s) * 43758.5453
+    return 2.0 * (v - math.floor(v)) - 1.0
+
+
+def sal_grid(rows, inside):
+    """Quads over a grid of points; faces turned away from `inside`, a function
+    giving a point under each vertex (the spine at that height)."""
+    m = Mesh()
+    idx = [[m.vert(*p) for p in r] for r in rows]
+    s = 0.0
+    for k in range(len(rows) - 1):
+        for i in range(len(rows[k]) - 1):
+            a, b, c, d = idx[k][i], idx[k][i + 1], idx[k + 1][i + 1], idx[k + 1][i]
+            m.quad(a, b, c, d)
+            pa, pb, pc = m.v[a], m.v[b], m.v[c]
+            u = [pb[j] - pa[j] for j in range(3)]
+            v = [pc[j] - pa[j] for j in range(3)]
+            n = (u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[1] * v[0])
+            q = inside(pa)
+            s += sum(n[j] * (pa[j] - q[j]) for j in range(3))
+    if s < 0:
+        m.f = [(a, c, b) for a, b, c in m.f]
+    return m
+
+
+def sal_axis(p):
+    t = max(0.0, min(1.0, 1.0 - p[1] / SAL_L))
+    return (0.0, p[1], sal_sec(t)[3])
+
+
+def sal_patch(fn, nr, nc, off):
+    """A skin patch: fn(r, c) -> (t, e, side) over r, c in [0, 1]."""
+    rows = []
+    for i in range(nr):
+        row = []
+        for j in range(nc):
+            t, e, side = fn(i / float(nr - 1), j / float(nc - 1))
+            row.append(sal_pt(t, e, side, off))
+        rows.append(row)
+    return sal_grid(rows, sal_axis)
+
+
+def sal_dome(t, e, side, R, off, dome, nr=4, nt=14):
+    """A round domed disc on the skin (an eye, a nostril), solved on the map so
+    its rim follows the body's curve."""
+    a = sal_a(e, side)
+    p = sal_ring_pt(t, a)
+    n = sal_nrm(t, a)
+    h = 1e-3
+    pt = sal_ring_pt(t + h, a)
+    pe = sal_pt(t, e + h, side)
+    Lt = math.dist(p, pt) / h
+    Le = math.dist(p, pe) / h
+    m = Mesh()
+    c0 = m.vert(p[0] + n[0] * (off + dome), p[1] + n[1] * (off + dome), p[2] + n[2] * (off + dome))
     rings = []
-    for i in range(n):
-        t = i / float(n - 1)
-        y = 1.30 - t * 1.30
-        d = lerp_profile(t, SAL_DEPTH) * swell
-        w = lerp_profile(t, SAL_WIDTH) * swell
-        cz = lerp_profile(t, SAL_SHIFT)
-        rings.append(section(0.0, y, cz, w, d, sec, e=2.35, back_flat=0.86))
-    return rings
+    for i in range(1, nr + 1):
+        rho = i / float(nr)
+        ring = []
+        for k in range(nt):
+            th = math.tau * k / nt
+            tt = t + R * rho * math.cos(th) / Lt
+            ee = e + R * rho * math.sin(th) / Le
+            q = sal_ring_pt(tt, sal_a(ee, side))
+            nn = sal_nrm(tt, sal_a(ee, side))
+            hh = off + dome * (1 - rho * rho)
+            ring.append(m.vert(q[0] + nn[0] * hh, q[1] + nn[1] * hh, q[2] + nn[2] * hh))
+        rings.append(ring)
+    for k in range(nt):
+        m.tri(c0, rings[0][k], rings[0][(k + 1) % nt])
+    for i in range(nr - 1):
+        a_, b_ = rings[i], rings[i + 1]
+        for k in range(nt):
+            j = (k + 1) % nt
+            m.quad(a_[k], b_[k], b_[j], a_[j])
+    return oriented_open(m, (0.0, p[1], sal_sec(t)[3]))
+
+
+def sal_fin(base, dirs, lens, th0, th1, nrm, rows=5, ridge=0.0, droop=None, split=None):
+    """A fin: rays fanned from points on the body, given a thickness that
+    tapers to the edge (a thin wedge, not a slab) and ridged every other ray so
+    the light picks the rays out. With `split`, returns (fin, margin) cut at
+    that share of the ray length, so the edge can take its own colour."""
+    nc = len(base)
+
+    def P(i, s, sgn):
+        b, d, L = base[i], dirs[i], lens[i]
+        th = (th0 + (th1 - th0) * s) * 0.5
+        if ridge and 0 < i < nc - 1:
+            th *= 1.0 + (ridge if i % 2 else -ridge) * min(1.0, s * 3.0) * (1.0 - s) ** 2
+        n = nrm[i] if isinstance(nrm[0], (list, tuple)) else nrm
+        q = [b[k] + d[k] * L * s for k in range(3)]
+        if droop:
+            for k in range(3):
+                q[k] += droop[k] * L * s * s
+        return (q[0] + n[0] * th * sgn, q[1] + n[1] * th * sgn, q[2] + n[2] * th * sgn)
+
+    def solid(s0, s1, nrow):
+        m = Mesh()
+        ss = [s0 + (s1 - s0) * r / float(nrow) for r in range(nrow + 1)]
+        top = [[m.vert(*P(i, s, 1)) for i in range(nc)] for s in ss]
+        bot = [[m.vert(*P(i, s, -1)) for i in range(nc)] for s in ss]
+        for r in range(nrow):
+            for i in range(nc - 1):
+                m.quad(top[r][i], top[r][i + 1], top[r + 1][i + 1], top[r + 1][i])
+                m.quad(bot[r][i], bot[r + 1][i], bot[r + 1][i + 1], bot[r][i + 1])
+            m.quad(top[r][0], top[r + 1][0], bot[r + 1][0], bot[r][0])
+            m.quad(top[r][-1], bot[r][-1], bot[r + 1][-1], top[r + 1][-1])
+        for i in range(nc - 1):
+            m.quad(top[0][i], bot[0][i], bot[0][i + 1], top[0][i + 1])
+            m.quad(top[-1][i], top[-1][i + 1], bot[-1][i + 1], bot[-1][i])
+        return oriented(m)
+
+    if split is None:
+        return solid(0.0, 1.0, rows)
+    r0 = max(1, int(round(rows * split)))
+    return solid(0.0, split, r0), solid(split, 1.0, max(1, rows - r0))
+
+
+def _nz(v):
+    L = math.sqrt(sum(c * c for c in v)) or 1.0
+    return [c / L for c in v]
+
+
+def _cross(u, v):
+    return [u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[1] * v[0]]
+
+
+def sal_cone(b, d, L, r, n=5):
+    """A tooth: a recurved cone from base b along d."""
+    m = Mesh()
+    d = _nz(d)
+    u = _nz(_cross(d, [0.0, 1.0, 0.0] if abs(d[1]) < 0.9 else [1.0, 0.0, 0.0]))
+    v = _cross(d, u)
+    ring = []
+    for k in range(n):
+        a = math.tau * k / n
+        ring.append(m.vert(*[b[i] + (u[i] * math.cos(a) + v[i] * math.sin(a)) * r for i in range(3)]))
+    tip = m.vert(*[b[i] + d[i] * L + (-0.25 * L if i == 1 else 0.0) for i in range(3)])
+    for k in range(n):
+        m.tri(ring[k], ring[(k + 1) % n], tip)
+    return oriented_open(m, b)
+
+
+SAL_JAW_T = [(0.030, 0.056, 0.064, 0.009), (0.040, 0.054, 0.080, 0.015),
+             (0.060, 0.057, 0.100, 0.023), (0.100, 0.052, 0.120, 0.033),
+             (0.150, 0.047, 0.127, 0.042), (0.205, 0.046, 0.116, 0.048),
+             (0.235, 0.048, 0.104, 0.044)]
+
+
+def sal_jaw_sec(t):
+    keys = SAL_JAW_T
+    top = smooth_profile(t, [(k[0], k[1]) for k in keys])
+    bot = smooth_profile(t, [(k[0], k[2]) for k in keys])
+    w = smooth_profile(t, [(k[0], k[3]) for k in keys])
+    return top, bot, w
 
 
 def build_salmon():
     out = {}
-    rings = salmon_rings()
-    out['sal_body'] = loft(rings)
+    piv = sal_y(SAL_PIV_T)
 
-    # a thin shell over the dark of the back and another under the pale belly,
-    # pushed just proud of the body so they read as markings, not as geometry
-    sec = 18
-    for name, lo, hi, swell in (('sal_back', 11, 18, 1.035), ('sal_belly', 3, 10, 1.03)):
-        rs = salmon_rings(swell=swell)
-        band = [r[lo:hi + 1] for r in rs]
-        m = Mesh()
-        idx = [[m.vert(*p) for p in r] for r in band]
-        for k in range(len(band) - 1):
-            a, b = idx[k], idx[k + 1]
-            for i in range(len(a) - 1):
-                m.quad(a[i], a[i + 1], b[i + 1], b[i])
-        out[name] = m
+    # --- the body: 56 sections, packed toward the head where the kype is
+    rings = []
+    for i in range(42):
+        t = (i / 41.0) ** 1.25
+        rings.append([sal_ring_pt(t, math.tau * k / 22.0) for k in range(22)])
+    out['sal_body'] = oriented(loft(rings))
 
-    fins = Mesh()
-    # dorsal, along the back
-    root = [(0.0, 1.30 - t * 1.30, lerp_profile(t, SAL_SHIFT) - lerp_profile(t, SAL_DEPTH) * 0.86)
-            for t in [0.34, 0.40, 0.46, 0.52]]
-    tip = [(0.0, r[1] + 0.02, r[2] - 0.16 * math.sin(math.pi * (0.2 + 0.8 * i / 3.0)))
-           for i, r in enumerate(root)]
-    fins.merge(blade(root, tip, 0.012))
-    # anal fin, underneath and further back
-    root2 = [(0.0, 1.30 - t * 1.30, lerp_profile(t, SAL_SHIFT) + lerp_profile(t, SAL_DEPTH) * 0.92)
-             for t in [0.76, 0.80, 0.84]]
-    tip2 = [(0.0, r[1] - 0.01, r[2] + 0.09) for r in root2]
-    fins.merge(blade(root2, tip2, 0.010))
-    # the adipose fin, which is small and pointless and unmistakably salmonid
-    root3 = [(0.0, 1.30 - t * 1.30, lerp_profile(t, SAL_SHIFT) - lerp_profile(t, SAL_DEPTH) * 0.86)
-             for t in [0.70, 0.745]]
-    fins.merge(blade(root3, [(0.0, r[1], r[2] - 0.045) for r in root3], 0.008))
-    # caudal: forked, and the reason a salmon is not a trout at a glance
-    for s in (-1.0, 1.0):
-        rt = [(0.0, 0.02, 0.006), (0.0, 0.00, 0.006)]
-        tp = [(0.0, 0.02 + s * 0.20, -0.24), (0.0, 0.00 + s * 0.10, -0.20)]
-        fins.merge(blade(rt, tp, 0.011))
-    # pectorals, low on the flank where they belong
-    for s in (-1.0, 1.0):
-        rt = [(s * 0.070, 0.82, 0.03), (s * 0.070, 0.74, 0.03)]
-        tp = [(s * 0.150, 0.74, 0.10), (s * 0.150, 0.70, 0.07)]
-        fins.merge(blade(rt, tp, 0.009))
-    out['sal_fins'] = fins
+    # --- colour, as skin patches offset along the normal, stacked by height:
+    # belly < bars < back < lines. The back is dark olive down to the eye and
+    # well down the gill cover; its edge wanders a little, as a real one does.
+    def back_e(t, side):
+        h = smooth_profile(t, [(0.0, 2.4), (0.05, 2.0), (0.10, 1.40), (0.16, 1.08),
+                               (0.22, 1.02), (0.30, 1.08), (0.45, 1.14), (0.65, 1.20),
+                               (0.85, 1.30), (1.0, 1.36)])
+        return (math.pi / 2 - h + 0.035 * math.sin(t * 41 + side)
+                + 0.025 * math.sin(t * 97 + 2 * side))
 
-    # Eyes and markings go in the mesh too. Placed by hand against the old
-    # sphere model they floated off the surface; solved for the profile they
-    # sit where they belong at any angle.
-    def surface(t, k=0.82):
-        y = 1.30 - t * 1.30
-        return (lerp_profile(t, SAL_WIDTH) * k, y, lerp_profile(t, SAL_SHIFT))
+    def back_fn(r, c):
+        t = 0.002 + 0.996 * r ** 1.2
+        side = 1 if c < 0.5 else -1
+        k = abs(c - 0.5) * 2
+        e0 = back_e(t, side)
+        return t, math.pi / 2 - (math.pi / 2 - e0) * k, side
+    out['sal_back'] = sal_patch(back_fn, 30, 7, 0.0075)
 
-    eyes, iris = Mesh(), Mesh()
-    t_eye = 0.175
-    w = lerp_profile(t_eye, SAL_WIDTH)
-    ey = 1.30 - t_eye * 1.30
-    ez = lerp_profile(t_eye, SAL_SHIFT) - lerp_profile(t_eye, SAL_DEPTH) * 0.28
-    r = 0.036
-    for s2 in (-1.0, 1.0):
-        eyes.merge(ball(s2 * (w - r * 0.42), ey, ez, r, 10))
-        iris.merge(ball(s2 * (w - r * 0.12), ey, ez + 0.002, r * 0.58, 8))
-    out['sal_eye'] = eyes
-    out['sal_pupil'] = iris
+    def belly_e(t):
+        return -math.pi / 2 + smooth_profile(t, [(0.185, 0.40), (0.23, 0.55), (0.30, 0.62),
+                                                  (0.45, 0.64), (0.60, 0.58), (0.72, 0.46),
+                                                  (0.82, 0.34), (0.90, 0.20)])
 
-    # the flush a fish gets on the run upriver, a band along the flank only
-    # 46 rings of 9 along a smooth lens is nine hundred vertices spent on a
-    # stripe, and vertices here are bytes in the one HTML file the whole game
-    # ships as. At 24 by 7 it is the same shape and 13KB cheaper.
-    band = Mesh()
-    N, COLS = 24, 7
-    for a_c in (0.0, math.pi):
-        rows = []
-        for i in range(N):
-            u = i / float(N - 1)
-            t = 0.20 + u * 0.52
-            # a lens along the lateral line, not a coat of paint: at full width
-            # it wrapped most of the flank and the fish read as skinned
-            spread = 0.34 * math.sin(math.pi * u) ** 0.75
-            y = 1.30 - t * 1.30
-            d = lerp_profile(t, SAL_DEPTH) * 1.022
-            w = lerp_profile(t, SAL_WIDTH) * 1.022
-            cz = lerp_profile(t, SAL_SHIFT)
-            rows.append([band.vert(*section_pt(0.0, y, cz, w, d,
-                                               a_c + ((j / float(COLS - 1)) * 2 - 1) * spread,
-                                               e=2.35, back_flat=0.86))
-                         for j in range(COLS)])
-        for k in range(N - 1):
-            a, b = rows[k], rows[k + 1]
-            for i in range(COLS - 1):
-                band.quad(a[i], a[i + 1], b[i + 1], b[i])
-    out['sal_blush'] = band
+    def belly_fn(r, c):
+        t = 0.185 + 0.715 * r
+        side = 1 if c < 0.5 else -1
+        k = abs(c - 0.5) * 2
+        return t, -math.pi / 2 + (belly_e(t) + math.pi / 2) * k, side
+    out['sal_belly'] = sal_patch(belly_fn, 26, 7, 0.0035)
 
-    # the kit, hugging the body for the same reason the beetle's does
-    for name, lo, hi, sw in (('sal_band', 0.40, 0.66, 1.022),
-                             ('sal_collar', 0.34, 0.40, 1.028),
-                             ('sal_belt', 0.66, 0.71, 1.028)):
-        m = Mesh()
-        rows = []
-        for i in range(16):
-            t = lo + (hi - lo) * i / 15.0
-            rows.append(section(0.0, 1.30 - t * 1.30, lerp_profile(t, SAL_SHIFT),
-                                lerp_profile(t, SAL_WIDTH) * sw,
-                                lerp_profile(t, SAL_DEPTH) * sw,
-                                18, e=2.35, back_flat=0.86))
-        m.merge(loft(rows, cap_start=False, cap_end=False))
-        out[name] = m
+    # the spawning bars (ブナ毛): ragged vertical flames of maroon from under the
+    # dark back down the lower flank, with dusky green between them
+    bars, dbars = Mesh(), Mesh()
+    for side in (1, -1):
+        for k in range(8):
+            tc = 0.280 + k * 0.073 + 0.010 * jag(k, side)
+            fade = 1.0 - 0.10 * max(0, k - 4)              # smaller toward the tail
+            e_lo = (-0.80 - 0.18 * (0.5 + 0.5 * jag(k, 3, side))) * fade
+            wk = 0.022 * (1.0 + 0.40 * jag(k, 11, side)) * fade
 
-    # the kype: a spawning male's hooked lower jaw. Nothing else about the fish
-    # says "not cute" as loudly.
-    jaw = sweep(bez((0.0, 1.16, 0.055), (0.0, 1.10, 0.16), (0.0, 1.21, 0.215), 9),
-                [0.052, 0.050, 0.046, 0.041, 0.036, 0.031, 0.026, 0.021, 0.016], 9)
-    out['sal_jaw'] = jaw
+            def bar(r, c, tc=tc, e_lo=e_lo, k=k, side=side, wk=wk, r0=0.0, r1=1.0, dt=0.0, sc=1.0):
+                r = r0 + (r1 - r0) * r
+                e_hi = back_e(tc, side) + 0.14
+                e = e_hi + (e_lo - e_hi) * r
+                hw = wk * sc * (1.0 + 0.30 * r) * (1.0 + 0.45 * jag(k, int(r * 10), side, c))
+                if r > 0.80:
+                    hw *= max(0.15, 1.0 - (r - 0.80) * 4.0)
+                mz = 0.010 * jag(k, int(r * 5), side, 9)    # the bar wanders
+                return tc + 0.016 * e + mz + dt + (c * 2 - 1) * hw, e, side
+            if k in (1, 6):                                # broken
+                bars.merge(sal_patch(lambda r, c, f=bar: f(r, c, r0=0.0, r1=0.44), 5, 2, 0.0055))
+                bars.merge(sal_patch(lambda r, c, f=bar: f(r, c, r0=0.54, r1=1.0), 4, 2, 0.0055))
+            elif k in (2, 4):                              # forked at the foot
+                bars.merge(sal_patch(lambda r, c, f=bar: f(r, c, r0=0.0, r1=0.62), 6, 2, 0.0055))
+                for d in (-1, 1):
+                    bars.merge(sal_patch(lambda r, c, f=bar, d=d: f(r, c, r0=0.58, r1=1.0,
+                               dt=d * wk * (0.45 + 0.9 * r), sc=0.5), 3, 2, 0.0055))
+            else:
+                bars.merge(sal_patch(bar, 8, 2, 0.0055))
+        for k in range(7):
+            tc = 0.280 + k * 0.073 + 0.0365 + 0.006 * jag(k, 7, side)
+            e_lo = -0.40 - 0.45 * (0.5 + 0.5 * jag(k, 5, side))
+            wide = 1.9 if k == 3 else 1.0                   # two bars run together here
+
+            def dbar(r, c, tc=tc, e_lo=e_lo, k=k, side=side, wide=wide):
+                e_hi = back_e(tc, side) + 0.10
+                e = e_hi + (e_lo - e_hi) * r
+                hw = 0.0095 * (1.0 + 0.9 * r * wide) * (1.0 + 0.45 * jag(k, int(r * 9), side, c, 2))
+                if r > 0.8:
+                    hw *= 1.0 - (r - 0.8) * 4.0
+                return tc + 0.016 * e + (c * 2 - 1) * hw, e, side
+            dbars.merge(sal_patch(dbar, 7, 2, 0.006))
+    out['sal_bars'] = bars
+    out['sal_dbars'] = dbars
+
+    # --- the gill cover: a plate hinged at the preopercle, with a rounded rear
+    # edge. Under it a sliver of red gill, which shows when it flares.
+    def oper_t(e):
+        # the preopercle runs down behind the eye and sweeps forward under it
+        tf = 0.162 - 0.022 * max(0.0, -(e + 0.35)) ** 1.4
+        q = (e + 0.18) / 1.10
+        tr = 0.170 + 0.068 * max(0.0, 1.0 - q * q) ** 0.55
+        return tf, max(tr, tf + 0.008)
+    E0, E1 = 0.56, -1.22
+    for side, nm in ((1, 'l'), (-1, 'r')):
+        def oper(r, c, side=side):
+            e = E0 + (E1 - E0) * r
+            tf, tr = oper_t(e)
+            return tf + (tr - tf) * c, e, side
+        out['sal_oper' + nm] = sal_patch(oper, 12, 5, 0.0070)
+    gill, line = Mesh(), Mesh()
+    for side in (1, -1):
+        def gl_(r, c, side=side):
+            e = E0 - 0.02 + (E1 + 0.04 - E0) * r
+            tr = oper_t(e)[1]
+            return tr - 0.024 + 0.022 * c, e, side
+        gill.merge(sal_patch(gl_, 11, 2, 0.0045))
+
+        def rim(r, c, side=side):
+            e = E0 + (E1 - E0) * r
+            tr = oper_t(e)[1]
+            return tr - 0.003 + 0.008 * c, e, side
+        line.merge(sal_patch(rim, 11, 2, 0.0080))
+
+        def pre(r, c, side=side):
+            e = 0.45 + (-1.15 - 0.45) * r
+            tf = oper_t(e)[0]
+            return tf - 0.003 + 0.006 * c, e, side
+        line.merge(sal_patch(pre, 9, 2, 0.0098))
+
+        # the lateral line, dark and straight from the gill to the tail
+        def ll(r, c, side=side):
+            t = 0.245 + 0.71 * r
+            e = 0.06 + 0.10 * (1 - r) ** 3 + (c * 2 - 1) * 0.022
+            return t, e, side
+        line.merge(sal_patch(ll, 20, 2, 0.0095))
+        for tn, en in ((0.036, 0.44), (0.050, 0.42)):
+            line.merge(sal_dome(tn, en, side, 0.0062, 0.0095, 0.0, 2, 8))
+    out['sal_gill'] = gill
+    out['sal_line'] = line
+
+    # --- the eye: small, set high over the long jaw, under a domed cornea
+    eye, iris, pupil = Mesh(), Mesh(), Mesh()
+    TE, EE = 0.115, 0.22
+    for side in (1, -1):
+        eye.merge(sal_dome(TE, EE, side, 0.0245, 0.0090, 0.004, 2, 12))
+        iris.merge(sal_dome(TE, EE, side, 0.0178, 0.0105, 0.007, 3, 12))
+        pupil.merge(sal_dome(TE, EE, side, 0.0100, 0.0160, 0.0040, 2, 12))
+    out['sal_eye'] = eye
+    out['sal_iris'] = iris
+    out['sal_pupil'] = pupil
+
+    # --- the mouth: dark roof under the upper jaw, the lower jaw on its hinge,
+    # and teeth. A spawning male's are long at the front of both jaws.
+    def palate(r, c):
+        t = 0.010 + 0.18 * r
+        side = 1 if c < 0.5 else -1
+        k = abs(c - 0.5) * 2
+        return t, -math.pi / 2 + 0.30 * k, side
+    out['sal_mouth'] = sal_patch(palate, 11, 5, 0.0015)
+
+    jr = []
+    for i in range(16):
+        t = 0.235 - (0.235 - 0.030) * (i / 15.0) ** 0.8
+        top, bot, w = sal_jaw_sec(t)
+        mid = 0.5 * (top + bot)
+        ring = []
+        for k in range(12):
+            a = math.tau * k / 12.0
+            ca, sa = math.cos(a), math.sin(a)
+            ring.append((math.copysign(abs(ca) ** 0.8, ca) * w, sal_y(t),
+                         mid + math.copysign(abs(sa) ** 0.8, sa) * (bot - top) * 0.5))
+        jr.append(ring)
+    out['sal_jaw'] = oriented(loft(jr))
+    jaw_hinge = (sal_y(0.195), 0.048)
+
+    teeth, lteeth = Mesh(), Mesh()
+    for side in (1, -1):
+        for t, L in ((0.012, 0.036), (0.026, 0.026), (0.052, 0.010), (0.079, 0.013),
+                     (0.113, 0.008), (0.141, 0.010)):
+            b = sal_pt(t, -1.26, side, -0.002)
+            teeth.merge(sal_cone(b, (-side * 0.12, -0.10, 1.0), L, L * 0.30))
+        for t, L in ((0.036, 0.032), (0.048, 0.020), (0.074, 0.011), (0.104, 0.012),
+                     (0.133, 0.008)):
+            top, bot, w = sal_jaw_sec(t)
+            b = (side * w * 0.72, sal_y(t), top + 0.003)
+            lteeth.merge(sal_cone(b, (side * 0.10, 0.10, -1.0), L, L * 0.30))
+    out['sal_teeth'] = teeth
+    out['sal_lteeth'] = lteeth
+
+    # --- fins
+    def ridge_pt(t, top=True, inset=0.006):
+        a, b_, w, m_ = sal_sec(t)
+        return (0.0, sal_y(t), (a + inset) if top else (b_ - inset))
+
+    X = [1.0, 0.0, 0.0]
+    # dorsal: a raked trapezoid of 12 rays, the second and third the longest
+    n = 12
+    base = [ridge_pt(0.405 + 0.125 * i / (n - 1)) for i in range(n)]
+    dirs = []
+    lens = []
+    for i in range(n):
+        r = 0.32 + 0.62 * i / (n - 1)
+        dirs.append((0.0, -math.sin(r), -math.cos(r)))
+        u = i / (n - 1.0)
+        lens.append(1.25 * (0.118 if i == 0 else 0.140 - 0.085 * u ** 1.1) * (1 + 0.05 * jag(i, 1)))
+    out['sal_dorsal'], out['sal_dorsal_m'] = sal_fin(
+        base, dirs, lens, 0.026, 0.010, X, 5, 0.30, (0.0, -0.10, 0.0), split=0.84)
+
+    # adipose: a small fleshy lobe, no rays — the salmonid signature
+    n = 7
+    base = [ridge_pt(0.785 + 0.055 * i / (n - 1), inset=0.005) for i in range(n)]
+    dirs = [(0.0, -math.sin(0.85 + 0.5 * i / (n - 1)), -math.cos(0.85 + 0.5 * i / (n - 1)))
+            for i in range(n)]
+    lens = [0.012 + 0.032 * math.sin(math.pi * (i + 0.6) / (n + 0.2)) for i in range(n)]
+    out['sal_adipose'] = sal_fin(base, dirs, lens, 0.022, 0.012, X, 3, 0.0, (0.0, -0.3, 0.0))
+
+    # caudal: broad and shallowly forked, rays fanned from the end of the
+    # peduncle, with a dark trailing edge
+    n = 17
+    tb = 0.985
+    a_, b_, w, m_ = sal_sec(tb)
+    base = [(0.0, sal_y(tb), (a_ + 0.006) + (b_ - a_ - 0.012) * i / (n - 1)) for i in range(n)]
+    dirs, lens = [], []
+    for i in range(n):
+        ph = -0.62 + 1.24 * i / (n - 1)
+        dirs.append((0.0, -math.cos(ph), math.sin(ph)))
+        q = abs(ph) / 0.62
+        L = 0.165 + 0.105 * q ** 1.6
+        if i in (0, n - 1):
+            L *= 0.90
+        lens.append(L * (1 + 0.03 * jag(i, 4)))
+    out['sal_caudal'], out['sal_caudal_m'] = sal_fin(
+        base, dirs, lens, 0.036, 0.010, X, 5, 0.28, split=0.80)
+
+    # anal: under the adipose, raked back, a white leading tip
+    n = 9
+    base = [ridge_pt(0.712 + 0.080 * i / (n - 1), top=False) for i in range(n)]
+    dirs, lens = [], []
+    for i in range(n):
+        r = 0.45 + 0.55 * i / (n - 1)
+        dirs.append((0.0, -math.sin(r), math.cos(r)))
+        lens.append((0.105 - 0.062 * (i / (n - 1.0)) ** 0.9) * (1 + 0.05 * jag(i, 6)))
+    out['sal_anal'], out['sal_anal_m'] = sal_fin(
+        base, dirs, lens, 0.022, 0.009, X, 5, 0.28, (0.0, -0.08, 0.0), split=0.84)
+
+    # pelvics (paired, under the dorsal) with the small axillary process
+    pel, pel_m, axil = Mesh(), Mesh(), Mesh()
+    for side in (1, -1):
+        n = 7
+        base = [sal_pt(0.492 + 0.042 * i / (n - 1), -1.18, side, -0.004) for i in range(n)]
+        d = _nz((side * 0.38, -0.82, 0.46))
+        nr = _nz(_cross([0.0, -1.0, 0.0], d))
+        dirs = [d] * n
+        lens = [(0.098 - 0.034 * i / (n - 1.0)) * (1 + 0.04 * jag(i, 8, side)) for i in range(n)]
+        a1, a2 = sal_fin(base, dirs, lens, 0.020, 0.008, nr, 5, 0.28, split=0.84)
+        pel.merge(a1)
+        pel_m.merge(a2)
+        base = [sal_pt(0.482 + 0.020 * i / 2.0, -1.02, side, -0.003) for i in range(3)]
+        d = _nz((side * 0.16, -0.97, 0.12))
+        nr = sal_nrm(0.50, sal_a(-1.02, side))
+        axil.merge(sal_fin(base, [d] * 3, [0.040, 0.046, 0.036], 0.014, 0.006, nr, 3))
+    out['sal_pelvic'] = pel
+    out['sal_pelvic_m'] = pel_m
+    out['sal_axil'] = axil
+
+    # pectorals, low behind the gill cover, each its own mesh so it can flick
+    pec_axis = None
+    for side, nm in ((1, 'l'), (-1, 'r')):
+        n = 8
+        base = [sal_pt(0.242 + 0.016 * i / (n - 1), -0.60 - 0.26 * i / (n - 1), side, -0.004)
+                for i in range(n)]
+        d = _nz((side * 0.42, -0.86, 0.26))
+        nr = _nz(_cross(_nz([base[-1][k] - base[0][k] for k in range(3)]), d))
+        lens = [(0.150 - 0.075 * (i / (n - 1.0)) ** 0.8) * (1 + 0.04 * jag(i, 9, side))
+                for i in range(n)]
+        out['sal_pec' + nm] = sal_fin(base, [d] * n, lens, 0.022, 0.008, nr, 5, 0.28,
+                                      (0.0, -0.10, 0.10))
+        if side > 0:
+            pec_axis = base[0] + base[-1]
+
+    # the one piece of kit: a narrow ribbon round the peduncle, like a tag
+    band = []
+    for i in range(3):
+        t = 0.905 + 0.026 * i / 2.0
+        ring = []
+        for k in range(24):
+            a = math.tau * k / 24.0
+            p, nn = sal_ring_pt(t, a), sal_nrm(t, a)
+            ring.append((p[0] + nn[0] * 0.006, p[1] + nn[1] * 0.006, p[2] + nn[2] * 0.006))
+        band.append(ring)
+    out['sal_band'] = oriented(loft(band))
+
+    # the spine, the hinges and the ground-contact table the game needs
+    oa = sal_pt(oper_t(E0)[0], E0, 1, 0.009)
+    ob = sal_pt(oper_t(E1)[0], E1, 1, 0.009)
+    sec = []
+    for t in (0.0, 0.08, 0.18, 0.30, 0.42, 0.55, 0.68, 0.80, 0.90, 1.0):
+        top, bot, w, mid = sal_sec(t)
+        sec.append('[%.3f,%.3f,%.3f,%.3f,%.3f]' % (sal_y(t), top, bot, w, mid))
+    sec.append('[-0.200,-0.020,0.020,0.012,0.000]')
+    sec.append('[-0.265,-0.010,0.010,0.006,0.000]')
+    DATA.append('/* the salmon: bend pivot, hinges (jaw, gill cover, pectoral) and')
+    DATA.append('   sections [y, top, bottom, half width, mid] for ground contact */')
+    DATA.append('const SAL = { piv: %.4f, jaw: [%.4f, %.4f], oper: [%s], pec: [%s],'
+                % (piv, jaw_hinge[0], jaw_hinge[1], ','.join('%.4f' % v for v in oa + ob),
+                   ','.join('%.4f' % v for v in pec_axis)))
+    DATA.append('  sec: [%s] };' % ','.join(sec))
+    DATA.append('')
     return out
 
 
@@ -1007,235 +1419,360 @@ def build_cap():
 
 
 # ------------------------------------------------------------------- beetle
-# Canonical pose: standing, wing cases to the back (-Z), head and horn forward
-# (+Z), Y up with 0 on the ground. The legs stay animated primitives; the
-# shell, the horns and the toothed foreleg shin are baked.
+# A male Trypoxylus dichotomus, as the living insect: horizontal on six legs,
+# body low, head down in front, the horn rising out of it.
 #
-# The proportions are the real animal's rather than the mammals': the wing
-# cases are the widest part of him, the shield is narrower and trapezoid, and
-# the head horn is long enough to read as a horn from the outfield. That horn
-# is the whole identity of the species — at sixty metres it is the only part of
-# him anyone can name — so it gets the length and the thickness it deserves.
+# Canonical pose: the character's own frame. +z is forward (the horn), +y up
+# with 0 on the ground, +x his LEFT side. Scale 1 is life size on the field:
+# 1.36m from the tip of the wing cases to the front of the head, the back
+# 0.80m up, the horn tips 1.33m up.
+#
+# The three tagmata are three separate shells — head, pronotum, elytra — in
+# the real proportions (elytra : pronotum : head = 58 : 27 : 15). Every one of
+# them is the same kind of surface (`bee_shell`): a superelliptic section that
+# rises from a margin to a dome above and drops a little way below it, read off
+# smooth profiles along the body, collapsing to a point at both ends so there
+# are no caps to shade wrong. The legs are drawn by 30-actors.js out of baked
+# bones (coxa, femur, tibia, tarsus) that it places by IK, feet on the ground.
 
-BEE_Z = -0.05                       # the cases sit a little behind the axis
-BEE_TOP, BEE_BOT = 1.00, 0.26
-BEE_E = 2.6                         # superellipse exponent of the sections
-
-# Half width of ONE wing case, how far its centre sits off the midline, and
-# half the depth. The widest point is up at the shoulders, as it is on him.
-BEE_W = [(0.00, 0.088), (0.08, 0.122), (0.20, 0.152), (0.35, 0.162),
-         (0.55, 0.156), (0.75, 0.128), (0.90, 0.082), (1.00, 0.030)]
-BEE_CX = [(0.00, 0.072), (0.35, 0.090), (0.70, 0.070), (1.00, 0.028)]
-BEE_D = [(0.00, 0.150), (0.10, 0.230), (0.30, 0.290), (0.55, 0.300),
-         (0.78, 0.262), (0.92, 0.180), (1.00, 0.070)]
-
-# the shield, as its own trapezoid profile
-BEE_PTOP, BEE_PBOT, BEE_PZ = 1.26, 0.94, 0.005
-BEE_PW = [(0.00, 0.118), (0.55, 0.176), (1.00, 0.200)]
-BEE_PD = [(0.00, 0.195), (0.55, 0.245), (1.00, 0.266)]
-BEE_PE = 2.8
-
-# the head is its own little loft, out in front of the shield
-BEE_HZ = 0.235
-BEE_HW = [(0.00, 0.150), (0.45, 0.186), (1.00, 0.120)]
-BEE_HD = [(0.00, 0.120), (0.45, 0.158), (1.00, 0.100)]
-BEE_HE = 2.5
+def _sup(v, e):
+    return math.copysign(abs(v) ** (2.0 / e), v)
 
 
-def bee_y(t):
-    return BEE_TOP - (BEE_TOP - BEE_BOT) * t
+def _ends(t, a, b):
+    """1 in the middle, rounding to 0 over the first `a` and last `b` of t."""
+    k = 1.0
+    if a > 0 and t < a:
+        k *= math.sqrt(max(0.0, 1.0 - ((a - t) / a) ** 2))
+    if b > 0 and t > 1.0 - b:
+        k *= math.sqrt(max(0.0, 1.0 - ((t - (1.0 - b)) / b) ** 2))
+    return k
 
 
-def bee_prof(t):
-    return (lerp_profile(t, BEE_W), lerp_profile(t, BEE_CX), lerp_profile(t, BEE_D))
+# z0 + dz*t along the body; half width; dome top; margin (the widest line);
+# how far the shell drops below the margin; exponent; rounding at the ends;
+# sutural groove depth
+BEE_E = dict(z0=0.10, dz=-0.91, e=2.15, ends=(0.05, 0.085), groove=0.010,
+             W=[(0.0, 0.272), (0.06, 0.312), (0.16, 0.336), (0.35, 0.352), (0.56, 0.360),
+                (0.72, 0.346), (0.84, 0.305), (0.92, 0.240), (0.97, 0.180), (1.0, 0.130)],
+             top=[(0.0, 0.735), (0.10, 0.785), (0.30, 0.805), (0.50, 0.800), (0.68, 0.772),
+                  (0.82, 0.718), (0.92, 0.645), (1.0, 0.560)],
+             mar=[(0.0, 0.440), (0.5, 0.425), (0.85, 0.432), (1.0, 0.465)],
+             hb=[(0.0, 0.045), (1.0, 0.045)])
+BEE_P = dict(z0=0.035, dz=0.425, e=2.25, ends=(0.06, 0.16), groove=0.0,
+             W=[(0.0, 0.288), (0.3, 0.300), (0.6, 0.288), (0.8, 0.252), (0.92, 0.208), (1.0, 0.175)],
+             top=[(0.0, 0.765), (0.3, 0.800), (0.55, 0.805), (0.75, 0.775), (0.9, 0.700), (1.0, 0.600)],
+             mar=[(0.0, 0.445), (1.0, 0.440)],
+             hb=[(0.0, 0.070), (1.0, 0.070)])
+BEE_V = dict(z0=-0.78, dz=1.29, e=2.2, ends=(0.08, 0.10), groove=0.0,
+             W=[(0.0, 0.150), (0.1, 0.215), (0.3, 0.272), (0.55, 0.268), (0.75, 0.222),
+                (0.9, 0.172), (1.0, 0.120)],
+             top=[(0.0, 0.540), (0.3, 0.520), (0.7, 0.500), (1.0, 0.500)],
+             mar=[(0.0, 0.430), (0.3, 0.420), (0.7, 0.405), (1.0, 0.400)],
+             hb=[(0.0, 0.040), (0.12, 0.105), (0.3, 0.150), (0.6, 0.150), (0.85, 0.112), (1.0, 0.065)])
+BEE_H = dict(z0=0.42, dz=0.27, e=2.3, ends=(0.15, 0.30), groove=0.0,
+             W=[(0.0, 0.140), (0.4, 0.172), (0.75, 0.160), (1.0, 0.115)],
+             top=[(0.0, 0.495), (1.0, 0.445)],
+             mar=[(0.0, 0.400), (1.0, 0.355)],
+             hb=[(0.0, 0.080), (1.0, 0.060)])
 
 
-def bee_shell_x(t, z, s=1.0):
-    """Where the wing case's surface is, at this height and this depth.
-
-    Hanging a leg off a number that looked about right is what put all six of
-    them inside the silhouette. Solve it from the same profile the shell is
-    lofted from — the lesson the salmon's eyes taught — and the leg starts on
-    the shell no matter how the shell is retuned.
-    """
-    w, cx, d = bee_prof(t)
-    k = min(1.0, abs(z - BEE_Z) / d)
-    return s * (cx + w * (1.0 - k ** (BEE_E / 2.0)) ** (2.0 / BEE_E))
-
-
-def bee_head_z(y, x):
-    """The same solve on the head, for sitting the compound eyes on it."""
-    t = max(0.0, min(1.0, (1.00 - y) / 0.21))
-    w, d = lerp_profile(t, BEE_HW), lerp_profile(t, BEE_HD)
-    k = min(1.0, abs(x) / w)
-    return BEE_HZ + d * (1.0 - k ** (BEE_HE / 2.0)) ** (2.0 / BEE_HE)
+def bee_shell(P, t, th, out=0.0):
+    """`t` along the body, `th` round the section from the top (0) toward
+    his left (+x)."""
+    sp = smooth_profile
+    k = _ends(t, *P['ends'])
+    W = sp(t, P['W']) * k
+    mar = sp(t, P['mar'])
+    up = (sp(t, P['top']) - mar) * k
+    dn = sp(t, P['hb']) * k
+    e = P['e']
+    s, c = math.sin(th), math.cos(th)
+    x = (W + out) * _sup(s, e)
+    y = mar + ((up + out) if c >= 0 else (dn + out)) * _sup(c, e)
+    if P['groove'] and c > 0:
+        y -= P['groove'] * math.exp(-(x / 0.03) ** 2) * k
+    return (x, y, P['z0'] + P['dz'] * t)
 
 
-# [height, depth, share of the running swing, how far forward it rakes].
-# Front pair does the work, middle pair does nothing much, back pair carries.
-BEE_ROWS = [(0.68, 0.17, 1.00, -0.40),
-            (0.56, -0.04, 0.55, 0.02),
-            (0.47, -0.24, 0.24, 0.40)]
+def bee_lift(P, t, th, out):
+    """The surface pushed out along its true normal (not radially: CLAUDE.md)."""
+    h = 1e-4
+    p = bee_shell(P, t, th)
+    a = bee_shell(P, t + h, th)
+    b = bee_shell(P, t, th + h)
+    u = [a[i] - p[i] for i in range(3)]
+    v = [b[i] - p[i] for i in range(3)]
+    n = [u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[1] * v[0]]
+    L = math.sqrt(sum(q * q for q in n)) or 1.0
+    n = [q / L for q in n]
+    mar = smooth_profile(t, P['mar'])
+    if n[0] * p[0] + n[1] * (p[1] - mar) < 0:
+        n = [-q for q in n]
+    return tuple(p[i] + n[i] * out for i in range(3))
+
+
+def bee_plan(P, x, z, out):
+    """The top surface at plan position (x, z), lifted along the normal."""
+    t = (z - P['z0']) / P['dz']
+    W = smooth_profile(t, P['W']) * _ends(t, *P['ends'])
+    q = min(1.0, abs(x) / max(W, 1e-6)) ** (P['e'] / 2.0)
+    return bee_lift(P, t, math.copysign(math.asin(min(1.0, q)), x), out)
+
+
+def bee_tspace(n):
+    # rings bunched toward both ends, where the shell turns fastest
+    return [0.5 - 0.5 * math.cos(math.pi * i / float(n - 1)) for i in range(n)]
+
+
+def bee_body(P, nt, na, out=0.0):
+    rings = [[bee_shell(P, t, math.tau * j / na, out) for j in range(na)] for t in bee_tspace(nt)]
+    return oriented(loft(rings, cap_start=False, cap_end=False))
+
+
+def bee_strip(fn, nu, nv, inside):
+    """An open patch from fn(u, v), u, v in 0..1, faced away from `inside`."""
+    m = Mesh()
+    g = [[m.vert(*fn(i / float(nu), j / float(nv))) for j in range(nv + 1)] for i in range(nu + 1)]
+    for i in range(nu):
+        for j in range(nv):
+            m.quad(g[i][j], g[i + 1][j], g[i + 1][j + 1], g[i][j + 1])
+    return oriented_open(m, inside)
+
+
+def bee_fan(fn, cx, cz, r, nr, nt, out, inside):
+    """A round patch on a shell, in plan: a breeder's paint dot, dabbed on by
+    hand, so its edge wanders a little."""
+    m = Mesh()
+    c = m.vert(*fn(cx, cz, out))
+    rings = []
+    for i in range(1, nr + 1):
+        rings.append([])
+        for j in range(nt):
+            a = math.tau * j / nt
+            rr = r * i / float(nr) * (1.0 + 0.10 * math.sin(3 * a + 0.7) + 0.06 * math.cos(5 * a))
+            rings[-1].append(m.vert(*fn(cx + rr * math.cos(a), cz + rr * 1.12 * math.sin(a), out)))
+    for j in range(nt):
+        m.tri(c, rings[0][j], rings[0][(j + 1) % nt])
+    for i in range(nr - 1):
+        for j in range(nt):
+            k = (j + 1) % nt
+            m.quad(rings[i][j], rings[i + 1][j], rings[i + 1][k], rings[i][k])
+    return oriented_open(m, inside)
+
+
+def ell(cx, cy, cz, rx, ry, rz, nu=8, nv=10):
+    """An ellipsoid, poles on y."""
+    rings = []
+    for i in range(nu + 1):
+        a = math.pi * i / nu
+        s = max(1e-4, math.sin(a))
+        rings.append(section(cx, cy + math.cos(a) * ry, cz, s * rx, s * rz, nv, e=2.0))
+    return oriented(loft(rings, cap_start=False, cap_end=False))
+
+
+def sweep_e(path, radii, n, fx=1.0):
+    """sweep() with the section stretched `fx` across the body (the horn is
+    broader than it is deep at the root)."""
+    rings = []
+    for i, (px, py, pz) in enumerate(path):
+        a = path[max(0, i - 1)]
+        b = path[min(len(path) - 1, i + 1)]
+        d = [b[k] - a[k] for k in range(3)]
+        L = math.sqrt(sum(q * q for q in d)) or 1.0
+        d = [q / L for q in d]
+        u = [1.0, 0.0, 0.0]
+        if abs(d[0]) > 0.94:
+            u = [0.0, 1.0, 0.0]
+        du = sum(u[k] * d[k] for k in range(3))
+        u = [u[k] - d[k] * du for k in range(3)]
+        Lu = math.sqrt(sum(q * q for q in u)) or 1.0
+        u = [q / Lu for q in u]
+        v = [d[1] * u[2] - d[2] * u[1], d[2] * u[0] - d[0] * u[2], d[0] * u[1] - d[1] * u[0]]
+        r = radii[i]
+        ring = []
+        for k in range(n):
+            ang = math.tau * k / n
+            ca, sa = math.cos(ang) * r * fx, math.sin(ang) * r
+            ring.append(tuple((px, py, pz)[q] + u[q] * ca + v[q] * sa for q in range(3)))
+        rings.append(ring)
+    return oriented(loft(rings))
+
+
+def cubic(a, b, c, d, n):
+    out = []
+    for i in range(n):
+        t = i / float(n - 1)
+        u = 1.0 - t
+        out.append(tuple(u ** 3 * a[k] + 3 * u * u * t * b[k] + 3 * u * t * t * c[k] + t ** 3 * d[k]
+                         for k in range(3)))
+    return out
+
+
+def taper(r0, r1, n, p=1.0):
+    return [r0 + (r1 - r0) * (i / float(n - 1)) ** p for i in range(n)]
+
+
+# Bones, authored from the joint down -Y at life size (30-actors.js scales the
+# length to what the IK asks for). +Z is the bone's outer edge, where the
+# teeth and spines go; +X is across the leg's plane.
+BEE_FEM, BEE_TIB, BEE_TAR = 0.30, 0.30, 0.22
+# [z of the coxa, femur, tibia, tarsus]: fore, mid, hind
+BEE_ROWS = [(0.375, 0.26, 0.27, 0.20), (0.060, 0.26, 0.27, 0.19), (-0.140, 0.30, 0.31, 0.23)]
+
+
+def bee_bone(L, rx, rz, nt=14, na=10, ends=(0.10, 0.10)):
+    rings = []
+    for i in range(nt):
+        t = i / float(nt - 1)
+        k = _ends(t, *ends)
+        rings.append(section(0.0, -L * t, 0.0, max(1e-4, rx(t) * k), max(1e-4, rz(t) * k), na, e=2.2))
+    return oriented(loft(rings, cap_start=False, cap_end=False))
+
+
+def bee_spike(base, d, length, r0, n=6):
+    e = tuple(base[k] + d[k] * length for k in range(3))
+    return sweep_e([tuple(base[k] + (e[k] - base[k]) * i / 3.0 for k in range(3)) for i in range(4)],
+                   taper(r0, r0 * 0.18, 4), n)
+
+
+def _unit(v):
+    L = math.sqrt(sum(q * q for q in v)) or 1.0
+    return tuple(q / L for q in v)
 
 
 def build_beetle():
     out = {}
+    out['bee_elytra'] = bee_body(BEE_E, 26, 32)
+    out['bee_prono'] = bee_body(BEE_P, 18, 28)
+    out['bee_venter'] = bee_body(BEE_V, 16, 18)
+    out['bee_head'] = bee_body(BEE_H, 11, 18)
 
-    # wing cases: two hard domes meeting at a seam down the back
-    ely = Mesh()
+    # the sutural line down the middle of the back, and the scutellum at the
+    # top of it: open strips a hair off the lacquer, so no outline swallows them
+    out['bee_suture'] = bee_strip(
+        lambda u, v: bee_plan(BEE_E, -0.008 + 0.016 * v, 0.03 - 0.86 * u, 0.003),
+        34, 1, (0.0, 0.5, -0.3))
+    out['bee_scut'] = bee_strip(
+        lambda u, v: bee_plan(BEE_E, (v * 2 - 1) * 0.052 * (1 - u) ** 0.9, 0.036 - 0.10 * u, 0.004),
+        6, 4, (0.0, 0.5, -0.3))
+    # the rolled rim of each wing case (epipleuron)
+    rim = Mesh()
     for s in (-1.0, 1.0):
-        rings = []
-        n = 22
-        for i in range(n):
-            t = i / float(n - 1)
-            w, cx, d = bee_prof(t)
-            rings.append(section(s * cx, bee_y(t), BEE_Z, w, d, 16, e=BEE_E))
-        ely.merge(loft(rings))
-    out['bee_elytra'] = ely
+        ts = [0.05 + 0.88 * i / 19.0 for i in range(20)]
+        path = []
+        for t in ts:
+            x, y, z = bee_shell(BEE_E, t, s * math.pi / 2)
+            path.append((x - s * 0.010, y + 0.006, z))
+        rad = [0.019 * _ends(i / 19.0, 0.12, 0.2) + 0.004 for i in range(20)]
+        rim.merge(sweep_e(path, rad, 6))
+    out['bee_rim'] = rim
+    # the sternites, seen when he goes over on his back
+    st = Mesh()
+    for z in (-0.64, -0.53, -0.42, -0.31, -0.19):
+        t = (z - BEE_V['z0']) / BEE_V['dz']
+        st.merge(bee_strip(lambda u, v, t=t: bee_lift(BEE_V, t - 0.006 + 0.012 * v,
+                                                      math.pi + (u * 2 - 1) * 1.05, 0.004),
+                           12, 1, (0.0, 0.45, z)))
+    out['bee_stern'] = st
+    # the team's mark: a dab of paint on the right wing case near the shoulder,
+    # the way a breeder marks his beetles. It is all he wears.
+    out['bee_mark'] = bee_fan(lambda x, z, o: bee_plan(BEE_E, x, z, o),
+                              -0.165, -0.07, 0.050, 2, 18, 0.005, (0.0, 0.5, -0.2))
 
-    # The team colour has to hug the wing cases. A sphere laid over them only
-    # pokes through where it happens to be bigger, which reads as a blob.
-    # a short strip does not need many rings across it; the profile it follows
-    # barely bends over a tenth of the body
-    for name, lo, hi, swell, rings in (('bee_band', 0.16, 0.36, 1.03, 5),
-                                       ('bee_trim', 0.36, 0.43, 1.035, 3)):
-        m = Mesh()
-        for s in (-1.0, 1.0):
-            rows = []
-            for i in range(rings):
-                t = lo + (hi - lo) * i / float(rings - 1)
-                w, cx, d = bee_prof(t)
-                rows.append(section(s * cx, bee_y(t), BEE_Z,
-                                    w * swell, d * swell, 16, e=BEE_E))
-            m.merge(loft(rows, cap_start=False, cap_end=False))
-        out[name] = m
-
-    # The seam. Where the two cases meet is the one line that says "beetle"
-    # about a brown oval, so it is a cord laid in the groove rather than a
-    # painted stripe: it catches the light down one side and stays visible
-    # when the body turns.
-    path, radii = [], []
-    for i in range(16):
-        t = 0.015 + 0.955 * i / 15.0
-        w, cx, d = bee_prof(t)
-        k = (1.0 - min(1.0, cx / w) ** (BEE_E / 2.0)) ** (2.0 / BEE_E)
-        path.append((0.0, bee_y(t), BEE_Z - d * k + 0.010))
-        radii.append(0.020 * (1.0 - 0.5 * t))
-    out['bee_seam'] = sweep(path, radii, 8)
-
-    # the scutellum: the little triangle dropped in at the top of the seam
-    scut = Mesh()
-    w0, cx0, d0 = bee_prof(0.055)
-    zs = BEE_Z - d0 * 0.92 + 0.012
-    a = scut.vert(-0.062, bee_y(0.03), zs)
-    b = scut.vert(0.062, bee_y(0.03), zs)
-    c = scut.vert(0.0, bee_y(0.135), zs)
-    e2 = scut.vert(0.0, bee_y(0.08), zs - 0.030)
-    scut.tri(a, b, c)
-    scut.tri(b, a, e2)
-    scut.tri(c, b, e2)
-    scut.tri(a, c, e2)
-    out['bee_scut'] = scut
-
-    # The shield. Trapezoid, glossier than the cases, and — unlike the version
-    # this replaces — narrower than them, which is what lets the three parts of
-    # him read as three parts instead of one brown lump.
-    def prono_rings(lo, hi, n, swell=1.0):
-        rs = []
-        for i in range(n):
-            t = lo + (hi - lo) * i / float(n - 1)
-            rs.append(section(0.0, BEE_PTOP - (BEE_PTOP - BEE_PBOT) * t, BEE_PZ,
-                              lerp_profile(t, BEE_PW) * swell,
-                              lerp_profile(t, BEE_PD) * swell, 16, e=BEE_PE))
-        return rs
-
-    out['bee_prono'] = loft(prono_rings(0.0, 1.0, 14))
-    # the team's colour on the shield, hugging it the way the saddle hugs the
-    # cases — a disc laid over a trapezoid cuts its corners off
-    out['bee_cband'] = loft(prono_rings(0.74, 0.86, 6, 1.035),
-                            cap_start=False, cap_end=False)
-
-    # the head, pushed out in front of the shield so that there is a face there
-    rings = []
-    n = 12
-    for i in range(n):
-        t = i / float(n - 1)
-        rings.append(section(0.0, 1.00 - t * 0.21, BEE_HZ,
-                             lerp_profile(t, BEE_HW), lerp_profile(t, BEE_HD),
-                             14, e=BEE_HE))
-    out['bee_head'] = loft(rings)
-
-    # The head horn: up off the front of the head, forward over the shield,
-    # then up — and forked, and each fork forked again. Four tips.
+    # The head horn: forward off the front of the head, then up, then forked
+    # left and right, and each fork forked again. Four tips. The thoracic horn
+    # is the short one off the front of the pronotum, forked at its tip.
     horn = Mesh()
-    shaft = bez((0.0, 0.97, 0.26), (0.0, 1.33, 0.40), (0.0, 1.38, 0.63), 13)
-    horn.merge(sweep(shaft, [0.086 - 0.038 * (i / 12.0) for i in range(13)], 12))
-    tip = shaft[-1]
+    shaft = cubic((0.0, 0.42, 0.590), (0.0, 0.56, 0.850), (0.0, 0.84, 0.990), (0.0, 1.06, 0.985), 16)
+    # slimmer than a pillar: narrowest two thirds of the way up, swelling
+    # again into the fork
+    hr = [0.070 - 0.022 * math.sin(math.pi * 0.5 * min(1.0, t / 0.62)) + (0.010 * ((t - 0.62) / 0.38) ** 2 if t > 0.62 else 0.0)
+          for t in [i / 15.0 for i in range(16)]]
+    horn.merge(sweep_e(shaft, hr, 12, 1.18))
+    top = shaft[-1]
     for s in (-1.0, 1.0):
-        br = bez(tip, (s * 0.072, 1.47, 0.70), (s * 0.150, 1.45, 0.81), 10)
-        horn.merge(sweep(br, [0.046 - 0.020 * (i / 9.0) for i in range(10)], 10))
-        t2 = br[-1]
-        # one prong up and in, one out and forward
-        for dx, dy, dz in ((0.026, 0.086, 0.030), (0.076, 0.028, 0.052)):
-            e = (t2[0] + s * dx, t2[1] + dy, t2[2] + dz)
-            mid = ((t2[0] + e[0]) / 2, (t2[1] + e[1]) / 2 + 0.018, (t2[2] + e[2]) / 2)
-            horn.merge(sweep(bez(t2, mid, e, 6),
-                             [0.026, 0.022, 0.018, 0.013, 0.009, 0.005], 8))
-    # the shorter thoracic horn off the shield, bifid like the real one. It
-    # rides under the head horn and closes the gap between horn and body.
-    th = bez((0.0, 1.09, 0.12), (0.0, 1.24, 0.28), (0.0, 1.22, 0.45), 9)
-    horn.merge(sweep(th, [0.072 - 0.042 * (i / 8.0) for i in range(9)], 10))
-    t3 = th[-1]
+        q = (s * 0.110, 1.180, 0.975)
+        br = bez(top, (s * 0.030, 1.145, 1.000), q, 6)
+        horn.merge(sweep_e(br, taper(0.052, 0.037, 6), 10))
+        for e, m in (((s * 0.130, 1.325, 0.900), (s * 0.124, 1.268, 0.950)),
+                     ((s * 0.215, 1.240, 1.060), (s * 0.170, 1.225, 1.020))):
+            horn.merge(sweep_e(bez(q, m, e, 6), taper(0.036, 0.014, 6), 8))
+    th = bez((0.0, 0.740, 0.340), (0.0, 0.812, 0.440), (0.0, 0.832, 0.530), 7)
+    horn.merge(sweep_e(th, taper(0.076, 0.042, 7), 12, 1.25))
     for s in (-1.0, 1.0):
-        e = (t3[0] + s * 0.050, t3[1] + 0.046, t3[2] + 0.056)
-        mid = ((t3[0] + e[0]) / 2, (t3[1] + e[1]) / 2 + 0.010, (t3[2] + e[2]) / 2)
-        horn.merge(sweep(bez(t3, mid, e, 6),
-                         [0.030, 0.026, 0.021, 0.015, 0.010, 0.006], 8))
+        horn.merge(sweep_e(bez(th[-1], (s * 0.020, 0.842, 0.560), (s * 0.046, 0.850, 0.590), 5),
+                           taper(0.037, 0.015, 5), 8))
     out['bee_horn'] = horn
 
-    # compound eyes, flat and black and entirely unreadable — solved onto the
-    # head's surface so they sit in it rather than float off it
-    eyes, glint = Mesh(), Mesh()
+    # Compound eyes: on the sides of the head, black, sunk half into it.
+    eyes = Mesh()
+    hx, hy, hz = bee_shell(BEE_H, 0.55, math.pi / 2)
     for s in (-1.0, 1.0):
-        ex, ey = s * 0.150, 0.900
-        ez = bee_head_z(ey, ex)
-        eyes.merge(ball(ex, ey, ez - 0.014, 0.068, 10))
-        glint.merge(ball(ex + s * 0.016, ey + 0.028, ez + 0.030, 0.026, 8))
+        eyes.merge(ell(s * (hx - 0.010), hy + 0.006, hz, 0.032, 0.044, 0.048, 7, 10))
     out['bee_eye'] = eyes
-    out['bee_glint'] = glint
+    # clypeus and mouthparts: the plate under the horn, the palps, and the
+    # orange brush he drinks sap with
+    mouth = Mesh()
+    mouth.merge(ell(0.0, 0.336, 0.652, 0.072, 0.022, 0.046, 6, 12))
+    for s in (-1.0, 1.0):
+        mouth.merge(sweep_e(bez((s * 0.045, 0.305, 0.635), (s * 0.068, 0.280, 0.680),
+                                (s * 0.074, 0.232, 0.700), 5), taper(0.014, 0.008, 5), 6))
+    out['bee_mouth'] = mouth
+    out['bee_brush'] = ell(0.0, 0.298, 0.640, 0.030, 0.020, 0.022, 5, 8)
+    # antennae: elbowed, ending in a club of three leaves
+    ant = Mesh()
+    ax, ay, az = bee_shell(BEE_H, 0.86, math.pi / 2 + 0.35)
+    for s in (-1.0, 1.0):
+        b0 = (s * (ax - 0.005), ay, az)
+        el = (b0[0] + s * 0.055, b0[1] - 0.020, b0[2] + 0.030)
+        cl = (el[0] + s * 0.036, el[1] + 0.004, el[2] + 0.032)
+        ant.merge(sweep_e([b0, el], [0.011, 0.010], 6))
+        ant.merge(sweep_e([el, cl], [0.008, 0.008], 6))
+        for i in range(3):
+            ant.merge(ell(cl[0] + s * (0.004 + 0.011 * i), cl[1] + 0.004, cl[2] + 0.012 + 0.004 * i,
+                          0.0065, 0.026, 0.034, 4, 6))
+    out['bee_ant'] = ant
 
-    # The foreleg's shin. He digs with these, and the teeth down the outer edge
-    # are why his front legs look nothing like his back ones. Authored from the
-    # knee straight down -Y so it drops into the place limb() would otherwise
-    # have put a plain cylinder: same joint, same angles, same length.
-    for name, s in (('bee_tibL', 1.0), ('bee_tibR', -1.0)):
-        tib = Mesh()
-        rings = []
-        n = 10
-        for i in range(n):
-            t = i / float(n - 1)
-            r = 0.036 - 0.013 * t
-            rings.append(section(0.0, -0.30 * t, 0.0, r, r * 0.82, 10, e=2.2))
-        tib.merge(loft(rings))
-        for j, ty in enumerate((0.11, 0.185, 0.255)):
-            g = 1.0 - j * 0.16
-            base = (s * 0.014, -ty, 0.0)
-            end = (s * 0.078 * g, -ty - 0.030, 0.0)
-            mid = ((base[0] + end[0]) / 2, (base[1] + end[1]) / 2, 0.004)
-            tib.merge(sweep(bez(base, mid, end, 5),
-                            [0.024 * g, 0.019 * g, 0.014 * g, 0.009 * g, 0.004], 7))
-        out[name] = tib
+    # the bones
+    out['bee_coxa'] = ell(0.0, 0.0, 0.0, 0.062, 0.052, 0.066, 7, 10)
+    out['bee_fem'] = bee_bone(BEE_FEM, lambda t: 0.030 + 0.010 * math.sin(math.pi * t),
+                              lambda t: 0.044 + 0.024 * math.sin(math.pi * t), 12, 10)
+    tib = bee_bone(BEE_TIB, lambda t: 0.025 + 0.010 * t, lambda t: 0.026 + 0.024 * t, 10, 10)
+    for t in (0.55, 0.80):                             # spines down the outer edge
+        tib.merge(bee_spike((0.0, -BEE_TIB * t, 0.024 + 0.020 * t), _unit((0.0, -0.55, 1.0)), 0.052, 0.014))
+    for s in (-1.0, 1.0):                              # and the spurs at the end
+        tib.merge(bee_spike((s * 0.012, -BEE_TIB * 0.96, 0.012), _unit((s * 0.35, -1.0, 0.25)), 0.062, 0.013))
+    out['bee_tib'] = tib
+    # the fore tibia digs: broad, flat, three teeth along the outer edge
+    tibf = bee_bone(BEE_TIB, lambda t: 0.024 + 0.006 * t, lambda t: 0.028 + 0.042 * t ** 1.5, 10, 10)
+    for t, g in ((0.60, 0.85), (0.79, 0.95), (0.97, 1.0)):
+        rz = 0.028 + 0.042 * t ** 1.5
+        tibf.merge(bee_spike((0.0, -BEE_TIB * t, rz * 0.75), _unit((0.0, -0.45, 1.0)), 0.072 * g, 0.024 * g))
+    out['bee_tibf'] = tibf
+    # five beads of tarsus and a pair of claws
+    tar = Mesh()
+    y = 0.0
+    for i, f in enumerate((0.17, 0.15, 0.15, 0.15, 0.38)):
+        L = BEE_TAR * f
+        r = 0.022 if i < 4 else 0.019
+        tar.merge(ell(0.0, y - L * 0.5, 0.0, r, L * 0.60, r * 0.85, 5, 7))
+        y -= L
+    for s in (-1.0, 1.0):
+        tar.merge(sweep_e(bez((s * 0.004, y + 0.006, 0.0), (s * 0.020, y - 0.026, 0.004),
+                              (s * 0.026, y - 0.044, -0.018), 4), taper(0.011, 0.003, 4), 5))
+    out['bee_tars'] = tar
 
-    # Where the six legs hang. Solved against the shell here rather than typed
-    # into the drawing code, so retuning the profile moves the legs with it.
+    # Where the legs hang: the coxae sit in sockets on the underside, solved
+    # against the venter's own profile so they move with it.
     rows = []
-    for y, z, k, rake in BEE_ROWS:
-        t = (BEE_TOP - y) / (BEE_TOP - BEE_BOT)
-        rows.append((bee_shell_x(t, z) - 0.014, y, z, k, rake))
-    DATA.append('/* beetle leg anchors, solved against the wing-case profile:')
-    DATA.append('   [x, y, z, share of the running swing, rake forward] */')
-    DATA.append('const BEE_LEG = [%s];' % ', '.join(
-        '[%.4g, %.4g, %.4g, %.3g, %.3g]' % r for r in rows))
+    for z, lf, lt, ls in BEE_ROWS:
+        t = (z - BEE_V['z0']) / BEE_V['dz']
+        x, y, _ = bee_shell(BEE_V, t, math.pi * 0.70)
+        rows.append((x, y, z, lf, lt, ls))
+    DATA.append('/* beetle coxae, solved on the underside: [x, y, z, femur, tibia, tarsus] */')
+    DATA.append('const BEE_LEG = [%s];' % ', '.join('[%.4g, %.4g, %.4g, %.3g, %.3g, %.3g]' % r for r in rows))
+    DATA.append('const BEE_BONE = [%.3g, %.3g, %.3g];' % (BEE_FEM, BEE_TIB, BEE_TAR))
     DATA.append('')
     return out
 
@@ -1378,7 +1915,703 @@ def build_rabbit():
             ring.append((math.cos(b) * sr * r, cy * r, math.sin(b) * sr * r))
         rings.append(ring)
     out['rabbit_tail'] = oriented(loft(rings))
+    out.update(build_rabbit_torso())
     return out
+
+
+# The torso. The head is a sphere that the child's drawing is projected onto,
+# so it stays; what is baked is the little egg under it. Pear rather than
+# barrel: widest at the hips, so the haunches flow out of it instead of
+# hanging under a ball, and still wide where it disappears into the head —
+# a rabbit toy has no neck any more than the bear does.
+# About the torso anchor (y+0.74), so the hem is at y+0.34 and the top is
+# buried in the head at y+1.10.
+# Round 2: the hem came down to y+0.20 so the haunches are swallowed when he
+# stands and only a little fluff and the big shoes show; the widest point
+# went down with it (y+0.43) and the shoulders narrowed, so the longer sack
+# reads as a squat pear and not a capsule. The chin sits at y+0.95.
+RAB_LO, RAB_HI = -0.540, 0.320
+RAB_W = [(0.00, 0.100), (0.03, 0.192), (0.07, 0.250), (0.12, 0.290),
+         (0.19, 0.316), (0.27, 0.324), (0.36, 0.315), (0.46, 0.292),
+         (0.56, 0.260), (0.66, 0.224), (0.75, 0.196), (0.83, 0.176),
+         (0.90, 0.161), (0.96, 0.150), (1.00, 0.142)]
+RAB_D = 0.90                         # depth as a share of width: an egg, not a board
+RAB_Z = [(0.00, 0.000), (0.35, 0.016), (0.62, 0.012), (1.00, -0.010)]
+
+
+def rab_body_pt(a, t, out=0.0):
+    """`a` from the middle of the chest (0) round toward his left, `t` from
+    the hem (0) to the top (1)."""
+    y = RAB_LO + t * (RAB_HI - RAB_LO)
+    hw = lerp_profile(t, RAB_W)
+    hd = hw * RAB_D + out
+    hw += out
+    sa, ca = math.sin(a), math.cos(a)
+    return (sa * hw, y, ca * hd + lerp_profile(t, RAB_Z))
+
+
+def rab_patch(fn, a0, a1, t0, t1, out, na, nt, closed=False):
+    """A piece of the torso's own surface, lifted along its normal (the
+    surface is round enough that the radial offset rab_body_pt does is it)."""
+    m = Mesh()
+    cols = na if closed else na + 1
+    rows = [[m.vert(*fn(a0 + (a1 - a0) * j / float(na), t0 + (t1 - t0) * i / float(nt), out))
+             for j in range(cols)] for i in range(nt + 1)]
+    for i in range(nt):
+        for j in range(na):
+            k = (j + 1) % cols if closed else j + 1
+            m.quad(rows[i][j], rows[i][k], rows[i + 1][k], rows[i + 1][j])
+    return m
+
+
+def rab_dot(a_c, t_c, r, out, n=10):
+    """A flat round button lying on the torso: a fan in (arc, height)."""
+    m = Mesh()
+    H = RAB_HI - RAB_LO
+    w = lerp_profile(t_c, RAB_W)
+    c = m.vert(*rab_body_pt(a_c, t_c, out))
+    ring = [m.vert(*rab_body_pt(a_c + r * math.cos(math.tau * k / n) / w,
+                                t_c + r * math.sin(math.tau * k / n) / H, out))
+            for k in range(n)]
+    for k in range(n):
+        m.tri(c, ring[k], ring[(k + 1) % n])
+    return m
+
+
+def build_rabbit_torso():
+    out = {}
+    out['rabbit_body'] = oriented(rab_patch(rab_body_pt, 0.0, math.tau, 0.0, 1.0, 0.0,
+                                            20, 17, closed=True))
+    b = out['rabbit_body']
+    for ring_t, rev in ((0.0, True), (1.0, False)):     # close hem and top
+        nr = [i for i, v in enumerate(b.v) if abs(v[1] - (RAB_LO + ring_t * (RAB_HI - RAB_LO))) < 1e-9]
+        c = b.vert(sum(b.v[i][0] for i in nr) / len(nr), b.v[nr[0]][1],
+                   sum(b.v[i][2] for i in nr) / len(nr))
+        for j in range(len(nr)):
+            p, q = nr[j], nr[(j + 1) % len(nr)]
+            b.tri(c, q, p) if rev else b.tri(c, p, q)
+    oriented(b)
+
+    # The trim is what lets white jersey over white fur read at all. A neckline
+    # mostly under the chin (shows as a smile of pink below the head), a thin
+    # belt where the hips start, a placket and three buttons.
+    out['rabbit_collar'] = rab_patch(rab_body_pt, 0.0, math.tau, 0.79, 0.85, 0.007, 20, 1, True)
+    out['rabbit_placket'] = rab_patch(rab_body_pt, -0.075, 0.075, 0.10, 0.79, 0.006, 2, 8)
+    dots = Mesh()
+    for t in (0.35, 0.49, 0.63):
+        dots.merge(rab_dot(0.0, t, 0.026, 0.011))
+    out['rabbit_button'] = dots
+
+    # The sleeve, hung from the shoulder joint and pointing down -Y, so it is
+    # placed exactly like the arm cylinder and swings with it. Short and puffed,
+    # with a dome over the joint: the old sleeve was a cylinder whose flat cut
+    # end sat on the shoulder like a pipe.
+    prof = [(0.075, 0.000), (0.068, 0.045), (0.050, 0.075), (0.020, 0.094),
+            (-0.030, 0.100), (-0.090, 0.098), (-0.135, 0.094), (-0.150, 0.082)]
+    rings = [[(math.cos(math.tau * k / 14) * r, y, math.sin(math.tau * k / 14) * r)
+              for k in range(14)] for y, r in reversed(prof) if r > 0]
+    out['rabbit_sleeve'] = oriented(loft(rings, cap_start=True, cap_end=True))
+    # the cuff: a painted ring round the opening, like the bear's stripes
+    cuff = [[(math.cos(math.tau * k / 14) * (r + 0.006), y, math.sin(math.tau * k / 14) * (r + 0.006))
+             for k in range(14)] for y, r in ((-0.130, 0.0952), (-0.100, 0.098))]
+    out['rabbit_cuff'] = oriented(loft(cuff, cap_start=False, cap_end=False))
+    return out
+
+# --------------------------------------------------------------------- frog
+# The bear's recipe, a different head. One (azimuth, elevation) -> point map:
+# a wide, low pebble with two eye domes swelling out of its top corners. The
+# domes are the frog's ears as far as the silhouette goes, so they are part
+# of the skull rather than balls set on it — no seam, no crease, and the eye
+# whites, the pupils, the pale chin and the mouth are all patches of the same
+# domain, so they sit on the surface by construction.
+#
+# Round 2: the head went up to 40x26 (it was 24x16 and every silhouette edge
+# was a run of straight segments), got shorter front to back (a loaf from the
+# side), and the domes got a longer front-to-back footprint so they are humps
+# in profile and not wedges. The torso is the frog's own now: a squat egg,
+# lower and rounder than the bear's, with the belly forward.
+FROG_X, FROG_Y, FROG_Z = 0.590, 0.345, 0.385    # wide and low, shallow front to back
+FROG_N = 2.5                     # rounder than the bear's box: a river pebble
+FROG_UP = 0.030                  # sits on the jersey, overhanging it
+DOME_AZ, DOME_EL = 0.78, 0.70    # the top corners, a little forward
+DOME_RA, DOME_RE = 0.46, 0.64    # footprint, in (az, el): long front to back
+DOME_AMP = 0.180
+
+
+def _frog_skull(az, el):
+    dx = math.cos(el) * math.sin(az)
+    dy = math.sin(el)
+    dz = math.cos(el) * math.cos(az)
+    k = (abs(dx) ** FROG_N + abs(dy) ** FROG_N + abs(dz) ** FROG_N) ** (-1.0 / FROG_N)
+    return dx * k * FROG_X, dy * k * FROG_Y, dz * k * FROG_Z
+
+
+def frog_head_pt(az, el, out=0.0):
+    x, y, z = _frog_skull(az, el)
+    L = math.sqrt(x * x + y * y + z * z) or 1.0
+    # The domes rise mostly upward. Pushed out along the radius they come out
+    # of the face's front corners as cheeks; straight up from a flat top they
+    # stand as two pegs. Half and half reads as eyes on top of a head.
+    q = ((abs(az) - DOME_AZ) / DOME_RA) ** 2 + ((el - DOME_EL) / DOME_RE) ** 2
+    d = bump(q, DOME_AMP)
+    ux, uy, uz = x / L * 0.50 + math.copysign(0.10, az), y / L * 0.50 + 0.85, z / L * 0.50
+    Lu = math.sqrt(ux * ux + uy * uy + uz * uz)
+    # a soft valley between the domes, where the cap perches
+    d2 = -0.018 * bump((az / 0.40) ** 2 + ((el - 1.05) / 0.45) ** 2, 1.0)
+    # the jaw: a gentle fullness low and wide, so the mouth line wraps round
+    d2 += bump((az / 1.30) ** 2 + ((el + 0.25) / 0.45) ** 2, 0.022)
+    return (x + ux / Lu * d + x / L * d2,
+            y + uy / Lu * d + y / L * d2 + FROG_UP,
+            z + uz / Lu * d + z / L * d2)
+
+
+def frog_surface(fn, naz, nel):
+    """surface_of(), but with the samples packed where the detail is: rows
+    toward the top, where the domes are, and columns toward the face. The
+    chin and the back of the head are plain curves and need fewer."""
+    m = Mesh()
+    rows = []
+
+    def az_of(j):
+        w = (j / float(naz)) * 2 - 1                  # -1 .. 1, the face at 0
+        return math.pi * w * (0.65 + 0.35 * w * w)    # dense in front, sparse behind
+
+    for i in range(nel + 1):
+        s = i / float(nel)
+        s = s ** 0.85                                 # more rows high up
+        el = -math.pi / 2 + math.pi * s
+        if i == 0 or i == nel:
+            rows.append([m.vert(*fn(0.0, el))] * naz)
+        else:
+            rows.append([m.vert(*fn(az_of(j), el)) for j in range(naz)])
+    for i in range(nel):
+        a, b = rows[i], rows[i + 1]
+        for j in range(naz):
+            k = (j + 1) % naz
+            if i == 0:
+                m.tri(a[j], b[k], b[j])
+            elif i == nel - 1:
+                m.tri(a[j], a[k], b[j])
+            else:
+                m.quad(a[j], a[k], b[k], b[j])
+    return m
+
+
+def _metric(fn, az, el):
+    """Metres per radian across and up, at a point of the map."""
+    h = 1e-3
+    pa, pb = fn(az + h, el), fn(az - h, el)
+    pc, pd = fn(az, el + h), fn(az, el - h)
+    da = math.sqrt(sum((pa[i] - pb[i]) ** 2 for i in range(3))) / (2 * h)
+    de = math.sqrt(sum((pc[i] - pd[i]) ** 2 for i in range(3))) / (2 * h)
+    return da, de
+
+
+# The eyes: on the front of each dome, big. Sized in metres and converted to
+# (az, el) through the local metric, so an oval in the patch is a circle on
+# the dome rather than whatever the map's stretch happens to make it.
+EYE_FAZ, EYE_FEL = 0.62, 0.58    # the white's centre on the right-hand dome
+EYE_MW, EYE_MH = 0.128, 0.134    # its half width and height, metres
+_ea, _ee = _metric(frog_head_pt, EYE_FAZ, EYE_FEL)
+EYE_WAZ, EYE_WEL = EYE_MW / _ea, EYE_MH / _ee
+EYE_PAD = 1.30                   # the decal patch is this much bigger than the white
+
+# The mouth: one long curve low across the face, corners up.
+MOUTH_EL, MOUTH_UP, MOUTH_AZ = -0.17, 0.13, 1.06
+# The pale chin: a crescent under the mouth, its top edge running parallel to
+# the mouth a lip's width below it and its horns rounding off toward the
+# cheeks. A plain oval read as a grey hexagon pasted on the jaw; the first
+# lens that reached right up to the mouth line read as a gaping beak.
+CHIN_EL, CHIN_AZ, CHIN_ER, CHIN_BEND = -0.76, 1.00, 0.50, 0.48
+# the decal patches, as (az centre, az radius, el centre, el radius)
+MOUTH_P = (0.0, MOUTH_AZ * 1.10, MOUTH_EL + 0.02, 0.22)
+NOSE_AZ, NOSE_EL = 0.11, 0.17                      # two dots, high on the snout
+NOSE_P = (0.0, 0.16, NOSE_EL, 0.10)
+NOSE_R = (0.0075, 0.0062)                          # a dot, metres: up, across
+CHEEK_AZ, CHEEK_UP = 0.84, 0.10                    # blush just above the corners
+CHEEK_R = (0.22, 0.13)
+
+
+def mouth_el(az):
+    return MOUTH_EL + MOUTH_UP * (az / MOUTH_AZ) ** 2
+
+
+def chin_pt(rho, th):
+    c = math.cos(th)
+    return (rho * c * CHIN_AZ, CHIN_EL + rho * math.sin(th) * CHIN_ER + rho * CHIN_BEND * c * c)
+
+
+class _FacingMesh(Mesh):
+    """A patch whose shading normals lean toward the camera side. The chin is
+    the underside of the head: lit by its true normals it fell into the
+    shadow band and the cool shift, and a pale cream came out mustard. A
+    painted toy keeps its bib one bright colour all round."""
+    lean = (0.0, 0.35, 1.0)
+    k = 0.85
+
+    def normals(self):
+        out = []
+        for n in Mesh.normals(self):
+            x, y, z = (n[i] + self.lean[i] * self.k for i in range(3))
+            L = math.sqrt(x * x + y * y + z * z) or 1.0
+            out.append((x / L, y / L, z / L))
+        return out
+
+
+def frog_chin(out, nr=5, nt=40):
+    """The crescent, as a fan in (rho, theta) of the head's own map."""
+    m = _FacingMesh()
+    az, el = chin_pt(0.0, 0.0)
+    rings = [[m.vert(*lifted(frog_head_pt, az, el, out))] * nt]
+    for r in range(1, nr + 1):
+        rho = r / float(nr)
+        ring = []
+        for j in range(nt):
+            az, el = chin_pt(rho, math.tau * j / nt)
+            ring.append(m.vert(*lifted(frog_head_pt, az, el, out)))
+        rings.append(ring)
+    for r in range(nr):
+        a, b = rings[r], rings[r + 1]
+        for j in range(nt):
+            k = (j + 1) % nt
+            if r == 0:
+                m.tri(a[0], b[j], b[k])
+            else:
+                m.quad(a[j], b[j], b[k], a[k])
+    return m
+
+
+def uv_sub(fn, P, out, u0, u1, v0, v1, n, mm):
+    """uv_patch() onto part of the cell. The eyes and the mouth share one
+    cell this way, each at the resolution its own share gives it."""
+    m = uv_patch(fn, P[0], P[1], P[2], P[3], out, n, mm)
+    m.t = [(u0 + (u1 - u0) * t[0], v0 + (v1 - v0) * t[1]) for t in m.t]
+    return m
+
+
+def frog_foot(yaw):
+    """A webbed foot, from the ankle forward: a soft flat pad with three round
+    toe lobes, turned out by `yaw` (the feet splay, the way a frog sits).
+
+    Built as a pillow, not a loft: an outline in plan (a polar curve with
+    three smooth Gaussian lobes in front) swept through a flat superellipse
+    from the sole to the top, closed by one vertex at each pole. Lofted
+    along its length with the toes cut into the rings, it came out as a
+    block with a jagged front edge and flat facets.
+    """
+    NU, NV = 40, 10
+    ZC = 0.085                                   # the pad's centre, ahead of the ankle
+    WX, LZ = 0.168, 0.165                        # half width and half length
+    TOES = ((0.0, 0.070), (0.64, 0.060), (-0.64, 0.060))
+    cy_, sy_ = math.cos(yaw), math.sin(yaw)
+
+    def outline(phi):                            # phi from straight ahead
+        s, c = math.sin(phi), math.cos(phi)
+        r = 1.0 / math.sqrt((s / WX) ** 2 + (c / LZ) ** 2)
+        r *= 1.0 + 0.16 * max(0.0, c)            # broader toward the front
+        for p0, amp in TOES:
+            d = math.atan2(math.sin(phi - p0), math.cos(phi - p0))
+            r += amp * math.exp(-(d / 0.21) ** 2)
+        return s * r, ZC + c * r
+
+    def pt(phi, th):
+        ox, oz = outline(phi)
+        ct, st = math.cos(th), math.sin(th)
+        k = abs(ct) ** (2.0 / 3.0)               # flat top and sole, round rim
+        x, z = ox * k, ZC + (oz - ZC) * k
+        fwd = max(0.0, min(1.0, (z + 0.06) / 0.34))
+        top = 0.050 - 0.034 * fwd                # thins toward the toes
+        y = -0.045 + (top + 0.005 if st > 0 else 0.035) * math.copysign(abs(st) ** (2.0 / 3.0), st)
+        return (x * cy_ + z * sy_, y, -x * sy_ + z * cy_)
+
+    m = Mesh()
+    bot = m.vert(*pt(0.0, -math.pi / 2))
+    rings = []
+    for i in range(1, NV):
+        th = -math.pi / 2 + math.pi * i / NV
+        rings.append([m.vert(*pt(math.tau * j / NU, th)) for j in range(NU)])
+    top = m.vert(*pt(0.0, math.pi / 2))
+    for j in range(NU):
+        k = (j + 1) % NU
+        m.tri(bot, rings[0][k], rings[0][j])
+        m.tri(top, rings[-1][j], rings[-1][k])
+    for i in range(len(rings) - 1):
+        a, b = rings[i], rings[i + 1]
+        for j in range(NU):
+            k = (j + 1) % NU
+            m.quad(a[j], a[k], b[k], b[j])
+    return oriented(m)
+
+
+def frog_leg():
+    """A short soft leg hung from the hip along -y to the ankle (0.36 down),
+    the same joint and length as the rig's limb(): a little fuller at the
+    top, tapering, and flaring again where it meets the foot. The plain
+    cylinder read as a bright green post in a batting stance."""
+    # a round top: spread at the plate the hip end shows beside the hem, and
+    # a flat cap there made the leg a post
+    PROF = [(-0.30, 0.030), (-0.27, 0.075), (-0.22, 0.104), (-0.15, 0.121),
+            (-0.06, 0.134), (0.10, 0.138), (0.40, 0.124), (0.70, 0.100), (0.88, 0.088),
+            (0.97, 0.094), (1.03, 0.088), (1.07, 0.060), (1.09, 0.000)]
+    NS = 24
+    rings = []
+    for t, r in PROF[:-1]:
+        rings.append([(math.sin(math.tau * j / NS) * r, -0.36 * t,
+                       math.cos(math.tau * j / NS) * r) for j in range(NS)])
+    m = loft(rings)
+    return oriented(m)
+
+
+# ---- the frog's torso: a squat egg, the belly forward ----------------------
+# Lower and rounder than the bear's: the hem comes down to y+0.20 so the
+# visible leg is a stub, the widest point sits low, and the top is buried in
+# the head (no neck). About the torso anchor (y+0.74).
+FB_LO, FB_HI = -0.590, 0.270
+FB_W = [(0.00, 0.150), (0.04, 0.236), (0.09, 0.287), (0.16, 0.318),
+        (0.25, 0.334), (0.35, 0.340), (0.47, 0.330), (0.59, 0.306),
+        (0.71, 0.276), (0.82, 0.250), (0.92, 0.232), (1.00, 0.224)]
+FB_D = 0.93
+FB_Z = [(0.00, 0.000), (0.30, 0.030), (0.50, 0.034), (0.80, 0.004), (1.00, -0.020)]
+
+
+def frog_body_pt(a, t, out=0.0):
+    """`a` from the middle of the chest (0) round toward his left, `t` from
+    the hem (0) to the top (1)."""
+    y = FB_LO + t * (FB_HI - FB_LO)
+    hw = lerp_profile(t, FB_W)
+    hd = hw * FB_D + out
+    hw += out
+    sa, ca = math.sin(a), math.cos(a)
+    # the belly leads: the front half pushes forward, the back stays round
+    return (sa * hw, y, ca * hd + lerp_profile(t, FB_Z) * max(0.0, ca))
+
+
+def build_frog_torso():
+    out = {}
+    b = rab_patch(frog_body_pt, 0.0, math.tau, 0.0, 1.0, 0.0, 28, 20, closed=True)
+    for ring_t, rev in ((0.0, True), (1.0, False)):     # close hem and top
+        yy = FB_LO + ring_t * (FB_HI - FB_LO)
+        nr = [i for i, v in enumerate(b.v) if abs(v[1] - yy) < 1e-9]
+        c = b.vert(sum(b.v[i][0] for i in nr) / len(nr), yy,
+                   sum(b.v[i][2] for i in nr) / len(nr))
+        for j in range(len(nr)):
+            p, q = nr[j], nr[(j + 1) % len(nr)]
+            b.tri(c, q, p) if rev else b.tri(c, p, q)
+    out['frog_body'] = oriented(b)
+    # The neckline is under the chin, the hem trim right at the bottom edge —
+    # a band round the widest part cut him in two, as it did the rabbit
+    out['frog_collar'] = rab_patch(frog_body_pt, 0.0, math.tau, 0.86, 0.93, 0.007, 28, 1, True)
+    out['frog_belt'] = rab_patch(frog_body_pt, 0.0, math.tau, 0.035, 0.085, 0.007, 28, 1, True)
+    out['frog_placket'] = rab_patch(frog_body_pt, -0.065, 0.065, 0.12, 0.86, 0.006, 2, 9)
+    return out
+
+
+def build_frog():
+    out = build_frog_torso()
+    out['frog_head'] = frog_surface(frog_head_pt, 40, 26)
+
+    # The eye whites are geometry — crisp at any distance, and inked by the
+    # outline pass like any other part. The decal on top only carries the
+    # pupils and the lids, and sits close (2.5mm): further out, the parallax
+    # from a camera under the eyes slid the pupils up the whites.
+    whites = Mesh()
+    for s in (-1.0, 1.0):
+        whites.merge(oval_patch(frog_head_pt, s * EYE_FAZ, EYE_FEL, EYE_WAZ, EYE_WEL,
+                                0.010, nr=3, nt=30))
+    out['frog_earin'] = whites
+    out['frog_muz'] = frog_chin(0.012)
+
+    # Draw order decides which cell goes where. The head cell's patches go
+    # down before the whites and the chin, which would paint over them (a
+    # decal writes no depth), so they get what lies on bare skin: the nostrils
+    # (a small patch of their own, so they are crisp) and the two blushes.
+    # The muzzle cell's patch goes down last, so it carries the pupils (top
+    # half, a quarter each) and the mouth (bottom half).
+    # The nostrils' patch lies on its side in the cell: (u, v) = (down, across).
+    # Upright it spent 128 texels on 7cm of height and 64 on 19cm of width, and
+    # a dot came out as a smudged dash; turned, a texel is about as tall as wide.
+    face = uv_patch(frog_head_pt, NOSE_P[0], NOSE_P[1], NOSE_P[2], NOSE_P[3], 0.012, 6, 4)
+    face.t = [(0.5 * (1 - t[1]), t[0]) for t in face.t]
+    for s, u0 in ((-1.0, 0.5), (1.0, 0.75)):
+        face.merge(uv_sub(frog_head_pt, (s * CHEEK_AZ, CHEEK_R[0],
+                                         mouth_el(CHEEK_AZ) + CHEEK_UP, CHEEK_R[1]),
+                          0.012, u0, u0 + 0.25, 0, 1, 4, 3))
+    out['frog_face'] = face
+    snout = Mesh()
+    for s in (-1.0, 1.0):
+        u0 = 0.0 if s < 0 else 0.5
+        snout.merge(uv_sub(frog_head_pt, (s * EYE_FAZ, EYE_WAZ * EYE_PAD, EYE_FEL,
+                                          EYE_WEL * EYE_PAD), 0.0125, u0, u0 + 0.5, 0, 0.5, 9, 9))
+    snout.merge(uv_sub(frog_head_pt, MOUTH_P, 0.013, 0, 1, 0.5, 1, 16, 5))
+    out['frog_snout'] = snout
+
+    out['frog_foot_r'] = frog_foot(-0.30)     # his right foot (-x) turns out to -x
+    out['frog_foot_l'] = frog_foot(0.30)
+    out['frog_leg'] = frog_leg()
+
+    # the layout the face painters need, in each patch's own 0..1 cell
+    def cell(P, az, el, v0=0.0, v1=1.0):
+        u = 0.5 + (az - P[0]) / (2 * P[1])
+        v = 0.5 - (el - P[2]) / (2 * P[3])
+        return u, v0 + (v1 - v0) * v
+    mouth = []
+    for j in range(17):
+        az = (j / 16.0 * 2 - 1) * MOUTH_AZ
+        mouth.append('%.4f,%.4f' % cell(MOUTH_P, az, mouth_el(az), 0.5, 1.0))
+    nose = cell(NOSE_P, NOSE_AZ, NOSE_EL)
+    na, ne = _metric(frog_head_pt, NOSE_AZ, NOSE_EL)
+    nrx = NOSE_R[0] / (2 * NOSE_P[3] * ne / 0.5)       # cell x runs down the face
+    nry = NOSE_R[1] / (2 * NOSE_P[1] * na)             # cell y runs across it
+    DATA.append('/* the frog\'s face layout, solved off the head map */')
+    DATA.append('const FROG_FACE = { eyeR: %.4f, mouth: [%s],'
+                % (0.5 / EYE_PAD, ','.join(mouth)))
+    # nostrils in the head cell's left half; each blush fills its own quarter
+    # metres per unit of u over metres per unit of v, in the mouth's half of
+    # the cell: the painter draws in a space squeezed by this, so a stroke is
+    # as thick across as along and the corner curls come out round
+    ma, me = _metric(frog_head_pt, 0.0, MOUTH_EL)
+    mk = (2 * MOUTH_P[1] * ma) / (2 * MOUTH_P[3] * me / 0.5)
+    DATA.append('  nose: [%.4f, %.4f, %.4f, %.4f], mouthK: %.3f };'
+                % (0.5 * nose[1], nose[0] - 0.5, nrx, nry, mk))
+    DATA.append('')
+    return out
+
+# ------------------------------------------------------------------ penguin
+# One soft egg with a round head on it, flippers at the sides and two orange
+# feet peeking out from under the hem. It keeps the shared rig's anchors —
+# torso y+0.74, head y+1.34, hips y+0.44 — so running, sliding, tumbling, the
+# camera and the shadow all work unchanged; the legs are simply inside him.
+#
+# Everything is authored in the character's own frame (+z the face, +y up,
+# +x his LEFT side), about the anchor 30-actors.js places it at.
+#
+# The white face is not geometry. It is painted into the face cell along with
+# the eyes, on a patch cut from the same (az, el) map as the skull — so it
+# follows the head exactly, and a heart shape costs nothing.
+PEN_X, PEN_Y, PEN_Z = 0.430, 0.400, 0.392     # the skull: as wide as the body's widest
+PEN_UP, PEN_FWD = 0.000, 0.015                # 46% of his height, chin over the jersey
+PEN_N = 2.25                                  # just off a sphere: soft, not a ball
+PEN_FACE_AZ_R, PEN_FACE_EL_C, PEN_FACE_EL_R = 1.20, -0.10, 0.86
+PEN_BEAK_EL = -0.20                           # just under the eye line
+PEN_BEAK_TILT = 0.20                          # pointing forward and a little down
+PEN_BEAK_S = 1.15
+
+
+def pen_skull(az, el):
+    dx = math.cos(el) * math.sin(az)
+    dy = math.sin(el)
+    dz = math.cos(el) * math.cos(az)
+    k = (abs(dx) ** PEN_N + abs(dy) ** PEN_N + abs(dz) ** PEN_N) ** (-1.0 / PEN_N)
+    return dx * k * PEN_X, dy * k * PEN_Y, dz * k * PEN_Z
+
+
+def pen_head_pt(az, el, out=0.0):
+    x, y, z = pen_skull(az, el)
+    # soft cheeks low on the face, so the head is a little pear and not a ball
+    d = bump(((abs(az) - 0.75) / 0.70) ** 2 + ((el + 0.35) / 0.50) ** 2, 0.024)
+    L = math.sqrt(x * x + y * y + z * z) or 1.0
+    return (x + x / L * d, y + y / L * d + PEN_UP, z + z / L * d + PEN_FWD)
+
+
+# The body: a pear, widest low, deep enough not to go flat when he turns, and
+# coming down nearly to the ground so the legs vanish inside it.
+PEN_LO, PEN_HI = -0.640, 0.300                # about the torso anchor: y+0.10 .. y+1.04
+PEN_W = [(0.00, 0.100), (0.04, 0.220), (0.10, 0.310), (0.18, 0.370),
+         (0.28, 0.402), (0.38, 0.408), (0.50, 0.392), (0.62, 0.362),
+         (0.74, 0.312), (0.85, 0.270), (0.94, 0.236), (1.00, 0.210)]
+PEN_DK = 0.90                                 # depth as a share of width
+PEN_ZS = [(0.00, 0.020), (0.40, 0.034), (0.80, 0.004), (1.00, -0.022)]
+PEN_HEM = 0.50                                # where the jersey ends
+
+
+def smooth_profile(t, keys):
+    """Catmull-Rom through [(t, value), ...] (ascending). The straight pieces
+    of lerp_profile show as corners on a silhouette this round."""
+    n = len(keys)
+    if t <= keys[0][0]:
+        return keys[0][1]
+    if t >= keys[-1][0]:
+        return keys[-1][1]
+    i = 0
+    while keys[i + 1][0] < t:
+        i += 1
+    t0, t1 = keys[i][0], keys[i + 1][0]
+    u = (t - t0) / (t1 - t0)
+    p0 = keys[max(0, i - 1)][1]
+    p1, p2 = keys[i][1], keys[i + 1][1]
+    p3 = keys[min(n - 1, i + 2)][1]
+    return 0.5 * (2 * p1 + (-p0 + p2) * u + (2 * p0 - 5 * p1 + 4 * p2 - p3) * u * u
+                  + (-p0 + 3 * p1 - 3 * p2 + p3) * u * u * u)
+
+
+def pen_body_pt(a, t, out=0.0):
+    """`a` from the middle of the chest (0) round toward his left; `t` from the
+    bottom (0) to the top (1)."""
+    y = PEN_LO + t * (PEN_HI - PEN_LO)
+    w = smooth_profile(t, PEN_W)
+    hw, hd = w + out, w * PEN_DK + out
+    sa, ca = math.sin(a), math.cos(a)
+    return (sa * hw, y, ca * hd + smooth_profile(t, PEN_ZS))
+
+
+def pen_body_rings(t0, t1, nt, out, na=32):
+    return [[pen_body_pt(math.tau * j / na, t0 + (t1 - t0) * i / float(nt), out)
+             for j in range(na)] for i in range(nt + 1)]
+
+
+def pen_disc(fn, ac, bc, ar, br, out, nr=3, nt=24, lo=0.0, hi=math.tau):
+    """A disc (or a fan of one, lo..hi) of a surface map, in its own domain."""
+    m = Mesh()
+    full = abs(hi - lo - math.tau) < 1e-9
+    na = nt if full else nt + 1
+    rings = [[m.vert(*fn(ac, bc, out))] * na]
+    for r in range(1, nr + 1):
+        rho = r / float(nr)
+        rings.append([m.vert(*fn(ac + rho * math.cos(th) * ar, bc + rho * math.sin(th) * br, out))
+                      for th in [lo + (hi - lo) * j / float(nt) for j in range(na)]])
+    for r in range(nr):
+        a, b = rings[r], rings[r + 1]
+        for j in range(nt):
+            k = (j + 1) % na
+            if r == 0:
+                m.tri(a[0], b[j], b[k])
+            else:
+                m.quad(a[j], b[j], b[k], a[k])
+    return m
+
+
+def pen_lens_loft(table, n, closed=True):
+    """Rings of a flat paddle hanging along -y: (t, half width in z, half
+    thickness in x, z offset), t a fraction of PEN_FLIP down."""
+    rings = [section(0.0, -t * PEN_FLIP, cz, th, w, n, e=2.0) for t, w, th, cz in table]
+    return loft(rings, cap_start=closed, cap_end=closed)
+
+
+PEN_FLIP = 0.44
+# Wider than the first cut and round at the tip, so it reads as a flipper and
+# not a stick from any side. drawPenguin holds it flat on to the camera.
+PEN_FL = [(-0.02, 0.040, 0.030, 0.000), (0.00, 0.062, 0.040, 0.000),
+          (0.15, 0.094, 0.041, -0.004), (0.38, 0.108, 0.038, -0.014),
+          (0.60, 0.102, 0.035, -0.024), (0.78, 0.086, 0.032, -0.032),
+          (0.89, 0.066, 0.029, -0.036), (0.955, 0.044, 0.025, -0.038),
+          (0.990, 0.022, 0.018, -0.038), (1.00, 0.006, 0.008, -0.038)]
+
+
+def build_penguin():
+    out = {}
+    out['penguin_head'] = oriented(surface_of(pen_head_pt, naz=32, nel=20))
+    # the face cell — the white mask, the eyes and the blush are all art on it.
+    # Dense, so the mask's edge comes out as a curve and not a run of kinks
+    out['penguin_face'] = uv_patch(pen_head_pt, 0.0, PEN_FACE_AZ_R, PEN_FACE_EL_C,
+                                   PEN_FACE_EL_R, 0.010, n=16, mm=16)
+
+    # The beak. Shut, it is one closed soft cone — two halves drawn shut left a
+    # dark seam and a lower half a shade off, and read as a little burger.
+    # Pleased, it splits: the half is drawn twice, the lower one turned over
+    # about its own axis and dropped open.
+    BK = [(-0.050, 0.064, 0.048), (-0.010, 0.066, 0.052), (0.030, 0.062, 0.050),
+          (0.066, 0.050, 0.042), (0.092, 0.036, 0.032), (0.112, 0.022, 0.020),
+          (0.126, 0.010, 0.010), (0.131, 0.002, 0.002)]
+    S = PEN_BEAK_S
+    rings = []
+    for z, w, h in BK:
+        ring = []
+        for k in range(13):
+            a = math.pi * k / 12.0
+            ring.append((math.cos(a) * w * S, math.sin(a) ** 0.85 * h * S, z * S))
+        ring.append((0.0, 0.0, z * S))             # the flat underside
+        rings.append(ring)
+    out['penguin_beak'] = oriented(loft(rings))
+    rings = []
+    for z, w, h in BK:
+        ring = []
+        for k in range(20):
+            a = math.tau * k / 20.0
+            sa = math.sin(a)
+            ring.append((math.cos(a) * w * S, sa * (h if sa > 0 else h * 0.82) * S, z * S))
+        rings.append(ring)
+    out['penguin_beakc'] = oriented(loft(rings))
+    root = lifted(pen_head_pt, 0.0, PEN_BEAK_EL, -0.014)
+
+    # the flipper: a flat paddle hanging from the shoulder along -y. Thin in x,
+    # broad in z, widest a third of the way down; 2 x A.ink thick or more.
+    out['penguin_flip'] = oriented(pen_lens_loft(PEN_FL, 16))
+
+    # The sleeve: a short cap round the flipper's root, hung from the same
+    # shoulder and turned with it, domed on top so no cut end shows — and the
+    # navy edge round its mouth. A ball over the joint read as a bolt.
+    SL = [(-0.100, 0.030, 0.022, 0.0), (-0.088, 0.070, 0.050, 0.0),
+          (-0.062, 0.094, 0.064, 0.0), (-0.020, 0.108, 0.072, 0.0),
+          (0.050, 0.114, 0.076, -0.002), (0.150, 0.112, 0.074, -0.004),
+          (0.210, 0.108, 0.072, -0.005)]
+    out['penguin_sleeve'] = oriented(pen_lens_loft(SL, 16))
+    cuff = [(0.200, 0.114, 0.078, -0.005), (0.238, 0.113, 0.077, -0.006)]
+    out['penguin_cuff'] = oriented_open(pen_lens_loft(cuff, 16, closed=False),
+                                        (0.0, -0.22 * PEN_FLIP, 0.0))
+
+    # The foot, from the ankle forward: flat, wide, webbed. The ankle is 8cm
+    # off the ground when he stands, so the sole is 8cm under it.
+    FT = [(-0.074, 0.020, -0.030, -0.066), (-0.066, 0.040, -0.016, -0.074),
+          (-0.040, 0.060, 0.000, -0.079), (0.000, 0.074, 0.002, -0.080),
+          (0.050, 0.088, -0.006, -0.080), (0.100, 0.102, -0.018, -0.080),
+          (0.150, 0.115, -0.026, -0.080), (0.200, 0.126, -0.030, -0.080),
+          (0.245, 0.126, -0.032, -0.079), (0.278, 0.110, -0.034, -0.077),
+          (0.298, 0.080, -0.036, -0.075), (0.309, 0.040, -0.040, -0.072)]
+    out['penguin_foot'] = oriented(loft([ring_xy(z, hw, top, bot, 16, 2.4)
+                                         for z, hw, top, bot in FT]))
+
+    # the dark egg below the hem, closed at the bottom, open at the top where
+    # the jersey takes over
+    body = loft(pen_body_rings(0.0, PEN_HEM + 0.04, 14, 0.0), cap_start=True, cap_end=False)
+    out['penguin_body'] = oriented_open(body, (0.0, PEN_LO + 0.3, 0.0))
+    # the jersey: the same profile, a hair proud, closed over the top
+    jer = loft(pen_body_rings(PEN_HEM, 1.0, 12, 0.012), cap_start=False, cap_end=True)
+    out['penguin_jersey'] = oriented_open(jer, (0.0, 0.0, 0.0))
+    # the hem, in the trim — what tells jersey from belly at any distance
+    hem = loft(pen_body_rings(PEN_HEM - 0.030, PEN_HEM + 0.030, 2, 0.022),
+               cap_start=False, cap_end=False)
+    out['penguin_hem'] = oriented_open(hem, (0.0, PEN_LO + 0.5, 0.0))
+    # a placket down the front, so it is a jersey and not a T-shirt
+    pk = Mesh()
+    rows = [[pk.vert(*pen_body_pt((j - 1) * 0.045, PEN_HEM + (0.93 - PEN_HEM) * i / 8.0, 0.017))
+             for j in range(3)] for i in range(9)]
+    for i in range(8):
+        for j in range(2):
+            pk.quad(rows[i][j], rows[i][j + 1], rows[i + 1][j + 1], rows[i + 1][j])
+    out['penguin_placket'] = pk
+    # and two buttons on it — the one detail the front gets
+    bt = Mesh()
+    for t in (0.63, 0.78):
+        w = smooth_profile(t, PEN_W)
+        bt.merge(pen_disc(pen_body_pt, 0.0, t, 0.030 / w, 0.030 / (PEN_HI - PEN_LO), 0.024,
+                          nr=2, nt=14))
+    out['penguin_button'] = bt
+    # The white belly: a soft U, round at the bottom, whose top runs straight
+    # across under the hem, so it tucks in there instead of ending in corners.
+    tt, tb = PEN_HEM - 0.012, 0.07
+    out['penguin_belly'] = pen_disc(pen_body_pt, 0.0, tt, 0.98, tt - tb, 0.012,
+                                    nr=8, nt=32, lo=math.pi, hi=math.tau)
+
+    DATA.append('/* the penguin, solved off its own skull and body by the baker */')
+    DATA.append('const PEN = { beak: [%.4f, %.4f, %.4f], flip: %.3f };'
+                % (root[1], root[2], PEN_BEAK_TILT, PEN_FLIP))
+    DATA.append('')
+    return out
+
+
+def oriented_open(m, inside):
+    """oriented() for a surface that is not closed: make the faces point away
+    from a point known to be inside it."""
+    s = 0.0
+    for a, b, c in m.f:
+        pa, pb, pc = m.v[a], m.v[b], m.v[c]
+        u = [pb[i] - pa[i] for i in range(3)]
+        v = [pc[i] - pa[i] for i in range(3)]
+        n = (u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[1] * v[0])
+        s += sum(n[i] * (pa[i] - inside[i]) for i in range(3))
+    if s < 0.0:
+        m.f = [(a, c, b) for a, b, c in m.f]
+    return m
 
 # ------------------------------------------------------------------- packing
 
@@ -1395,6 +2628,43 @@ def load_obj(path):
             for i in range(1, len(idx) - 1):
                 m.tri(idx[0], idx[i], idx[i + 1])
     return m
+
+
+def _varint(v, out):
+    while v >= 128:
+        out.append((v & 127) | 128)
+        v >>= 7
+    out.append(v)
+
+
+def rle_index(flat, lag):
+    """Index stream as runs of a constant difference from the entry `lag`
+    back. A grid of quads repeats +1 every 6 entries, so a whole ring of the
+    loft collapses to one run. Token = (zigzag(delta) << 1 | repeated), then
+    the run length - 2 if repeated. The runtime in geoMesh() undoes it."""
+    out = bytearray()
+    r = [q - (flat[k - lag] if k >= lag else 0) for k, q in enumerate(flat)]
+    k = 0
+    while k < len(r):
+        n = 1
+        while k + n < len(r) and r[k + n] == r[k]:
+            n += 1
+        z = (r[k] << 1) ^ (r[k] >> 63)
+        _varint((z << 1) | (n > 1), out)
+        if n > 1:
+            _varint(n - 2, out)
+        k += n
+    return '%d|%s' % (lag, base64.b64encode(bytes(out)).decode())
+
+
+def pack_index(flat, raw64):
+    """The smallest of: raw Uint16 base64, or RLE-of-differences at the best lag."""
+    best = raw64
+    for lag in range(1, 13):
+        e = rle_index(flat, lag)
+        if len(e) < len(best):
+            best = e
+    return best
 
 
 def pack(m):
@@ -1414,12 +2684,13 @@ def pack(m):
     ib = bytearray()
     for a, b, c in m.f:
         ib += struct.pack('<HHH', a, b, c)
+    flat = [q for f in m.f for q in f]
     off = [lo[i] + 16000 * sc[i] for i in range(3)]
     d = {
         'sc': sc, 'off': off,
         'p': base64.b64encode(bytes(pb)).decode(),
         'n': base64.b64encode(bytes(nb)).decode(),
-        'i': base64.b64encode(bytes(ib)).decode(),
+        'i': pack_index(flat, base64.b64encode(bytes(ib)).decode()),
         'nv': len(m.v), 'nf': len(m.f),
     }
     # UVs ride along only on the patches that carry a face decal; Uint16 over
@@ -1441,6 +2712,8 @@ def main():
     meshes.update(build_cap())
     meshes.update(build_beetle())
     meshes.update(build_rabbit())
+    meshes.update(build_frog())
+    meshes.update(build_penguin())
 
     # anything hand-made wins over the procedural version of the same name
     objdir = os.path.join('tools', 'obj')

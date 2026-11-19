@@ -44,7 +44,7 @@ function limb(f, jx, jy, jz, rx, rz, len, rad, c, endC, endS, flat) {
 
 /* Two-bone IK in world space: the hand lands exactly on the target, so whatever
    it is holding stays held. Cartoon arms stretch rather than fall short. */
-function armIK(sx, sy, sz, hx, hy, hz, L1, L2, pole, rad, c, handC) {
+function armIK(sx, sy, sz, hx, hy, hz, L1, L2, pole, rad, c, handC, slv) {
   let dx = hx - sx, dy = hy - sy, dz = hz - sz;
   let d = Math.hypot(dx, dy, dz) || 1e-4;
   if (d > (L1 + L2) * 0.995) {
@@ -73,6 +73,14 @@ function armIK(sx, sy, sz, hx, hy, hz, L1, L2, pole, rad, c, handC) {
   R.seg('cyl', sx, sy, sz, ex, ey, ez, rad, c);
   R.seg('cyl', ex, ey, ez, hx, hy, hz, rad * 0.9, c);
   R.b('sphere', ex, ey, ez, rad * 2, rad * 2, rad * 2, c);
+  // `slv` = {sleeve, cuff, c, trim}: the species' baked sleeve, hung from the
+  // shoulder along the upper arm (it is authored pointing down -Y)
+  if (slv) {
+    const qx = sx - ex, qy = sy - ey, qz = sz - ez, ql = Math.hypot(qx, qy, qz) || 1;
+    const rx = Math.acos(clamp(qy / ql, -1, 1)), ry = Math.atan2(qx, qz);
+    R.d(slv.sleeve, sx, sy, sz, rx, ry, 0, 1, 1, 1, slv.c);
+    R.d(slv.cuff, sx, sy, sz, rx, ry, 0, 1, 1, 1, slv.trim);
+  }
   if (handC !== null) R.b('sphere', hx, hy, hz, rad * 2.2, rad * 2.1, rad * 2.2, handC || c);
   return [hx, hy, hz];
 }
@@ -99,24 +107,43 @@ const ANIMALS = {
   // Drawn from the reference sketch: tall straight ears, round head, dot eyes.
   // Ears, haunches, hind feet and tail are baked (段階3); the head is still a
   // sphere because that is the surface the drawn face is projected onto.
+  // The torso is baked too (`torso: 'rabbit'`): a little pear the haunches
+  // flow out of, the pink trim baked onto it. The arms are fur in a short
+  // puffed sleeve (`sleeve`), and the cap is a toy cap perched on the crown.
   rabbit:  { ink: 0.022, ear: 'bunny', fur: '#F4F0E8', fur2: '#F6D7DA', tail: 'cotton',
              head: 'sphere', hw: 1.08, hh: 1.06, hd: 0.98,
-             buttons: 1,                   // no muzzle — the nose is drawn on
-             legs: 'bunny', earX: 0.148, earY: 0.18, earTilt: 0.13,
-             earIn: '#F6D7DA' },
+             legs: 'bunny', earX: 0.128, earY: 0.18, earTilt: 0.09,
+             earIn: '#F6D7DA', torso: 'rabbit', tailY: 0.48, tailZ: -0.275,
+             headS: 1.22, headUp: -0.013,     // 1.22x about a chin lowered to y+0.90
+             sleeve: 'rabbit', armX: 0.235, armY: 0.80, armRz: 0.42, armLen: 0.25,
+             armW: 0.074, handS: 0.21,
+             capS: 0.70, capY: 0.087, capZ: 0.01, capT: -0.12, billW: 0.78,
+             helm: { s: 0.80, y: 0.0, z: -0.03, bill: 1.0 } },
 
   cat:     { ink: 0.022, ear: 'point', fur: '#E0A44F', fur2: '#F7EDDD', tail: 'long',
              head: 'rbox', hw: 1.10, hh: 0.98, hd: 0.94,
              muz: [0.46, 0.255, 0.26], muzY: -0.125, muzZ: 0.245,
              earR: 0.255, earX: 0.235, earY: 0.36, earT: 0.26 },
 
-  frog:    { ink: 0.022, ear: 'toad', fur: '#7DC163', fur2: '#E8F0C8', tail: 'none',
-             head: 'rbox', hw: 1.24, hh: 0.86, hd: 1.02,
-             earR: 0.285, earX: 0.275, earY: 0.13, earZ: 0.24 },
+  // A wide low pebble of a head with the eyes on two domes on top — baked
+  // like the bear's, one surface. The torso is the frog's own squat egg in a
+  // plain jersey, the arms green in the rabbit's puffed sleeve, the hands
+  // round pads. A small cap perches between the domes; the feet are flat
+  // webbed pads, turned out, and almost all the leg is under the jersey.
+  // `lidHappy`: the happy face shuts the eyes, so the baked whites go.
+  frog:    { ink: 0.022, mesh: 'frog', noStripe: 1, tail: 'none', lidHappy: 1,
+             legs: 'frog', legW: 0.112, hipX: 0.175, headUp: -0.105,
+             sleeve: 'rabbit', armX: 0.255, armY: 0.80, armRz: 0.44, armLen: 0.24,
+             armW: 0.074, handS: 0.20,
+             capS: 0.54, capSY: 0.74, capY: 0.150,
+             fur: '#86C25A', fur2: '#F8F4B2', paw: '#86C25A', earIn: '#FCFAF0', foot: '#6FAE4C' },
 
-  penguin: { ink: 0.022, ear: 'none', fur: '#2E3B4A', fur2: '#F4F1E6', tail: 'nub',
-             beak: '#F2A93B', head: 'sphere', hw: 1.02, hh: 1.08, hd: 0.98,
-             facePatch: [0.54, 0.58, 0.30] },
+  // One soft egg with a round head, flippers and orange feet: everything is
+  // baked (penguin_*), and drawPenguin draws all of it. The white face is art
+  // in the face cell, not a ball stuck on the front.
+  penguin: { ink: 0.022, form: 'penguin', ear: 'none', tail: 'none',
+             fur: '#34475E', fur2: '#F7F5EE', beak: '#F29A35', foot: '#EE9338',
+             capS: 0.70, capY: 0.160, capT: -0.16 },
 
   fox:     { ink: 0.022, ear: 'point', fur: '#D96F3A', fur2: '#F6EFE2', tail: 'bushy',
              head: 'rbox', hw: 1.04, hh: 0.96, hd: 1.08,
@@ -126,14 +153,22 @@ const ANIMALS = {
 
   // Drawn as the real animal rather than a round cartoon of one, and given no
   // face cell, so they never change expression. Their eyes are in the mesh.
+  // a male chum on the spawning run: dark olive back, grey-green flanks under
+  // ragged maroon and dusky-green bars, a dirty cream belly, dusky fins
   salmon:  { ink: 0.013, body: 'fish', ear: 'none', tail: 'none', noHat: 1, shadow: 1.5,
              noGlove: 1, noBat: 1,
-             fur: '#B4C2CB', fur2: '#EFF2F0', back: '#3C5E71', blush: '#B0524C',
-             fin: '#7F909B', jaw: '#9DAAB2' },
+             fur: '#8B9B89', fur2: '#C2BBA3', back: '#1E2819', bar: '#4D3332', bar2: '#283020',
+             line: '#3A4034', oper: '#68705A', jaw: '#484A3F',
+             fin: '#474C3C', finEdge: '#23251E', finTip: '#CFCBB6' },
 
-  beetle:  { ink: 0.013, body: 'beetle', ear: 'none', tail: 'none', capY: -0.20, capS: 0.40,
+  beetle:  { ink: 0.013, body: 'beetle', ear: 'none', tail: 'none', noHat: 1,
              noGlove: 1, noBat: 1,
-             fur: '#3E2717', fur2: '#5C3C22', horn: '#20130A', leg: '#281A0E' },
+             // elytra / pronotum / head / horn / legs / underside
+             fur: '#55260F', fur2: '#2A170E', headC: '#21130B', horn: '#1B100A',
+             leg: '#1F130B', venter: '#3E2414', brush: '#8A6838',
+             // no cap, no helmet: a beetle wears nothing but a breeder's
+             // dab of paint (bee_mark)
+           },
 
   panda:   { ink: 0.022, ear: 'round', fur: '#F0EDE6', fur2: '#2C3138', tail: 'nub', patch: 1,
              head: 'rbox', hw: 1.12, hh: 1.04, hd: 0.98,
@@ -170,8 +205,10 @@ const FACES = {
              mouthC: '#4A3438', mouthY: 0.745, mouthW: 0.085 },
   cat:     { eye: 'almond', eyeX: 0.205, eyeY: 0.355, eyeR: 0.092, tilt: 0.16, whisk: '#B0895A',
              nose: 'tri',   noseC: '#C2705E', noseY: 0.295, noseR: 0.140, mouth: 'w' },
-  frog:    { eye: 'none',   headMouth: 'wide', mouthC: '#3E6B33' },
-  penguin: { eye: 'bead',   eyeX: 0.250, eyeY: 0.300, eyeR: 0.076, onPatch: 1 },
+  // its own painters; where everything goes comes from the baker (FROG_FACE)
+  frog:    Object.assign({ paintHead: frogHeadCell, paintSnout: frogSnoutCell,
+                           ink: '#22401F', lip: '#2E3A1E', fur: ANIMALS.frog.fur }, FROG_FACE),
+  penguin: { paintHead: penguinHeadCell },
   fox:     { eye: 'almond', eyeX: 0.205, eyeY: 0.350, eyeR: 0.084, tilt: 0.20,
              nose: 'tri',   noseC: '#3C2A20', noseY: 0.300, noseR: 0.175, mouth: 'w',
              mouthY: 0.560, mouthW: 0.200 },
@@ -243,15 +280,6 @@ function drawHeadCell(g, F, exp) {
     }
   }
   if (F.nose && F.onHead) drawSnout(g, F, exp);
-  if (F.headMouth === 'wide') {                   // the frog's grin spans the head
-    const y = 0.60;
-    fStroke(g, F.mouthC, 0.036);
-    g.beginPath();
-    if (exp === EXPR.down) { g.moveTo(0.16, y + 0.09); g.quadraticCurveTo(0.5, y - 0.05, 0.84, y + 0.09); }
-    else if (exp === EXPR.happy) { g.moveTo(0.14, y - 0.07); g.quadraticCurveTo(0.5, y + 0.16, 0.86, y - 0.07); }
-    else { g.moveTo(0.16, y - 0.02); g.quadraticCurveTo(0.5, y + 0.10, 0.84, y - 0.02); }
-    g.stroke();
-  }
 }
 
 function drawSnout(g, F, exp) {
@@ -431,6 +459,208 @@ function bearSnoutCell(g, F, exp) {
   g.fill();
 }
 
+/* ---------- the frog ----------
+   A decal writes no depth, so whatever is drawn after it paints over it. The
+   head cell goes down before the eye whites and the pale chin, so it only
+   carries what lies on bare skin: the nostrils (its left half, a patch of
+   their own so they come out as crisp dots) and the two blushes (a quarter
+   each). The muzzle cell goes down last and carries the pupils (a quarter of
+   the cell each, at the top) and the mouth (the bottom half). The layout is
+   the baker's (FROG_FACE): a circle in an eye's quarter is a circle on the
+   dome, and the mouth runs along the line the chin was baked under.
+   The whites are geometry (frog_earin) and the decal does not paint them
+   again: painted, their edge was the texture's, soft and a pixel wide. Lids
+   are painted in the skin colour — the decal is lit like the dome under it,
+   so painted skin is skin. */
+function frogHeadCell(g, F, exp) {
+  // two nostrils: small dots. Their patch lies on its side in the left half
+  // (x runs down the face, y across it), so the texels come out square
+  const N = F.nose;
+  g.fillStyle = F.ink;
+  for (const s of [-1, 1]) {
+    g.beginPath(); g.ellipse(N[0], 0.5 + s * N[1], N[2], N[3], 0, 0, Math.PI * 2); g.fill();
+  }
+  for (const u of [0.625, 0.875]) {               // blush, soft-edged
+    for (let k = 0; k < 4; k++) {
+      g.fillStyle = 'rgba(246,140,140,' + (0.28 + k * 0.10).toFixed(2) + ')';
+      const w = 1 - k * 0.18;
+      g.beginPath(); g.ellipse(u, 0.5, 0.048 * w, 0.36 * w, 0, 0, Math.PI * 2); g.fill();
+    }
+  }
+}
+
+/* s is -1 for the eye on the reader's left; drawn in a unit square */
+function frogEye(g, F, exp, s) {
+  const r = F.eyeR, ink = F.ink;
+  if (exp === EXPR.happy) {                       // shut, smiling: ^ ^
+    // (the baked whites are not drawn for this face: see drawAnimal)
+    fStroke(g, ink, r * 0.34);
+    g.beginPath();
+    g.moveTo(-r * 0.70, r * 0.30);
+    g.quadraticCurveTo(0, -r * 0.70, r * 0.70, r * 0.30);
+    g.stroke();
+    return;
+  }
+  const focus = exp === EXPR.focus, down = exp === EXPR.down;
+  g.save();
+  g.beginPath(); g.arc(0, 0, r * 0.995, 0, Math.PI * 2); g.clip();
+  // The pupil: big and round, and looking straight out — both a little in
+  // toward the nose. The shine is in the same place on both eyes; mirrored,
+  // it made them look in two directions.
+  const pr = r * 0.60, px = focus ? s * r * 0.12 : -s * r * 0.08;
+  const py = down ? r * 0.40 : focus ? r * 0.12 : r * 0.04;
+  g.fillStyle = '#1B2420';
+  g.beginPath();
+  g.ellipse(px, py, pr * (focus ? 1.04 : 1), pr * (focus ? 0.70 : 1), 0, 0, Math.PI * 2);
+  g.fill();
+  g.fillStyle = SHINE;
+  g.beginPath(); g.arc(px - pr * 0.36, py - pr * (focus ? 0.22 : 0.38), pr * 0.28, 0, Math.PI * 2); g.fill();
+  // the lid: level and low when set, half down and drooping when beaten
+  if (focus || down) {
+    const lid = focus ? -r * 0.40 : r * 0.06, tilt = down ? s * r * 0.24 : -s * r * 0.12;
+    g.fillStyle = F.fur;
+    g.beginPath();
+    g.moveTo(-r * 1.2, -r * 1.2); g.lineTo(r * 1.2, -r * 1.2);
+    g.lineTo(r * 1.2, lid + tilt); g.lineTo(-r * 1.2, lid - tilt);
+    g.closePath(); g.fill();
+    fStroke(g, ink, r * 0.16);
+    g.beginPath(); g.moveTo(-r * 1.2, lid - tilt); g.lineTo(r * 1.2, lid + tilt); g.stroke();
+  }
+  g.restore();
+}
+
+function frogSnoutCell(g, F, exp) {
+  for (const s of [-1, 1]) {                      // the eyes, a quarter each
+    g.save();
+    g.translate(s < 0 ? 0.25 : 0.75, 0.25);
+    g.scale(0.5, 0.5);
+    g.beginPath(); g.rect(-0.5, -0.5, 1, 1); g.clip();
+    frogEye(g, F, exp, s);
+    g.restore();
+  }
+
+  // The mouth's half of the cell is ~4x longer in metres across than up, so
+  // it is drawn squeezed by `mouthK`: a stroke is then as thick along the
+  // line as across it, and the corners curl instead of ending in a smear.
+  const M = F.mouth, n = M.length / 2, ink = F.lip, K = F.mouthK;
+  const pt = (i) => [M[2 * i] * K, M[2 * i + 1]];
+  const flat = () => 0;
+  // the curve through the baker's points, smoothed through the midpoints
+  const trace = (from, to, dy) => {
+    let p = pt(from);
+    g.moveTo(p[0], p[1] + dy(from));
+    for (let i = from + 1; i < to; i++) {
+      const a = pt(i), b = pt(i + 1);
+      g.quadraticCurveTo(a[0], a[1] + dy(i), (a[0] + b[0]) / 2, (a[1] + b[1]) / 2 + (dy(i) + dy(i + 1)) / 2);
+    }
+    p = pt(to);
+    g.lineTo(p[0], p[1] + dy(to));
+  };
+  // a little hook up at each corner, into the blush (d points inward)
+  const curl = (i, d) => {
+    const p = pt(i);
+    g.moveTo(p[0], p[1]);
+    g.quadraticCurveTo(p[0] - d * 0.030, p[1] - 0.004, p[0] - d * 0.034, p[1] - 0.050);
+  };
+  g.beginPath(); g.rect(0, 0.5, 1, 0.5); g.clip();
+  g.scale(1 / K, 1);
+  if (exp === EXPR.happy) {                       // open wide: a clean crescent
+    const deep = (i) => { const u = i / (n - 1) * 2 - 1; return 0.17 * (1 - u * u) ** 1.2; };
+    g.beginPath(); trace(2, n - 3, flat);
+    for (let i = n - 3; i >= 2; i--) { const p = pt(i); g.lineTo(p[0], p[1] + deep(i)); }
+    g.closePath();
+    g.fillStyle = '#E2797A'; g.fill();
+    fStroke(g, ink, 0.040); g.stroke();
+    fStroke(g, ink, 0.064);
+    g.beginPath(); trace(0, n - 1, flat); curl(0, 1); curl(n - 1, -1); g.stroke();
+    return;
+  }
+  if (exp === EXPR.down) {                        // a short frown, corners down
+    fStroke(g, ink, 0.058);
+    g.beginPath(); trace(3, n - 4, (i) => { const u = i / (n - 1) * 2 - 1; return 0.36 * u * u - 0.05; });
+    g.stroke();
+    return;
+  }
+  // the long smile; set, it presses flatter and loses the curls
+  fStroke(g, ink, exp === EXPR.focus ? 0.070 : 0.064);
+  g.beginPath(); trace(0, n - 1, flat);
+  if (exp !== EXPR.focus) { curl(0, 1); curl(n - 1, -1); }
+  g.stroke();
+}
+
+/* ---------- the penguin's face ----------
+   The whole white mask is in the cell: a heart with its point at the chin and
+   a widow's peak of dark between the eyes. The cell is laid over the skull's
+   own (az, el) patch, which is about 0.92m across and 0.62m tall, so the art
+   is drawn in metres about the patch centre (y down) and comes out round. */
+const PEN_CELL = [0.92, 0.62];
+function penguinHeadCell(g, F, exp) {
+  g.save();
+  g.translate(0.5, 0.5);
+  g.scale(1 / PEN_CELL[0], 1 / PEN_CELL[1]);
+
+  // the mask
+  g.fillStyle = '#F7F5EE';
+  g.beginPath();
+  g.moveTo(0, -0.150);
+  for (const s of [1, -1]) {
+    if (s < 0) g.moveTo(0, -0.150);
+    g.bezierCurveTo(s * 0.040, -0.235, s * 0.150, -0.262, s * 0.215, -0.205);
+    g.bezierCurveTo(s * 0.300, -0.135, s * 0.305, 0.000, s * 0.275, 0.080);
+    g.bezierCurveTo(s * 0.240, 0.180, s * 0.120, 0.270, 0, 0.300);
+    g.lineTo(0, -0.150);
+  }
+  g.fill();
+
+  // cheeks
+  g.fillStyle = 'rgba(244,150,160,0.55)';
+  for (const s of [-1, 1]) {
+    g.beginPath(); g.ellipse(s * 0.205, 0.020, 0.046, 0.026, 0, 0, Math.PI * 2); g.fill();
+  }
+
+  // eyes: wide set, round, a shine in each
+  const ink = '#1C2430';
+  for (const s of [-1, 1]) {
+    const ex = s * 0.135, ey = -0.070, r = 0.040;
+    if (exp === EXPR.happy) {                       // closed, curved up
+      fStroke(g, ink, 0.018);
+      g.beginPath(); g.arc(ex, ey + 0.012, r * 0.95, Math.PI * 1.15, Math.PI * 1.85); g.stroke();
+      continue;
+    }
+    const down = exp === EXPR.down, focus = exp === EXPR.focus;
+    g.fillStyle = ink;
+    g.beginPath();
+    g.ellipse(ex, ey + (down ? 0.010 : 0), r * 0.92, r * (focus ? 0.86 : 1.06), 0, 0, Math.PI * 2);
+    g.fill();
+    if (down) {                                    // a heavy lid, sliding down
+      g.fillStyle = '#F7F5EE';
+      g.beginPath();
+      g.moveTo(ex - r * 1.3, ey - r * 1.4);
+      g.lineTo(ex + r * 1.3, ey - r * 1.4);
+      g.lineTo(ex + r * 1.3, ey - r * (0.05 - s * 0.35));
+      g.lineTo(ex - r * 1.3, ey - r * (0.05 + s * 0.35));
+      g.fill();
+      fStroke(g, ink, 0.010);
+      g.beginPath();
+      g.moveTo(ex - r * 1.0, ey - r * (0.05 + s * 0.30));
+      g.lineTo(ex + r * 1.0, ey - r * (0.05 - s * 0.30));
+      g.stroke();
+    } else {
+      g.fillStyle = '#FFFFFF';
+      g.beginPath(); g.ellipse(ex + r * 0.30, ey - r * 0.36, r * 0.32, r * 0.32, 0, 0, Math.PI * 2); g.fill();
+      g.beginPath(); g.ellipse(ex - r * 0.30, ey + r * 0.42, r * 0.13, r * 0.13, 0, 0, Math.PI * 2); g.fill();
+    }
+    if (focus) {                                   // a stern little brow
+      fStroke(g, ink, 0.016);
+      g.beginPath();
+      g.moveTo(ex - s * r * 1.00, ey - r * 1.25);
+      g.lineTo(ex + s * r * 1.10, ey - r * 1.80);
+      g.stroke();
+    }
+  }
+  g.restore();
+}
+
 /* built once at boot; nothing here runs per frame */
 function drawMuzCell(g, F, exp) {
   if (F.paintSnout) return F.paintSnout(g, F, exp);
@@ -513,178 +743,681 @@ function faceRect(animal, exp, muz) {
    camera, the shadow, knockdowns and slides all still work on them.
    ============================================================ */
 
-/* The flop. A salmon out of water does not stand up — it lies over on its side
-   and thrashes, slapping itself clear of the ground every other beat.
+/* The flop. A salmon out of water lies on its flank and thrashes: the body
+   curls into a C and back (R.bend, so it is the spine that bends, not a plank
+   that tips), the tail slaps, the head lifts. Between bursts he lies still and
+   gasps — the jaw drops and the gill covers lift.
 
-   `pitch` is how far it has gone over from upright (about 68 degrees at rest),
-   and the body turns about a point partway up rather than about its tail, so
-   the nose does not swing a metre across the infield every time it twitches. */
-const SAL_PIVOT = 0.60;
+   Channels: `side` rolls him about his own spine (0 = left flank up, -pi/2 =
+   upright, back to the sky), `tilt` lifts the nose, `yaw` turns him on the
+   dirt, `bend` is the curl [k1, k2, k3] (rad/m, see R.bend), `up`/`fwd` move
+   the body's middle. The ground is solved each frame (salLift), so whatever
+   the curl, he lies on the dirt rather than through it or above it. */
+const SAL_REST = { side: -0.30, tilt: 0.04, yaw: 0, up: 0, fwd: 0, bend: [0, 0, 0],
+                   gape: 0.10, flare: 0, pec: 0.15, h: null };
 
-function fishFlop(seed) {
-  const t = clock * 5.4 + seed;
-  const s = Math.sin(t);
+/* The batter lies in front of the camera behind home, so he is rolled onto the
+   flank that faces it rather than SAL_REST.side (which shows that camera only
+   his dark back). The camera looks down the +z axis from about 26 degrees up;
+   from his heading (ry, plus whatever the batter rig has turned him by) the
+   roll that would point a flank straight at it is solved, and he lies 85% of
+   the way there: barred flank to the lens, back along the top, belly below.
+   Unwrapped to within half a turn of upright, so the swing rolls the short way. */
+function salBatSide(ry) {
+  const d = Math.sin(ry), ph = 0.45;
+  const th = 0.85 * Math.atan2(Math.abs(d) * Math.cos(ph), Math.sin(ph));
+  const b = d < 0 ? -(Math.PI - th) : Math.PI - th;
+  return b - Math.PI * 2 * Math.round((b + Math.PI / 2) / (Math.PI * 2));
+}
+
+function fishFlop(seed, tq, base) {
+  const S0 = base !== undefined ? base : SAL_REST.side;
+  const T = (tq !== undefined ? tq : clock) + seed;
+  // he thrashes in bursts and lies still between them
+  const env = clamp(Math.sin(T * 0.62) * 1.7 + 0.35, 0, 1);
+  const ph = T * 11.0, s = Math.sin(ph);
+  const gasp = 0.5 + 0.5 * Math.sin(T * 2.6);
   return {
-    pitch: 1.19 + s * 0.27,                          // over on its side, whipping
-    roll: Math.sin(t * 1.63 + 1.1) * 0.40,           // the sideways snap
-    up: Math.max(0, s) * Math.max(0, s) * 0.30,      // and it gets air
+    side: S0 + env * 0.22 * Math.sin(ph + 0.8),
+    tilt: 0.04 + env * 0.16 * Math.max(0, Math.sin(ph + 0.5)),
+    yaw: env * 0.10 * Math.sin(ph * 0.5),
+    up: env * 0.07 * Math.pow(Math.max(0, s), 3),
     fwd: 0,
+    bend: [env * 0.95 * s, env * 0.85 * Math.sin(ph - 1.3), 0],
+    gape: 0.02 + 0.16 * gasp * (1 - env * 0.6),
+    flare: 0.20 * Math.max(0, Math.sin(T * 2.6 - 0.9)) * (1 - env * 0.5),
+    pec: (0.10 + 0.25 * env) * Math.sin(T * 7.3) + 0.12,
+    h: null,
   };
 }
 
-/* The swing. He has no bat and no arms, so he throws the whole fish at the
-   ball: coils up off the dirt, launches, and cartwheels away after contact. */
-function fishSwing(st) {
-  const u = clamp(st / SWING_LAG, 0, 1);
-  const rear = Math.max(0, 1 - u * 2.3);          // the brief coil off the dirt
-  const fire = Math.sin(u * Math.PI * 0.5);       // and then all of it at once
-  const v = clamp((st - SWING_LAG) / 0.66, 0, 1), w = v * v;
-  // Every channel comes back to where the flop rests, and the pitch winds a
-  // whole extra turn, so the cartwheel lands in the resting orientation
-  // instead of popping. G.batSwingT keeps counting for seconds after the
-  // swing, so this has to settle on its own.
-  return {
-    pitch: 1.19 - rear * 0.44 + fire * 0.50 * (1 - w) + w * Math.PI * 2,
-    roll: Math.sin(w * Math.PI) * 2.4 - rear * 0.18,
-    up: 0.06 + fire * 0.66 * (1 - w),
-    fwd: -rear * 0.32 + fire * 0.92 * (1 - w),
-  };
+/* The swing. No bat and no arms: he throws the whole fish at the ball the way
+   a salmon clears a weir — rolls upright and curls into a C (the start of a
+   real fish's leap), snaps straight through the zone at SWING_LAG, cartwheels
+   once and lands back on his flank. `tilt` winds a whole turn, so the landing
+   is the resting pose and not a pop; G.batSwingT keeps counting for seconds
+   after the swing, so this has to settle on its own. */
+function fishSwing(st, base) {
+  const L = SWING_LAG;
+  // [time, side, tilt, fwd, h (height of the middle), k1, k2, gape]
+  const S0 = base !== undefined ? base : SAL_REST.side;
+  const K = [[0, S0, 0.04, 0, 0.0, 0, 0, 0.10],
+             [0.05, -1.25, 0.20, -0.22, 0.30, 1.4, 0.3, 0.30],
+             [L, -1.57, 0.02, 0.62, 0.70, -0.5, -0.9, 0.42],
+             [L + 0.22, -1.40, -2.4, 0.78, 0.95, 0.6, -0.4, 0.30],
+             [L + 0.46, -0.40, -5.2, 0.40, 0.42, -0.5, 0.3, 0.20],
+             [L + 0.66, S0, 0.04 - Math.PI * 2, 0, 0.0, 0, 0, 0.10]];
+  let i = 0;
+  while (i < K.length - 2 && st > K[i + 1][0]) i++;
+  const u = clamp((st - K[i][0]) / (K[i + 1][0] - K[i][0]), 0, 1), e = u * u * (3 - 2 * u);
+  const a = K[i], b = K[i + 1], m = (j) => lerp(a[j], b[j], e);
+  const h = m(4);
+  return { side: m(1), tilt: m(2), yaw: 0, up: 0, fwd: m(3), h: h > 0.001 ? h : null,
+           bend: [m(5), m(6), 0], gape: m(7), flare: 0.25 * Math.sin(Math.PI * clamp(st / (L + 0.4), 0, 1)),
+           pec: 0.5 * Math.sin(Math.PI * clamp(st / (L + 0.3), 0, 1)) };
+}
+
+/* the spine of the bent body at local height y, the same sums the vertex
+   shader does: [x, y, angle] */
+function salSpine(y, b) {
+  const u = SAL.piv - y;
+  if (u <= 0 || !(b[0] || b[1] || b[2])) return [0, y, 0];
+  const du = u / 8;
+  let sx = 0, sy = 0, th = 0;
+  for (let i = 0; i < 8; i++) {
+    const v = (i + 0.5) * du;
+    th = v * (b[0] + v * (b[1] + v * b[2]));
+    sx += Math.sin(th); sy += Math.cos(th);
+  }
+  th = u * (b[0] + u * (b[1] + u * b[2]));
+  return [sx * du, SAL.piv - sy * du, th];
+}
+
+/* how far below the middle of the fish his lowest point is, for this pose:
+   each section of the table, bent, turned and dropped onto the ground */
+function salDrop(M, b) {
+  let lo = 1e9;
+  // world down, back in the fish's own axes (M's rotation is orthonormal)
+  const dx = -M[1], dy = -M[5], dz = -M[9];
+  for (const s of SAL.sec) {
+    const sp = salSpine(s[0], b), c = Math.cos(sp[2]), sn = Math.sin(sp[2]);
+    // down in the section's own (unbent) axes
+    const lx = dx * c + dy * sn, lz = dz;
+    const hz = lz < 0 ? s[4] - s[1] : s[2] - s[4], w = s[3];
+    const q = Math.hypot(w * lx, hz * lz) || 1e-6;
+    const px = w * w * lx / q, pz = s[4] + hz * hz * lz / q;
+    const X = sp[0] + px * c, Y = sp[1] + px * sn, Z = pz;
+    const wy = M[1] * X + M[5] * Y + M[9] * Z;
+    if (wy < lo) lo = wy;
+  }
+  return lo;
+}
+
+const _sm = { o: m4(), i: m4(), M: m4(), h: m4(), t: m4(), j: m4() };
+/* M ← world · placement; the fish's mesh hangs about local y = pl */
+function salMatrix(f, fl, Y, pl) {
+  const [wx, wz] = L2W(f, 0, fl.fwd);
+  mTRS(_sm.o, wx, Y, wz, fl.tilt, f.ry + fl.yaw, 0, 1, 1, 1);
+  const b = fl.side, I = _sm.i, cb = Math.cos(b), sb = Math.sin(b);
+  // mesh x (left flank) up when side = 0, the spine forward, the back toward -x
+  I.fill(0);
+  I[0] = -sb; I[1] = cb;
+  I[6] = 1;
+  I[8] = cb; I[9] = sb;
+  I[14] = -pl; I[15] = 1;
+  return mMul(_sm.M, _sm.o, I);
+}
+
+/* a hinge inside the fish: rotate by `ang` about the line a→b (mesh space) */
+function salHinge(M, a, b, ang, out) {
+  let x = b[0] - a[0], y = b[1] - a[1], z = b[2] - a[2];
+  const L = Math.hypot(x, y, z) || 1;
+  x /= L; y /= L; z /= L;
+  const c = Math.cos(ang), s = Math.sin(ang), k = 1 - c, H = _sm.h;
+  H[0] = c + x * x * k;     H[1] = y * x * k + z * s; H[2] = z * x * k - y * s; H[3] = 0;
+  H[4] = x * y * k - z * s; H[5] = c + y * y * k;     H[6] = z * y * k + x * s; H[7] = 0;
+  H[8] = x * z * k + y * s; H[9] = y * z * k - x * s; H[10] = c + z * z * k;    H[11] = 0;
+  // keep a on the spot
+  H[12] = a[0] - (H[0] * a[0] + H[4] * a[1] + H[8] * a[2]);
+  H[13] = a[1] - (H[1] * a[0] + H[5] * a[1] + H[9] * a[2]);
+  H[14] = a[2] - (H[2] * a[0] + H[6] * a[1] + H[10] * a[2]);
+  H[15] = 1;
+  return mMul(out, M, H);
 }
 
 
-/* The beetle's swing. No bat and no arms, so he fights the way a rhinoceros
-   beetle fights: drops the whole shell forward until the horn is in the dirt,
-   heaves up on all six legs, scoops the ball off the tip and flings it back
-   over his shoulders.
+/* ---------- 鮭 ---------- */
+function drawSalmon(f, A, look, p, y) {
+  const sw = p.swingT;
+  // only the batter's pose carries swingT: he lies for the batting camera
+  // the swing leaves the batter rig turned (rig.ry stays at ~1.1), which would
+  // leave him lying end-on to the camera: once he has landed he wriggles back
+  // round to lie across the plate again (-pi/2), then rolls for that heading
+  const tu = sw !== undefined ? clamp((sw - SWING_LAG - 0.66) / 0.9, 0, 1) : 0;
+  const turn = (-Math.PI / 2 - f.ry) * tu * tu * (3 - 2 * tu);
+  const base = sw !== undefined ? salBatSide(f.ry + turn) : SAL_REST.side;
+  let fl;
+  if (p.still) fl = Object.assign({}, SAL_REST, { side: -Math.PI / 2, tilt: 0, gape: 0.04, pec: 0.25, h: 0.20 });
+  else if (p.fall) fl = Object.assign({}, SAL_REST, { side: 0.38, bend: [0.35, 0, 0], gape: 0.32, flare: 0.16 });
+  else if (sw >= 0 && sw <= SWING_LAG + 0.66) fl = fishSwing(sw, base);
+  else {
+    fl = fishFlop(p.flopT !== undefined ? 0 : f.ry * 3.1, p.flopT, base);
+    // just after the swing, ease back into the thrash rather than snapping
+    if (sw > 0) {
+      const k = clamp((sw - SWING_LAG - 0.66) / 0.6, 0, 1);
+      fl.bend = fl.bend.map((v) => v * k); fl.side = lerp(base, fl.side, k);
+      fl.tilt = lerp(SAL_REST.tilt, fl.tilt, k); fl.up *= k; fl.yaw *= k;
+    }
+    fl.yaw += turn;
+  }
+  const PL = 0.56;                           // the middle of the body, where it is held
+  const M = salMatrix(f, fl, 0, PL);
+  const b = fl.bend;
+  // lie on the dirt: the lowest point of this pose goes to the ground
+  const lift = -salDrop(M, b);
+  M[13] = y + Math.max(lift, fl.h || 0) + fl.up;
 
-   It is a pitch of the body about BEE_PIVOT, carried on `f.t` so the legs and
-   the cap come along with the shell. The horn tip sits 1.31m from the pivot,
-   which is what fixes the numbers: 0.97 puts the tip in the dirt, and 0.50 —
-   the pitch at SWING_LAG, the moment of contact — puts it at the height of a
-   ball down the middle. Like fishSwing it settles back to 0 on its own,
-   because G.batSwingT keeps counting long after the swing is over. */
-const BEE_PIVOT = 0.50;
+  const ink = R.inkW > 0;
+  const put = (prim, c, mat) => R.m(prim, mat || M, ink ? inkOf(col(c)) : col(c));
+  R.bend = (b[0] || b[1] || b[2]) ? [SAL.piv, b[0], b[1], b[2]] : null;
+
+  // wet skin: the body and its markings, then the fins a little duller
+  R.gloss = 0.32;
+  put('sal_body', A.fur);
+  put('sal_belly', A.fur2);
+  put('sal_bars', A.bar);
+  put('sal_dbars', A.bar2);
+  put('sal_back', A.back);
+  put('sal_line', A.line);
+  put('sal_band', look.uni);
+  put('sal_gill', '#9E2A34');
+  // the gill covers lift on their hinge at the preopercle
+  const O = SAL.oper, fa = fl.flare || 0;
+  put('sal_operl', A.oper, salHinge(M, [O[0], O[1], O[2]], [O[3], O[4], O[5]], fa, _sm.t));
+  put('sal_operr', A.oper, salHinge(M, [-O[0], O[1], O[2]], [-O[3], O[4], O[5]], -fa, _sm.t));
+  put('sal_mouth', '#3B262B');
+  // the lower jaw drops about its hinge under the eye; its teeth come with it
+  const J = SAL.jaw, mJ = salHinge(M, [0, J[0], J[1]], [1, J[0], J[1]], fl.gape || 0, _sm.j);
+  R.gloss = 0.18;
+  put('sal_jaw', A.jaw, mJ);
+  put('sal_dorsal', A.fin);
+  put('sal_dorsal_m', A.finEdge);
+  put('sal_adipose', A.back);
+  put('sal_caudal', A.fin);
+  put('sal_caudal_m', A.finEdge);
+  put('sal_anal', A.fin);
+  put('sal_anal_m', A.finTip);
+  put('sal_pelvic', A.fin);
+  put('sal_pelvic_m', A.finTip);
+  put('sal_axil', A.fin);
+  // pectorals flick on their own root
+  const P = SAL.pec, pa = fl.pec || 0;
+  put('sal_pecl', A.fin, salHinge(M, [P[0], P[1], P[2]], [P[3], P[4], P[5]], pa, _sm.t));
+  put('sal_pecr', A.fin, salHinge(M, [-P[0], P[1], P[2]], [-P[3], P[4], P[5]], -pa, _sm.t));
+  // teeth and the eye carry no outline: at this size the line would swallow them
+  if (!ink) {
+    R.gloss = 0.3;
+    put('sal_teeth', '#E9DFC4');
+    put('sal_lteeth', '#E9DFC4', mJ);
+    R.gloss = 0.9;
+    put('sal_eye', '#262A22');
+    put('sal_iris', '#B39446');
+    put('sal_pupil', '#0A0908');
+  }
+  R.gloss = 0;
+  R.bend = null;
+}
+
+/* ---------- カブトムシ ----------
+   A male Trypoxylus dichotomus, as the insect: horizontal on six legs, belly
+   a hand off the dirt, head down in front and the horn rising out of it.
+
+   He is drawn with his own matrices rather than `part()`, because a beetle
+   that rears, twists its prothorax and rolls onto its back needs rotations
+   that one pitch about the hips cannot give. Everything goes through
+   W (where he stands, which way he faces) · B (the body: rear, yaw, roll,
+   lift) · F (the prothorax hinge: head, pronotum, horns and fore legs flip
+   up together, which is how the real one throws a rival).
+
+   The legs are coxa, femur, tibia, tarsus, solved every frame by IK from the
+   coxa (BEE_LEG, solved on the underside in the baker) to a foot on the
+   ground. When he runs the feet are planted in the world: the stride phase
+   is how far he has come along his own heading, so a planted foot does not
+   skate. It is an alternating tripod — left fore, right mid, left hind
+   against the other three — the way every insect walks. */
+const BEE_REAR = [0, 0.10, -0.50];      // he rears about his hind legs
+const BEE_NECK = [0, 0.60, 0.08];       // the prothorax hinge
+const BEE_ROLL = [0, 0.42, -0.05];
+// the feet at rest, his left side: fore reach forward, mid out, hind back
+// tucked in the way the real one stands: about 1.45x the shell's width across
+// the feet, the hind pair trailing back along the body. Splayed twice as wide,
+// the outfield read a dark spider instead of a shell with a horn.
+const BEE_FOOT = [[0.42, 0.80], [0.54, 0.02], [0.46, -0.84]];
+const BEE_SLIDE = [[0.30, 0.98], [0.60, -0.20], [0.42, -1.05]];
+const BEE_STRIDE = 0.34;
+const _bm = { W: m4(), B: m4(), F: m4(), T: m4(), U: m4(), V: m4(), M: m4(), S: m4() };
+
+/* rotate about the point p (the Y*X*Z order mTRS uses) */
+function mPiv(o, p, rx, ry, rz) {
+  mTRS(o, 0, 0, 0, rx, ry, rz, 1, 1, 1);
+  o[12] = p[0] - (o[0] * p[0] + o[4] * p[1] + o[8] * p[2]);
+  o[13] = p[1] - (o[1] * p[0] + o[5] * p[1] + o[9] * p[2]);
+  o[14] = p[2] - (o[2] * p[0] + o[6] * p[1] + o[10] * p[2]);
+  return o;
+}
+function mPt(m, p) {
+  return [m[0] * p[0] + m[4] * p[1] + m[8] * p[2] + m[12],
+          m[1] * p[0] + m[5] * p[1] + m[9] * p[2] + m[13],
+          m[2] * p[0] + m[6] * p[1] + m[10] * p[2] + m[14]];
+}
+function mDir(m, p) {
+  return [m[0] * p[0] + m[4] * p[1] + m[8] * p[2],
+          m[1] * p[0] + m[5] * p[1] + m[9] * p[2],
+          m[2] * p[0] + m[6] * p[1] + m[10] * p[2]];
+}
+const v3sub = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
+const v3dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+const v3cross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+function v3unit(a) { const l = Math.hypot(a[0], a[1], a[2]) || 1e-6; return [a[0] / l, a[1] / l, a[2] / l]; }
+
+/* one baked part under a full matrix (R.d only takes Euler angles) */
+function beeDraw(prim, M, c) {
+  const gl = R.gl, pt = GEO.parts[prim];
+  gl.uniformMatrix4fv(R.u.uM, false, M);
+  gl.uniform3fv(R.u.uColor, R.inkW > 0 ? inkOf(c) : c);
+  R._g();
+  gl.drawElements(gl.TRIANGLES, pt.count, gl.UNSIGNED_SHORT, pt.offset);
+}
+/* a part authored at the origin, placed by `base` (in his frame) then W */
+function beeAt(prim, base, c, tx, ty, tz, rx, sc) {
+  mTRS(_bm.T, tx || 0, ty || 0, tz || 0, rx || 0, 0, 0, sc || 1, sc || 1, sc || 1);
+  mMul(_bm.U, base, _bm.T);
+  mMul(_bm.M, _bm.W, _bm.U);
+  beeDraw(prim, _bm.M, c);
+}
+/* a bone from joint a to joint b (yaw frame). The baked bone runs down -Y
+   from its joint at length L0; `ref` says which way its outer edge faces. */
+function beeBone(prim, a, b, L0, ref, side, c) {
+  const d = v3sub(a, b), len = Math.hypot(d[0], d[1], d[2]) || 1e-4;
+  const Y = [d[0] / len, d[1] / len, d[2] / len];
+  let X = v3sub(side, Y.map((q) => q * v3dot(side, Y)));
+  if (Math.hypot(X[0], X[1], X[2]) < 1e-4) X = [0, 0, 1];
+  X = v3unit(X);
+  let Z = v3cross(X, Y);
+  if (v3dot(Z, ref) < 0) { X = X.map((q) => -q); Z = Z.map((q) => -q); }
+  const S = _bm.S, k = len / L0;
+  S[0] = X[0]; S[1] = X[1]; S[2] = X[2]; S[3] = 0;
+  S[4] = Y[0] * k; S[5] = Y[1] * k; S[6] = Y[2] * k; S[7] = 0;
+  S[8] = Z[0]; S[9] = Z[1]; S[10] = Z[2]; S[11] = 0;
+  S[12] = a[0]; S[13] = a[1]; S[14] = a[2]; S[15] = 1;
+  mMul(_bm.M, _bm.W, S);
+  beeDraw(prim, _bm.M, c);
+}
+
+/* The swing. He has no bat; he hits the way a rhinoceros beetle throws a
+   rival off a branch. Side-on to the plate, horn low over the dirt — then
+   the prothorax snaps up and across while he rears on his hind legs, which
+   flings the horn up through the zone. `flex` is the prothorax hinge (+ is
+   head down), `rear` the body about the hind legs (- is up), `yaw` turns the
+   horn toward the pitcher (+). Contact is at SWING_LAG; G.batSwingT keeps
+   counting long after the swing, so the last key is the stance again. */
 function beetleSwing(st) {
-  const K = [[0, 0], [0.05, 0.97], [SWING_LAG, 0.50], [SWING_LAG + 0.20, -0.55],
-             [SWING_LAG + 0.48, 0.12], [SWING_LAG + 0.75, 0]];
-  if (!(st > 0) || st >= K[K.length - 1][0]) return 0;
+  const L = SWING_LAG;
+  const K = [[0, 0.30, 0, -0.22, 0], [0.05, 0.42, 0.02, -0.30, 0.04],
+             [L, -0.15, -0.05, 0.0, -0.08], [L + 0.12, -0.58, -0.28, 0.45, -0.20],
+             [L + 0.40, -0.34, -0.14, 0.35, -0.08], [L + 0.85, 0.30, 0, -0.22, 0]];
+  const o = { flex: K[0][1], rear: K[0][2], yaw: K[0][3], roll: K[0][4] };
+  if (!(st > 0)) return o;
+  if (st >= K[K.length - 1][0]) return o;
   let i = 0;
   while (st > K[i + 1][0]) i++;
   const u = (st - K[i][0]) / (K[i + 1][0] - K[i][0]), e = u * u * (3 - 2 * u);
-  return lerp(K[i][1], K[i + 1][1], e);
+  o.flex = lerp(K[i][1], K[i + 1][1], e); o.rear = lerp(K[i][2], K[i + 1][2], e);
+  o.yaw = lerp(K[i][3], K[i + 1][3], e); o.roll = lerp(K[i][4], K[i + 1][4], e);
+  return o;
 }
 
-/* ---------- 鮭 ---------- */
-function drawSalmon(f, A, look, p, y, big) {
-  const flank = col(A.fur), back = col(A.back), belly = col(A.fur2);
-  const finC = col(A.fin), jaw = col(A.jaw);
-  const uni = col(look.uni), trim = col(look.trim);
-  const sw = p.swingT;
-  const fl = p.fall ? { pitch: 1.50, roll: 0.55, up: 0, fwd: 0 }
-    : (sw >= 0 && sw <= SWING_LAG + 0.66 ? fishSwing(sw) : fishFlop(f.ry * 3.1));
-  // keep the pivot point on the spot; the rest of the fish swings around it
-  const cp = Math.cos(fl.pitch), sp = Math.sin(fl.pitch);
-  const by = y + 0.30 + fl.up - SAL_PIVOT * cp;
-  const bz = fl.fwd - SAL_PIVOT * sp;
-  const rx = fl.pitch + (p.lean || 0), rz = fl.roll;
-  const put = (prim, c) => part(f, prim, 0, by, bz, 1, 1, 1, c, rx, rz);
+function drawBeetle(x, z, ry, A, look, p, bob) {
+  const bat = p.swingT !== undefined;
+  if (bat) ry = -Math.PI / 2;               // squarely side-on, whatever the rig turns
+  const fall = p.fall || 0, flip = Math.abs(fall) > 1.3;
+  const slide = !flip && fall < 0 ? clamp(-fall / 1.18, 0, 1) : 0;
+  const aL = p.armL || 0, aR = p.armR || 0;
+  const cheer = !flip && !bat && aL < -1.8 && aR < -1.8;
+  const lg = p.legL || 0, run = !bat && !fall && lg !== 0 && Math.abs(lg + (p.legR || 0)) < 1e-6;
+  const cs = Math.cos(ry), sn = Math.sin(ry);
+  const ph = p.gait !== undefined ? p.gait : run ? (x * sn + z * cs) / (2 * BEE_STRIDE) : null;
 
-  put('sal_body', flank);
-  put('sal_back', back);
-  put('sal_belly', belly);
-  put('sal_fins', finC);
-  put('sal_jaw', jaw);
-
-  // the flush he gets on the run upriver, and the eyes — both solved against
-  // the body profile in the baker, so they stay on the surface at any angle
-  put('sal_blush', col(A.blush));
-  put('sal_eye', col('#D6C489'));
-  put('sal_pupil', col('#0E0B09'));
-
-  // team colour, hugging the body: a sphere laid over a fish this narrow just
-  // bulges out of it as a ball
-  put('sal_band', uni);
-  put('sal_collar', trim);
-  put('sal_belt', trim);
-}
-
-/* ---------- カブトムシ ---------- */
-
-/* The legs. Six of them, and the reason the first six looked like they came
-   out of his middle is that they were hung on numbers that looked about right
-   — all of them inside the shell. `BEE_LEG` comes out of the baker instead,
-   solved against the same profile the wing cases are lofted from, so each one
-   starts on the shell however the shell is retuned.
-
-   Each leg is coxa, femur, shin, tarsus. The joint ball at the top is what
-   lets the femur swing wide without the leg reading as stuck on, which is
-   what stopped the last attempt at pushing them outward.
-
-   The bones are solved against the drop the row actually has to cover, so the
-   feet reach the ground from all three anchor heights rather than being three
-   hand-tuned lengths that go wrong the moment an anchor moves. */
-const BEE_SPLAY = 0.80;             // how far out from the body the femur goes
-const BEE_SHIN = [0.10, -0.30];     // and how the shin comes back under him
-const BEE_TARS = 0.55;
-
-function beetleLeg(f, A, y, row, sg, sp2, s, legC, ln) {
-  const [lx, ly, lz, , rake] = row;
-  const jx = s * (lx + sp2), jy = y + ly;
-  const fRx = rake + sg * 0.30, fRz = s * BEE_SPLAY;
-  const sRx = BEE_SHIN[0] + sg * 0.85, sRz = s * BEE_SHIN[1];
-  const tRx = BEE_TARS + sg * 0.40, tRz = s * -0.10;
-
-  // share the drop out among the three bones, then let the shin take up the
-  // slack; `ly` is exactly how far the foot has to fall to reach the ground
-  const Lf = ly * 0.40, Lt = ly * 0.34;
-  const drop = (rx, rz, L) => Math.cos(rx) * Math.cos(rz) * L;
-  const Ls = Math.max(0.10, (ly - drop(fRx, fRz, Lf) - drop(tRx, tRz, Lt))
-                            / (Math.cos(sRx) * Math.cos(sRz)));
-
-  part(f, 'sphere', jx, jy, lz, 0.105, 0.098, 0.105, legC, ln);   // coxa
-  const kn = limb(f, jx, jy, lz, fRx, fRz, Lf, 0.040, legC, null, 0);
-  part(f, 'sphere', kn[0], kn[1], kn[2], 0.072, 0.072, 0.072, legC);   // knee
-  let an;
-  if (row === BEE_LEG[0]) {
-    // the front pair digs, so it gets the toothed shin off the baker
-    part(f, s < 0 ? 'bee_tibR' : 'bee_tibL', kn[0], kn[1], kn[2],
-         1, Ls / 0.30, 1, legC, sRx, sRz);
-    an = limbTip(kn[0], kn[1], kn[2], sRx, sRz, Ls);
-  } else {
-    an = limb(f, kn[0], kn[1], kn[2], sRx, sRz, Ls, 0.030, legC, null, 0);
+  // ---- body pose
+  let lift = fall ? 0 : bob, rear = 0, yaw = 0, roll = 0, flex = 0;
+  if (bat) { const k = beetleSwing(p.swingT); flex = k.flex; rear = k.rear; yaw = k.yaw; roll = k.roll; }
+  if (cheer) { rear = -0.46; flex = -0.30; }
+  if (slide) { lift -= 0.23 * slide; flex = -0.08 * slide; }
+  if (ph !== null) {
+    const w = Math.sin(ph * Math.PI * 2);
+    roll = 0.035 * w; yaw = 0.045 * w; lift += 0.012 * Math.abs(Math.cos(ph * Math.PI * 2));
   }
-  part(f, 'sphere', an[0], an[1], an[2], 0.052, 0.052, 0.052, legC);   // ankle
-  limb(f, an[0], an[1], an[2], tRx, tRz, Lt, 0.019, legC, legC, 0.046);
+  // the pitcher winds up by raising his right fore leg and rearing a little
+  const wind = !bat && !run && !cheer && !fall && aL < -0.5 ? clamp((-aL - 0.5) / 2, 0, 1) : 0;
+  rear -= wind * 0.22;
+  // reaching for a ball: lift the front toward it
+  // Behind the plate he is crouched (drawn 0.22 low): head down, horn laid
+  // forward along the ground. Raised, it stood straight up in the middle of
+  // the batting camera's view, a black pole in front of the plate.
+  const crouch = !fall && !bat && bob < -0.1;
+  if (crouch) flex += 0.60;
+  const reachY = bat || crouch ? null : p.handR ? p.handR[1] : p.handL ? p.handL[1] : null;
+  if (reachY !== null && !fall) flex -= clamp((reachY - 0.5) / 1.6, 0, 0.32);
+
+  const W = mTRS(_bm.W, x, 0, z, 0, ry, 0, 1, 1, 1), B = _bm.B, F = _bm.F;
+  if (flip) {
+    // over on his back, rocked a little onto one side, legs in the air
+    mPiv(_bm.U, BEE_ROLL, 0, 0, Math.PI - 0.16);
+    mTRS(_bm.V, 0, -0.035, 0, 0, 0, 0, 1, 1, 1);
+    mMul(B, _bm.V, _bm.U);
+  } else {
+    mPiv(_bm.U, BEE_REAR, rear, 0, 0);
+    mPiv(_bm.V, BEE_ROLL, 0, yaw, roll);
+    mMul(_bm.T, _bm.U, _bm.V);
+    mTRS(_bm.V, 0, lift, 0, 0, 0, 0, 1, 1, 1);
+    mMul(B, _bm.V, _bm.T);
+  }
+  mPiv(_bm.U, BEE_NECK, flex, bat ? yaw * 0.35 : crouch ? 0.50 : 0, bat ? roll * 0.8 : 0);
+  mMul(F, B, _bm.U);
+
+  // the shadow follows the body, long and narrow under him
+  const cz = flip ? -0.08 : -0.12;
+  shadow(x + cz * sn, z + cz * cs, flip ? 0.50 : 0.46, 0.34, 1.80, ry);
+
+  // ---- colours
+  const ely = col(A.fur), pro = col(A.fur2), headC = col(A.headC), horn = col(A.horn);
+  const legC = col(A.leg), ven = col(A.venter), eye = col('#06040A');
+
+  // ---- legs, outlined at half weight: at a distance the full line doubled
+  // their thickness and the six of them became a dark tangle
+  const inkW = R.inkW;
+  if (inkW > 0) R.ink(inkW * 0.5);
+  const up = mDir(B, [0, 1, 0]);
+  let hl = null, hr = null;
+  for (let i = 0; i < 3; i++) {
+    const L = BEE_LEG[i], base = i === 0 ? F : B;
+    for (const s of [1, -1]) {
+      const C = mPt(base, [s * L[0], L[1], L[2]]);
+      const outw = mDir(B, [s, 0, 0]);
+      const pole = v3unit([outw[0] + up[0] * 1.3, outw[1] + up[1] * 1.3, outw[2] + up[2] * 1.3]);
+      let T, air = false;
+      const fb = (slide ? BEE_SLIDE : BEE_FOOT)[i];
+      if (flip) {
+        // waving at the sky, each a little differently
+        const kk = (s > 0 ? lg : p.legR || 0) * (i === 1 ? -0.6 : 1);
+        T = mPt(B, [s * fb[0] * 0.70, -0.16 + 0.05 * i + kk * 0.10, fb[1] * 0.72 + kk * 0.12]);
+        air = true;
+      } else if (i === 0 && cheer) {
+        T = mPt(F, [s * 0.36, 0.98 + bob * 0.5, 0.80]);
+        air = true;
+      } else if (i === 0 && !bat && (s > 0 ? p.handR : p.handL)) {
+        const h = s > 0 ? p.handR : p.handL, dx = h[0] - x, dz = h[2] - z;
+        T = [dx * cs - dz * sn, h[1], dx * sn + dz * cs];
+        air = true;
+      } else if (i === 0 && s < 0 && wind > 0) {
+        const r0 = [-fb[0], 0, fb[1]], r1 = mPt(F, [-0.34, 0.80, 0.78]);
+        T = [lerp(r0[0], r1[0], wind), lerp(r0[1], r1[1], wind), lerp(r0[2], r1[2], wind)];
+        air = wind > 0.05;
+      } else {
+        let dz = 0, hgt = 0;
+        if (ph !== null) {
+          const tri = (i === 1) === (s > 0) ? 0.5 : 0;
+          const u = ((ph + tri) % 1 + 1) % 1;
+          if (u < 0.5) dz = BEE_STRIDE / 2 - (u / 0.5) * BEE_STRIDE;
+          else { const v = (u - 0.5) / 0.5; dz = -BEE_STRIDE / 2 + v * BEE_STRIDE; hgt = Math.sin(Math.PI * v) * 0.15; }
+        }
+        T = [s * fb[0], hgt, fb[1] + dz];
+      }
+      // the tarsus: laid along the ground from the claws back toward the body,
+      // rising to the ankle; in the air it simply carries on from the leg
+      const Lf = L[3], Lt = L[4], Lr = L[5];
+      let An;
+      if (air) {
+        const d = v3unit(v3sub(C, T));
+        An = [T[0] + d[0] * Lr * 0.92, T[1] + d[1] * Lr * 0.92 + Lr * 0.25, T[2] + d[2] * Lr * 0.92];
+      } else {
+        const h = v3unit([C[0] - T[0], 0, C[2] - T[2]]);
+        An = [T[0] + h[0] * Lr * 0.90, T[1] + Lr * 0.42, T[2] + h[2] * Lr * 0.90];
+      }
+      // two bones from the coxa to the ankle, the knee breaking up and out
+      let d = v3sub(An, C), D = Math.hypot(d[0], d[1], d[2]);
+      const reach = (Lf + Lt) * 0.998;
+      if (D > reach) {
+        An = [C[0] + d[0] / D * reach, C[1] + d[1] / D * reach, C[2] + d[2] / D * reach];
+        const dt = v3unit(v3sub(T, An));
+        T = [An[0] + dt[0] * Lr, An[1] + dt[1] * Lr, An[2] + dt[2] * Lr];
+        d = v3sub(An, C); D = reach;
+      }
+      const u = [d[0] / D, d[1] / D, d[2] / D];
+      const a = (Lf * Lf - Lt * Lt + D * D) / (2 * D), hk = Math.sqrt(Math.max(0, Lf * Lf - a * a));
+      const pp = v3unit(v3sub(pole, u.map((q) => q * v3dot(pole, u))));
+      const K = [C[0] + u[0] * a + pp[0] * hk, C[1] + u[1] * a + pp[1] * hk, C[2] + u[2] * a + pp[2] * hk];
+      const across = v3unit(v3cross(v3sub(K, C), v3sub(An, C)));
+      const ref = [outw[0] + up[0], outw[1] + up[1], outw[2] + up[2]];
+
+      R.gloss = 0.45;
+      mMul(_bm.T, base, mTRS(_bm.V, s * L[0], L[1], L[2], 0, 0, s * 0.35, 1, 1, 1));
+      mMul(_bm.M, W, _bm.T);
+      beeDraw('bee_coxa', _bm.M, legC);
+      beeBone('bee_fem', C, K, BEE_BONE[0], ref, across, legC);
+      beeBone(i === 0 ? 'bee_tibf' : 'bee_tib', K, An, BEE_BONE[1], ref, across, legC);
+      beeBone('bee_tars', An, T, BEE_BONE[2], up, across, legC);
+      for (const [q, r] of [[K, 0.068], [An, 0.046]]) {
+        mTRS(_bm.T, q[0], q[1], q[2], 0, 0, 0, r, r, r);
+        mMul(_bm.M, W, _bm.T);
+        beeDraw('sphere', _bm.M, legC);
+      }
+      if (i === 0) {
+        const wT = [x + T[0] * cs + T[2] * sn, T[1], z - T[0] * sn + T[2] * cs];
+        if (s > 0) hr = wT; else hl = wT;
+      }
+    }
+  }
+
+  if (inkW > 0) R.ink(inkW);
+
+  // ---- the body: three tagmata, three values. The wing cases are lacquered
+  // chestnut; the pronotum and the head go nearly black, so the three parts
+  // read apart even at a distance.
+  R.gloss = 0.30;
+  beeAt('bee_venter', B, ven);
+  beeAt('bee_stern', B, shade(A.venter, 0.70));
+  R.gloss = 0.55;
+  beeAt('bee_elytra', B, ely);
+  beeAt('bee_rim', B, shade(A.fur, 0.80));
+  R.gloss = 0;
+  beeAt('bee_suture', B, shade(A.fur, 0.42));
+  beeAt('bee_scut', B, pro);
+  R.gloss = 0.55;
+  beeAt('bee_mark', B, col(look.uni));
+  // the pronotum is satin, not lacquer: a smaller, softer highlight
+  R.gloss = 0.35;
+  beeAt('bee_prono', F, pro);
+  R.gloss = 0.55;
+  beeAt('bee_head', F, headC);
+  beeAt('bee_horn', F, horn);
+  beeAt('bee_mouth', F, headC);
+  beeAt('bee_ant', F, legC);
+  R.gloss = 0.95;
+  beeAt('bee_eye', F, eye);
+  R.gloss = 0;
+  beeAt('bee_brush', F, col(A.brush));
+
+  R.gloss = 0;
+  return { f: yawFrame(x, z, ry), hl: hl || [x, 0.4, z], hr: hr || [x, 0.4, z], hy: 1.0, y: bob };
 }
 
-function drawBeetle(f, A, look, p, y, big) {
-  const legC = col(A.leg), horn = col(A.horn);
-  const uni = col(look.uni), trim = col(look.trim);
-  const ln = p.lean || 0;
+/* ---------- ペンギン ----------
+   One soft egg with a round head on it. The legs are inside him: the hips stay
+   at the rig's y+0.44 and only the feet come out from under the hem, so he
+   waddles by construction. The arms are flippers, still driven by the shared
+   pose (swung by `armL/armR`, or aimed at a grip with `handL/handR`), so the
+   bat, the glove, the throw and the cheer all work as they do on everyone. */
+const PEN_SH = [0.268, 0.865, -0.010];      // shoulder: out, up, back
+const PEN_SPLAY = 0.50;
 
-  const sw = p.legL || 0, sw2 = p.legR || 0, sp2 = p.spread || 0;
-  for (const row of BEE_LEG) for (const s of [-1, 1])
-    beetleLeg(f, A, y, row, (s < 0 ? sw : sw2) * row[3], sp2, s, legC, ln);
+/* a local point to world, tilt and all — where part() would put it */
+function penW(f, lx, ly, lz) {
+  let Y = ly, Z = lz;
+  if (f.t) {
+    const dy = ly - f.pivot;
+    Y = f.pivot + dy * f.ct - lz * f.st;
+    Z = dy * f.st + lz * f.ct;
+  }
+  const [wx, wz] = L2W(f, lx, Z);
+  return [wx, Y, wz];
+}
 
-  // The shell, in three separated values. They were within a shade of each
-  // other before, and three brown domes of the same brown read as one lump.
-  part(f, 'bee_elytra', 0, y, 0, 1, 1, 1, shade(A.fur, 1.70), ln);
-  part(f, 'bee_seam', 0, y, 0, 1, 1, 1, shade(A.fur, 0.60), ln);
-  part(f, 'bee_scut', 0, y, 0, 1, 1, 1, shade(A.fur, 0.42), ln);
-  part(f, 'bee_prono', 0, y, 0, 1, 1, 1, shade(A.fur, 1.18), ln);
-  part(f, 'bee_head', 0, y, 0, 1, 1, 1, shade(A.fur, 1.02), ln);
-  part(f, 'bee_horn', 0, y, 0, 1, 1, 1, horn, ln);
+/* a local direction to world */
+function penDir(f, v) {
+  let y = v[1], z = v[2];
+  if (f.t) { const y2 = y * f.ct - z * f.st; z = y * f.st + z * f.ct; y = y2; }
+  return [v[0] * f.c + z * f.s, y, -v[0] * f.s + z * f.c];
+}
 
-  // compound eyes, flat and black and entirely unreadable
-  part(f, 'bee_eye', 0, y, 0, 1, 1, 1, col('#120A05'), ln);
-  part(f, 'bee_glint', 0, y, 0, 1, 1, 1, col('#93795C'), ln);
+/* part() with a yaw of its own — the feet turn out a little */
+function penPart(f, prim, lx, ly, lz, c, rx, rz, yaw) {
+  const w = penW(f, lx, ly, lz);
+  R.d(prim, w[0], w[1], w[2], (rx || 0) + f.t, f.ry + (yaw || 0), rz || 0, 1, 1, 1, c);
+}
 
-  // Team colour: one saddle across the wing cases, and a collar on the shield
-  // in the trim rather than the uniform. Three bands of yellow made a wasp of
-  // him — the saddle is the jersey and everything else is edging.
-  part(f, 'bee_band', 0, y, 0, 1, 1, 1, uni, ln);
-  part(f, 'bee_trim', 0, y, 0, 1, 1, 1, trim, ln);
-  part(f, 'bee_cband', 0, y, 0, 1, 1, 1, trim, ln);
+/* Draw a part that hangs along its own -y so that -y points along `d` and its
+   +x (the flat face of a flipper) as near `n` as it can. Euler angles alone
+   cannot roll a flipper about its own length, and a flipper that cannot roll
+   goes edge-on — a stick — the moment it is raised. */
+function penAim(prim, p, d, n, sy, c) {
+  const Y = [-d[0], -d[1], -d[2]];
+  const k = n[0] * Y[0] + n[1] * Y[1] + n[2] * Y[2];
+  let X = [n[0] - k * Y[0], n[1] - k * Y[1], n[2] - k * Y[2]];
+  let L = Math.hypot(X[0], X[1], X[2]);
+  if (L < 1e-4) { X = [Y[1], -Y[0], 0]; L = Math.hypot(X[0], X[1]) || 1; }
+  X = [X[0] / L, X[1] / L, X[2] / L];
+  const Z = [X[1] * Y[2] - X[2] * Y[1], X[2] * Y[0] - X[0] * Y[2], X[0] * Y[1] - X[1] * Y[0]];
+  R.d(prim, p[0], p[1], p[2], Math.asin(clamp(-Z[1], -1, 1)), Math.atan2(Z[0], Z[2]),
+      Math.atan2(X[1], Y[1]), 1, sy || 1, 1, c);
+}
+
+function drawPenguin(x, z, ry, f, A, look, p, y, FC) {
+  const fur = col(A.fur), white = col(A.fur2), orange = col(A.foot);
+  const uni = col(look.uni), trim = col(look.trim), cap = col(look.cap);
+  const sp = (p.spread || 0) * 0.5;
+  // He leans as one piece, about a point just above his feet: tipping only
+  // the egg about its middle swings the hem back and bares the legs.
+  if (!f.t && p.lean) {
+    f.t = p.lean * 0.75; f.ct = Math.cos(f.t); f.st = Math.sin(f.t); f.pivot = y + 0.12;
+  }
+  const lL = p.legL || 0, lR = p.legR || 0;
+  // the waddle: he rocks onto whichever foot is under him
+  const wad = (lL - lR) * 0.06;
+
+  // legs: short fat orange stubs, nearly all inside the egg, and the feet.
+  // Thick, because in a slide they come out and a thin one is a stick.
+  for (const s of [-1, 1]) {
+    const jx = s * (0.150 + sp), lr = s < 0 ? lL : lR;
+    const e = limb(f, jx, y + 0.44, 0, lr, s * 0.04, 0.36, 0.088, orange, null, 0);
+    penPart(f, 'penguin_foot', e[0], e[1], e[2], orange, lr * 0.7, s * 0.04, s * 0.26);
+  }
+
+  // the egg: dark below the hem with the white belly on it, the jersey above
+  const B = (prim, c) => part(f, prim, 0, y + 0.74, 0, 1, 1, 1, c, 0, wad);
+  B('penguin_body', fur);
+  B('penguin_belly', white);
+  B('penguin_jersey', uni);
+  B('penguin_hem', trim);
+  B('penguin_placket', trim);
+  B('penguin_button', white);
+  // a little point of a tail, low at the back
+  part(f, 'cone', 0, y + 0.19, -0.290, 0.13, 0.12, 0.07, fur, 1.25);
+
+  // flippers, each in a short sleeve that turns with it
+  let hl, hr;
+  const [shx, shy, shz] = PEN_SH, sy = y + shy;
+  for (const s of [-1, 1]) {
+    const tgt = s < 0 ? p.handL : p.handR;
+    let e, d, n, w, sc = 1;
+    if (tgt) {
+      // reaching: straight at the grip from a shoulder pulled in a little. It
+      // does not bend, so it stretches a little instead, as the cartoon arms do
+      w = penW(f, s * (shx - 0.04), sy, shz + 0.04);
+      d = [tgt[0] - w[0], tgt[1] - w[1], tgt[2] - w[2]];
+      const dl = Math.hypot(d[0], d[1], d[2]) || 1e-4, L = clamp(dl, 0.26, 0.78);
+      d = [d[0] / dl, d[1] / dl, d[2] / dl];
+      n = penDir(f, [s, 0.2, 0.7]);
+      sc = L / PEN.flip;
+      e = [w[0] + d[0] * L, w[1] + d[1] * L, w[2] + d[2] * L];
+    } else {
+      const rx = (s < 0 ? p.armL : p.armR) || 0, rz = s * PEN_SPLAY;
+      const t = limbTip(0, 0, 0, rx, rz, 1);
+      // Hanging, the flat face looks out and a little forward; raised, it
+      // turns to face front, so a cheer is two flippers and not two sticks
+      const u = clamp(-rx / 2.2, 0, 1), th = 0.45 + u * 0.95;
+      w = penW(f, s * shx, sy, shz);
+      d = penDir(f, t);
+      n = penDir(f, [s * Math.cos(th), 0, Math.sin(th)]);
+      e = [s * shx + t[0] * PEN.flip, sy + t[1] * PEN.flip, shz + t[2] * PEN.flip];
+    }
+    penAim('penguin_flip', w, d, n, sc, fur);
+    penAim('penguin_sleeve', w, d, n, 1, uni);
+    penAim('penguin_cuff', w, d, n, 1, trim);
+    if (s < 0) hl = e; else hr = e;
+  }
+
+  // the head: may turn on its own (a batter watching the pitcher)
+  const fh = p.headRy ? yawFrame(x, z, ry + p.headRy) : f;
+  if (fh !== f && f.t) Object.assign(fh, { t: f.t, ct: f.ct, st: f.st, pivot: f.pivot });
+  const hy = y + 1.34;
+  part(fh, 'penguin_head', 0, hy, 0, 1, 1, 1, fur);
+  if (FC && R.atlas && R.inkW === 0) {
+    // the white mask, the eyes and the blush, painted on the skull's own patch
+    R.decal(faceRect(look.animal, p.face || 0, 0));
+    part(fh, 'penguin_face', 0, hy, 0, 1, 1, 1, white);
+    R.decal(null);
+  }
+  // The beak: one closed soft cone; only when he is pleased with himself does
+  // it come apart into two halves, the lower one dropped open
+  const [by, bz, bt] = PEN.beak, beak = col(A.beak);
+  if (p.face === EXPR.happy) {
+    const open = 0.55;
+    part(fh, 'penguin_beak', 0, hy + by, bz, 1, 1, 1, beak, bt);
+    part(fh, 'penguin_beak', 0, hy + by - 0.002, bz - 0.004, 0.94, 0.82, 0.94,
+         shade(A.beak, 0.92), bt + open, Math.PI);
+    if (R.inkW === 0)
+      part(fh, 'sphere', 0, hy + by - 0.018, bz + 0.012, 0.11, 0.055, 0.135, col('#B4474A'), bt + open * 0.5);
+  } else {
+    part(fh, 'penguin_beakc', 0, hy + by, bz, 1, 1, 1, beak, bt);
+  }
+
+  // headwear: the shared crown and bill at his own (smaller) size, perched on
+  // top and rocked back a little, so a low camera sees the top of the bill
+  // and the bill never reaches the eyes
+  if (!p.noHat) {
+    const cy = A.capY || 0, cs = A.capS || 1, tip = A.capT || 0;
+    // the bill a shade under the crown, not navy: a navy bill seen from below
+    // is a headband across the forehead
+    const brim = shade(look.cap, 0.80);
+    if (p.helmet) {
+      // A size up and sat lower. Big enough that its rim stands clear of the
+      // skull all the way round: a rim that cuts into the head leaves a
+      // ragged line where the two meet.
+      const hs = 1.08, hy2 = hy - 0.060, hz = 0.015;
+      part(fh, 'cap_crown', 0, hy2, hz, hs, hs, hs, cap, tip * 0.5);
+      part(fh, 'cap_bill', 0, hy2, hz + 0.348 * hs * 0.45, hs * 0.74, hs, hs * 0.55, brim, tip * 0.5);
+    } else {
+      // The bill is scaled shorter in z, and a scale in z also pulls its root
+      // back inside the crown — so it is slid forward by what the scale took.
+      const k = 1.0, by2 = (0.222 + 0.026) * (cs - cs * k);
+      part(fh, 'cap_crown', 0, hy + cy, 0, cs, cs, cs, cap, tip);
+      part(fh, 'cap_bill', 0, hy + cy + by2, 0.348 * cs * 0.36, cs * 0.80, cs * k, cs * 0.64,
+           brim, tip);
+      part(fh, 'sphere', 0, hy + cy + 0.492 * cs, -0.06 * cs, 0.09 * cs, 0.09 * cs, 0.09 * cs, trim);
+    }
+  }
+  return { f, hl, hr, hy, y };
 }
 
 /* pose: { armL, armR, legL, legR, lean, bob, ry } — all radians */
@@ -709,17 +1442,15 @@ function drawAnimal(x, z, ry, look, pose, y0) {
   const FC = FACES[look.animal] || null;
   const f = yawFrame(x, z, ry);
   const y = (y0 || 0) + (p.bob || 0);
+  if (A.body === 'beetle') return drawBeetle(x, z, ry, A, look, p, y);
   if (p.fall) { f.t = p.fall; f.ct = Math.cos(p.fall); f.st = Math.sin(p.fall); f.pivot = y + 0.34; }
-  else if (A.body === 'beetle' && p.swingT > 0) {
-    const t = beetleSwing(p.swingT);
-    if (t) { f.t = t; f.ct = Math.cos(t); f.st = Math.sin(t); f.pivot = y + BEE_PIVOT; }
-  }
   const big = A.big ? 1.12 : 1;
   const fur = col(A.fur), fur2 = col(A.fur2), paw = A.paw ? col(A.paw) : fur, hs = A.handS || 0.27;
   const uni = col(look.uni), trim = col(look.trim), cap = col(look.cap);
   const trim2 = shade(look.trim, 0.72);
 
   shadow(x, z, (p.fall ? 0.72 : 0.44) * big * (A.shadow || 1), 0.34);
+  if (A.form === 'penguin') return drawPenguin(x, z, ry, f, A, look, p, y, FC);
 
   // legs (local -x is the character's right side, +x their left)
   const sp = p.spread || 0;
@@ -732,6 +1463,19 @@ function drawAnimal(x, z, ry, look, pose, y0) {
       part(f, 'rabbit_thigh', jx, y + 0.44, 0, 1, 1, 1, pant, lr, s * 0.04);
       const e = limb(f, jx, y + 0.44, 0, lr, s * 0.04, 0.34, 0.088, pant, null, 0);
       part(f, 'rabbit_foot', e[0], e[1], e[2], 1, 1, 1, shoe, lr, s * 0.04);
+    }
+  } else if (A.legs === 'frog') {
+    // a green stub and a flat webbed foot, turned out and laid on the ground
+    // from the ankle the way the rabbit's is
+    for (const s of [-1, 1]) {
+      const rx = (s < 0 ? p.legL : p.legR) || 0, rz = s * 0.04;
+      // a baked soft leg on the rig's own hip and length, not the plain
+      // cylinder: spread at the plate, that was a bright green post
+      // half the stance spread, as the penguin: the full one stood the back
+      // leg out beside the jersey from the hip down
+      const jx = s * (A.hipX * big + sp * 0.5), e = limbTip(jx, y + 0.44, 0, rx, rz, 0.36);
+      part(f, 'frog_leg', jx, y + 0.44, 0, 1, 1, 1, fur, rx, rz);
+      part(f, s < 0 ? 'frog_foot_r' : 'frog_foot_l', e[0], e[1], e[2], 1, 1, 1, col(A.foot), rx, rz);
     }
   } else if (!A.body) {             // the fish has none and the beetle has six
     // `legW` / `footS` let a species be stumpier without moving the hip: the
@@ -750,14 +1494,13 @@ function drawAnimal(x, z, ry, look, pose, y0) {
   }
 
   // torso
-  if (A.body === 'fish') drawSalmon(f, A, look, p, y, big);
-  else if (A.body === 'beetle') drawBeetle(f, A, look, p, y, big);
+  if (A.body === 'fish') drawSalmon(f, A, look, p, y);
   else if (A.mesh) {
     // the kit is baked as slices of the same profile as the body: laying a
     // sphere over a shaped torso makes it bulge out rather than cover
     const M = A.mesh + '_', ln = p.lean || 0;
     part(f, M + 'body', 0, y + 0.74, 0, 1, 1, 1, uni, ln);
-    part(f, M + 'stripe', 0, y + 0.74, 0, 1, 1, 1, look.pin ? col(look.pin) : shade(look.uni, 0.80), ln);
+    if (!A.noStripe) part(f, M + 'stripe', 0, y + 0.74, 0, 1, 1, 1, look.pin ? col(look.pin) : shade(look.uni, 0.80), ln);
     part(f, M + 'placket', 0, y + 0.74, 0, 1, 1, 1, trim, ln);
     // the sketch's jersey has no collar: the head sits straight on it
     if (!A.noCollar) part(f, M + 'collar', 0, y + 0.74, 0, 1, 1, 1, trim, ln);
@@ -768,8 +1511,16 @@ function drawAnimal(x, z, ry, look, pose, y0) {
     // cannot reach it: the torso is tall enough there, just not wide enough,
     // and widening the whole ring only makes him square. A cap over the joint
     // is what a set-in sleeve looks like anyway.
-    for (const s of [-1, 1])
+    // (a baked `sleeve` has a dome of its own and needs none)
+    if (!A.sleeve) for (const s of [-1, 1])
       part(f, 'sphere', s * 0.318 * big, y + 0.948, 0.004, 0.268, 0.248, 0.274, uni, ln);
+  } else if (A.torso === 'rabbit') {
+    // white jersey on white fur: the pink trim is what draws him
+    const ln = p.lean || 0;
+    part(f, 'rabbit_body', 0, y + 0.74, 0, 1, 1, 1, uni, ln);
+    for (const m of ['rabbit_collar', 'rabbit_placket'])
+      part(f, m, 0, y + 0.74, 0, 1, 1, 1, trim, ln);
+    part(f, 'rabbit_button', 0, y + 0.74, 0, 1, 1, 1, col('#FFFFFF'), ln);
   } else {
   part(f, 'sphere', 0, y + 0.74, 0, 0.66 * big, 0.70, 0.56 * big, uni, p.lean || 0);
   part(f, 'sphere', 0, y + 0.97, 0.01, 0.50, 0.14, 0.45, trim);   // jersey collar
@@ -787,7 +1538,19 @@ function drawAnimal(x, z, ry, look, pose, y0) {
   }
 
   // arms — either swung by rotation, or aimed at a world-space grip
-  const shY = y + 0.94;
+  const shY = y + (A.armY || 0.94);
+  // `armX`/`armLen`/`armW` for a smaller body; with `sleeve` the arm is fur
+  // and a baked sleeve, hung from the same joint, swings with it
+  const AX = (A.armX || 0.33) * big, AL = A.armLen || 0.34, AW = A.armW || 0.112;
+  const AZ = A.armRz || 0.30;
+  const armC = A.sleeve ? fur : uni;
+  const sleeve = (s, rx) => {
+    if (!A.sleeve) return;
+    part(f, A.sleeve + '_sleeve', s * AX, shY, 0, 1, 1, 1, uni, rx, s * AZ);
+    part(f, A.sleeve + '_cuff', s * AX, shY, 0, 1, 1, 1, trim, rx, s * AZ);
+  };
+  const slv = A.sleeve ? { sleeve: A.sleeve + '_sleeve', cuff: A.sleeve + '_cuff', c: uni, trim }
+                       : undefined;
   let hl, hr;
   if (A.body) { hl = [x, y + 0.9, z]; hr = [x, y + 0.9, z]; }
   else if (p.handL || p.handR) {
@@ -799,18 +1562,19 @@ function drawAnimal(x, z, ry, look, pose, y0) {
     const poleL = p.pole || [0, -1, 0], poleR = p.pole || [0, -1, 0];
     const hand = p.gloveC ? col(p.gloveC) : paw;
     hl = p.handL
-      ? armIK(slx, shY, slz, p.handL[0], p.handL[1], p.handL[2], BONE, BONE, poleL, 0.075, uni,
-              p.noPawL ? null : hand)
-      : limb(f, -0.33 * big, shY, 0, p.armL || 0, -0.30, 0.34, 0.112, uni, paw, hs);
+      ? armIK(slx, shY, slz, p.handL[0], p.handL[1], p.handL[2], BONE, BONE, poleL, 0.075, armC,
+              p.noPawL ? null : hand, slv)
+      : (sleeve(-1, p.armL || 0), limb(f, -AX, shY, 0, p.armL || 0, -AZ, AL, AW, armC, paw, hs));
     hr = p.handR
-      ? armIK(srx, shY, srz, p.handR[0], p.handR[1], p.handR[2], BONE, BONE, poleR, 0.075, uni,
-              p.noPawR ? null : hand)
-      : limb(f, 0.33 * big, shY, 0, p.armR || 0, 0.30, 0.34, 0.112, uni,
-             p.noPawR ? null : paw, hs);
+      ? armIK(srx, shY, srz, p.handR[0], p.handR[1], p.handR[2], BONE, BONE, poleR, 0.075, armC,
+              p.noPawR ? null : hand, slv)
+      : (sleeve(1, p.armR || 0), limb(f, AX, shY, 0, p.armR || 0, AZ, AL, AW, armC,
+             p.noPawR ? null : paw, hs));
   } else {
-    hl = limb(f, -0.33 * big, shY, 0, p.armL || 0, -0.30, 0.34, 0.112, uni,
+    sleeve(-1, p.armL || 0); sleeve(1, p.armR || 0);
+    hl = limb(f, -AX, shY, 0, p.armL || 0, -AZ, AL, AW, armC,
               p.noPawL ? null : paw, hs);
-    hr = limb(f, 0.33 * big, shY, 0, p.armR || 0, 0.30, 0.34, 0.112, uni,
+    hr = limb(f, AX, shY, 0, p.armR || 0, AZ, AL, AW, armC,
               p.noPawR ? null : paw, hs);
   }
 
@@ -818,20 +1582,20 @@ function drawAnimal(x, z, ry, look, pose, y0) {
   // ball). The fish and the beetle have no neck to turn it on: taking the
   // batter's head turn left the beetle's cap twisted 90 degrees on his shell.
   const fh = p.headRy && !A.body ? yawFrame(x, z, ry + p.headRy) : f;
-  const hy = y + 1.34;
-  const HW = A.hw || 1, HH = A.hh || 1, HD = A.hd || 1;
+  // `headS` scales the whole head (skull, face patch, ears, cap) uniformly
+  // about its centre, and `headUp` lifts that centre so the chin stays put:
+  // the drawn face lands on the same spot of a bigger ball
+  const HS = A.headS || 1;
+  const hy = y + 1.34 + (A.headUp || 0);
+  const HW = (A.hw || 1) * HS, HH = (A.hh || 1) * HS, HD = (A.hd || 1) * HS;
   const hzF = 0.32 * HD + 0.02;                 // where the front of the face is
   if (A.mesh) part(fh, A.mesh + '_head', 0, hy, 0, 1, 1, 1, fur);   // ears included
   else if (!A.body)
-    part(fh, A.head || 'sphere', 0, hy, 0.02, 0.68 * big * HW, 0.66 * HH, 0.64 * big * HD, fur);
+    part(fh, A.head || 'sphere', 0, hy, 0.02 * HS, 0.68 * big * HW, 0.66 * HH, 0.64 * big * HD, fur);
 
   if (A.patch) {                                // panda mask
     for (const s of [-1, 1])
       part(fh, 'sphere', s * 0.17, hy + 0.08, hzF - 0.07, 0.27, 0.29, 0.16, fur2);
-  }
-  if (A.facePatch) {                            // the penguin's white face
-    const fp = A.facePatch;
-    part(fh, 'sphere', 0, hy - 0.02, hzF - 0.10, fp[0], fp[1], fp[2], fur2);
   }
   if (A.cheek) {                                // fluffy cheeks
     for (const s of [-1, 1])
@@ -846,12 +1610,8 @@ function drawAnimal(x, z, ry, look, pose, y0) {
       // the patch was baked out of the same (azimuth, elevation) map as the
       // skull, so it lies on the surface rather than being fitted to it
       part(fh, A.mesh + '_face', 0, hy, 0, 1, 1, 1, fur);
-    } else if (FC.onPatch && A.facePatch) {
-      const fp = A.facePatch;                      // the patch stands proud of
-      part(fh, 'facep', 0, hy - 0.02, hzF - 0.10,  // the skull, so sit on that
-           fp[0] * k, fp[1] * k, fp[2] * k, fur);
     } else {
-      part(fh, A.head === 'rbox' ? 'facepr' : 'facep', 0, hy, 0.02,
+      part(fh, A.head === 'rbox' ? 'facepr' : 'facep', 0, hy, 0.02 * HS,
            0.68 * big * HW * k, 0.66 * HH * k, 0.64 * big * HD * k, fur);
     }
     R.decal(null);
@@ -859,15 +1619,13 @@ function drawAnimal(x, z, ry, look, pose, y0) {
 
   if (A.mesh) {
     part(fh, A.mesh + '_muz', 0, hy, 0, 1, 1, 1, fur2);     // the pale mask
-    part(fh, A.mesh + '_earin', 0, hy, 0, 1, 1, 1, A.earIn ? col(A.earIn) : fur2);
+    if (!(A.lidHappy && p.face === EXPR.happy))
+      part(fh, A.mesh + '_earin', 0, hy, 0, 1, 1, 1, A.earIn ? col(A.earIn) : fur2);
     if (FC && !FC.onHead && R.atlas && R.inkW === 0) {
       R.decal(faceRect(look.animal, p.face || 0, 1));
       part(fh, A.mesh + '_snout', 0, hy, 0, 1, 1, 1, fur);
       R.decal(null);
     }
-  } else if (A.beak) {
-    part(fh, 'cone', 0, hy - 0.045, hzF - 0.03, 0.27, 0.32, 0.27, col(A.beak), -Math.PI / 2);
-    part(fh, 'box', 0, hy - 0.045, hzF + 0.07, 0.19, 0.022, 0.16, shade(A.beak, 0.62));
   } else if (A.muz) {
     const mz = A.muz, my = hy + (A.muzY === undefined ? -0.09 : A.muzY);
     const mzz = A.muzZ === undefined ? 0.26 : A.muzZ;
@@ -880,7 +1638,7 @@ function drawAnimal(x, z, ry, look, pose, y0) {
   }
   // Every mammal has a face cell, so its eyes, nose and mouth are art on the
   // decals above rather than spheres; the fish and the beetle carry theirs in
-  // the mesh. (The frog's eyes are its ears, below.)
+  // the mesh.
 
   // ears
   const earC = A.earC ? col(A.earC) : fur;
@@ -906,30 +1664,27 @@ function drawAnimal(x, z, ry, look, pose, y0) {
     // `earY` is where the root goes — the length is the mesh's business. They
     // stay separate parts rather than going into the head: a rabbit's ears
     // have to be able to move.
-    const exx = A.earX || 0.148, eyy = A.earY || 0.18;
+    const exx = (A.earX || 0.148) * HS, eyy = (A.earY || 0.18) * HS;
     const tl = A.earTilt === undefined ? 0.13 : A.earTilt;
     // and they lean back when the legs are going. Driven by the pose, not by
     // `clock` — that lives in 50-main.js, which the face lab does not load.
     const back = Math.min(0.30, (Math.abs(p.legL || 0) + Math.abs(p.legR || 0)) * 0.16);
     const inC = A.earIn ? col(A.earIn) : fur2;
+    // and they say what the face says: they splay and sag when he is down,
+    // stand up straight when he is happy. His left one always leans a little
+    // further out than the right — a toy that has been hugged.
+    const fc = p.face || 0;
+    const sag = fc === 3 ? 0.36 : fc === 2 ? -0.05 : 0;
     for (const s of [-1, 1]) {
-      part(fh, 'rabbit_ear', s * exx, hy + eyy, -0.02, 1, 1, 1, fur, -back, -s * tl);
-      part(fh, 'rabbit_earin', s * exx, hy + eyy, -0.02, 1, 1, 1, inC, -back, -s * tl);
-    }
-  }
-  if (A.ear === 'toad') {
-    const er = A.earR || 0.28, exx = A.earX || 0.19, eyy = A.earY || 0.26;
-    const ez = A.earZ === undefined ? 0.05 : A.earZ;
-    for (const s of [-1, 1]) {
-      part(fh, 'sphere', s * exx, hy + eyy, ez, er, er, er * 0.92, fur);
-      part(fh, 'sphere', s * exx, hy + eyy + 0.02, ez + 0.11, er * 0.66, er * 0.66, er * 0.46, col('#F6F1E6'));
-      part(fh, 'sphere', s * exx - s * 0.014, hy + eyy + 0.02, ez + 0.15,
-           er * 0.34, er * 0.42, er * 0.28, col(EYE));
-      part(fh, 'sphere', s * exx + 0.05, hy + eyy + 0.09, ez + 0.17, 0.036, 0.036, 0.030, col(SHINE));
+      const lean = s > 0 ? 0.07 : 0, bk = back + (s > 0 ? 0.05 : 0) + Math.max(0, sag) * 0.6;
+      const rz = -s * (tl + lean + sag);
+      part(fh, 'rabbit_ear', s * exx, hy + eyy, -0.02 * HS, HS, HS, HS, fur, -bk, rz);
+      part(fh, 'rabbit_earin', s * exx, hy + eyy, -0.02 * HS, HS, HS, HS, inC, -bk, rz);
     }
   }
   // tail
-  if (A.tail === 'cotton') part(f, 'rabbit_tail', 0, y + 0.66, -0.30, 1, 1, 1, fur2);
+  if (A.tail === 'cotton')
+    part(f, 'rabbit_tail', 0, y + (A.tailY || 0.66), A.tailZ || -0.30, 1, 1, 1, fur2);
   // the baked torso has a shallower back than the sphere one, so the nub has
   // to be seated further in or it floats off the jersey
   if (A.tail === 'nub') part(f, 'sphere', 0, y + 0.60, A.tailZ || -0.30, 0.16, 0.16, 0.16, fur);
@@ -945,23 +1700,35 @@ function drawAnimal(x, z, ry, look, pose, y0) {
     // stub — a helmet is a cap that swallowed the head, not a different
     // object. The crest used to be a free-standing box above the dome and
     // read as a chimney; it is sunk into the shell now.
-    const cy = A.capY || 0, cs = A.capS || 1, shy = hy + cy - 0.014 * cs;
-    part(fh, 'cap_crown', 0, shy, 0, 1.055 * big * cs, 1.05 * cs, 1.055 * big * cs, cap);
-    part(fh, 'cap_bill', 0, shy, 0, 1.06 * big * cs, 1.05 * cs, 0.70 * big * cs, cap);
+    // `helm` ({s, y, z}) lets a species whose cap is a toy wear a real helmet
+    const H = A.helm || {};
+    const cy = (H.y !== undefined ? H.y : A.capY || 0) * HS, cs = (H.s || A.capS || 1) * HS;
+    const cz = (H.z || 0) * HS;
+    // `capSY` keeps a shrunk cap's bill thick enough for the outline
+    const sy = A.capSY ? A.capSY * HS : cs, shy = hy + cy - 0.014 * sy;
+    part(fh, 'cap_crown', 0, shy, cz, 1.055 * big * cs, 1.05 * sy, 1.055 * big * cs, cap);
+    part(fh, 'cap_bill', 0, shy, cz, 1.06 * big * cs * (A.billW || 1), 1.05 * sy, (H.bill || 0.70) * big * cs, cap);
     // the flap covers the ear turned toward the pitcher (local +x)
-    part(fh, 'sphere', 0.345 * big * cs, hy + 0.10 * cs + cy, 0.01,
+    part(fh, 'sphere', 0.345 * big * cs, hy + 0.10 * cs + cy, 0.01 + cz,
          0.15 * cs, 0.34 * cs, 0.42 * cs, cap);
-    part(fh, 'rbox', 0, hy + 0.462 * cs + cy, 0.012 * cs,
+    part(fh, 'rbox', 0, hy + 0.462 * sy + cy, 0.012 * cs + cz,
          0.082 * cs, 0.112 * cs, 0.54 * cs, trim);
   } else {
     // Baked at full size, so the scale is 1 and `capS` is the only shrink.
     // A dome and a box read as a plate with a plank on it; the crown has a
     // lip and a shoulder, and the bill curves down its length and up across
     // its width so it is still a bill when seen edge-on.
-    const cy = A.capY || 0, cs = A.capS || 1;
-    part(fh, 'cap_crown', 0, hy + cy, 0, big * cs, cs, big * cs, cap);
-    part(fh, 'cap_bill', 0, hy + cy, 0, big * cs, cs, big * cs, cap);
-    part(fh, 'sphere', 0, hy + 0.492 * cs + cy, 0.012 * cs,
+    // `capZ` sets it back on the crown, `billW` narrows the bill
+    // and `capT` rocks it back about the skull so the bill shows its top
+    const cy = (A.capY || 0) * HS, cs = (A.capS || 1) * HS, cz = (A.capZ || 0) * HS;
+    // `capSY` keeps a shrunk cap's bill thick enough for the outline: at half
+    // size it fell under 2 x A.ink and went solid black
+    const bw = A.billW || 1, ct = A.capT || 0, sy = A.capSY ? A.capSY * HS : cs;
+    part(fh, 'cap_crown', 0, hy + cy, cz, big * cs, sy, big * cs, cap, ct);
+    part(fh, 'cap_bill', 0, hy + cy, cz, big * cs * bw, sy, big * cs, cap, ct);
+    const by = 0.492 * sy, bz = 0.012 * cs;
+    part(fh, 'sphere', 0, hy + cy + by * Math.cos(ct) - bz * Math.sin(ct),
+         cz + by * Math.sin(ct) + bz * Math.cos(ct),
          0.082 * cs, 0.082 * cs, 0.082 * cs, trim);
   }
 
@@ -1057,9 +1824,12 @@ const TEAMS = [
     tag: 'SPEED',   desc: '足が速い。内野安打も盗塁もお手のもの。', pow: 2, con: 4, spd: 5, def: 4 },
   { id: 'salmons',  name: 'そじょうサーモンズ', animal: 'salmon', uni: '#2F5C7A', trim: '#F0B9A8', cap: '#22455C',
     tag: 'CONTACT', desc: 'バットは持たないが、当てるのはうまい。四球も選ぶ。', pow: 3, con: 5, spd: 3, def: 3 },
-  { id: 'frogs',    name: 'ぬまたフロッグス', animal: 'frog',    uni: '#4E8A4E', trim: '#E8F0C8', cap: '#2E5E34',
+  // a cream jersey with deep green trim: a green frog in a green jersey was
+  // one green blob from the outfield
+  { id: 'frogs',    name: 'ぬまたフロッグス', animal: 'frog',    uni: '#F3E9B8', trim: '#2F6B3B', cap: '#2F6B3B',
     tag: 'BALANCE', desc: 'すべてが平均的。クセがなく扱いやすい。', pow: 3, con: 3, spd: 3, def: 3 },
-  { id: 'penguins', name: 'こおりやまペンギンズ', animal: 'penguin', uni: '#28405E', trim: '#F4F1E6', cap: '#1B2C42',
+  // ice blue with navy trim: a navy jersey on a navy bird was one dark lump
+  { id: 'penguins', name: 'こおりやまペンギンズ', animal: 'penguin', uni: '#BFE0EE', trim: '#22395A', cap: '#BFE0EE',
     tag: 'DEFENSE', desc: '守備が堅い。相手の打球をよく捕る。', pow: 3, con: 3, spd: 2, def: 5 },
   { id: 'beetles',  name: 'くぬぎカブトズ', animal: 'beetle', uni: '#D6A63E', trim: '#F6E7BC', cap: '#241408',
     tag: 'PITCHING',desc: '投手陣が強力。変化球のキレがちがう。', pow: 3, con: 3, spd: 3, def: 4, arm: 5 },
